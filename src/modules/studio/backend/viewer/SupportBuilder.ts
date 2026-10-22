@@ -126,6 +126,45 @@ export class SupportBuilder {
       const pad = new THREE.Mesh(padGeo, interfaceMat);
       pad.position.set(b.targetX, b.targetY - 0.015, b.targetZ);
       group.add(pad);
+
+      // 5. Bifurcated Organic Secondary Twigs (Chạc cây phân nhánh chữ Y đỡ vùng lân cận)
+      if (b.targetY > 0.36) {
+        const splitPt = curve.getPoint(0.56);
+        const jointGeo = new THREE.SphereGeometry(b.trunkRadius * 1.08, 12, 10);
+        const joint = new THREE.Mesh(jointGeo, trunkMat);
+        joint.position.copy(splitPt);
+        group.add(joint);
+
+        const rdx = b.targetX - b.bedX;
+        const rdz = b.targetZ - b.bedZ;
+        const rLen = Math.hypot(rdx, rdz) || 1;
+        const tanX = -rdz / rLen;
+        const tanZ = rdx / rLen;
+        const spread = Math.max(0.12, Math.min(0.24, b.targetY * 0.16));
+
+        for (const side of [-1, 1]) {
+          const subTargetX = b.targetX + tanX * spread * side;
+          const subTargetZ = b.targetZ + tanZ * spread * side;
+          const subTargetY = Math.max(0.22, b.targetY - 0.025);
+
+          const midSub = new THREE.Vector3(
+            splitPt.x * 0.45 + subTargetX * 0.55,
+            splitPt.y + (subTargetY - splitPt.y) * 0.55,
+            splitPt.z * 0.45 + subTargetZ * 0.55
+          );
+          const subEnd = new THREE.Vector3(subTargetX, subTargetY - 0.015, subTargetZ);
+          const subCurve = new THREE.CatmullRomCurve3([splitPt.clone(), midSub, subEnd]);
+          const subTubeGeo = new THREE.TubeGeometry(subCurve, 18, b.trunkRadius * 0.68, 10, false);
+          const subTube = new THREE.Mesh(subTubeGeo, trunkMat);
+          subTube.castShadow = true;
+          group.add(subTube);
+
+          const subPadGeo = new THREE.CylinderGeometry(padR * 0.72, padR * 0.6, 0.025, 16);
+          const subPad = new THREE.Mesh(subPadGeo, interfaceMat);
+          subPad.position.set(subTargetX, subTargetY - 0.01, subTargetZ);
+          group.add(subPad);
+        }
+      }
     });
 
     return group;
@@ -197,9 +236,10 @@ export class SupportBuilder {
       const halfX = Math.max(0.35, isFinite(size.x) && size.x > 0.05 ? size.x * 0.5 : 0.75);
       const halfZ = Math.max(0.35, isFinite(size.z) && size.z > 0.05 ? size.z * 0.5 : 0.75);
 
-      const sectors = 8;
+      const sectors = 10;
       const bestTargets: Array<{ x: number; y: number; z: number; score: number } | null> =
         new Array(sectors).fill(null);
+      const sectorHullRadius = new Float32Array(sectors);
 
       const pA = new THREE.Vector3();
       const pB = new THREE.Vector3();
@@ -216,7 +256,7 @@ export class SupportBuilder {
           const pos = geom.attributes.position;
           const idx = geom.index;
           const triCount = Math.floor((idx ? idx.count : pos.count) / 3);
-          const stride = Math.max(1, Math.floor(triCount / 4000));
+          const stride = Math.max(1, Math.floor(triCount / 8000));
           const mat = mesh.matrixWorld;
 
           for (let t = 0; t < triCount; t += stride) {
@@ -239,19 +279,23 @@ export class SupportBuilder {
             const my = (pA.y + pB.y + pC.y) / 3 - minY;
             const mz = (pA.z + pB.z + pC.z) / 3;
 
-            if (my < height * 0.16 || my > height * 0.88) continue;
-            if (norm.y > 0.25) continue;
-
             const dx = mx - center.x;
             const dz = mz - center.z;
             const distR = Math.hypot(dx, dz);
-            if (distR < 0.08) continue;
+            if (distR < 0.06) continue;
 
             let sIdx = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * sectors);
             sIdx = Math.max(0, Math.min(sectors - 1, sIdx));
 
-            const overhangBonus = norm.y < -0.25 ? (-norm.y) * 3.0 : 0.4;
-            const score = overhangBonus + distR * 0.8;
+            if (distR > sectorHullRadius[sIdx]) {
+              sectorHullRadius[sIdx] = distR;
+            }
+
+            if (my < height * 0.14 || my > height * 0.9) continue;
+            if (norm.y > 0.25) continue;
+
+            const overhangBonus = norm.y < -0.25 ? (-norm.y) * 3.2 : 0.4;
+            const score = overhangBonus + distR * 0.85;
             const cur = bestTargets[sIdx];
             if (!cur || score > cur.score) {
               bestTargets[sIdx] = { x: mx, y: my, z: mz, score };
@@ -269,10 +313,11 @@ export class SupportBuilder {
         const dist = Math.hypot(dx, dz) || 1;
         const nx = dx / dist;
         const nz = dz / dist;
-        const bedOffset = Math.max(0.22, Math.min(0.42, tgt.y * 0.32));
+        const bedOffset = Math.max(0.24, Math.min(0.45, tgt.y * 0.34));
+        const safeBedR = Math.max(dist + bedOffset, sectorHullRadius[s] + 0.18);
         foundSpecs.push({
-          bedX: tgt.x + nx * bedOffset,
-          bedZ: tgt.z + nz * bedOffset,
+          bedX: center.x + nx * safeBedR,
+          bedZ: center.z + nz * safeBedR,
           targetX: tgt.x,
           targetY: Math.max(0.22, tgt.y),
           targetZ: tgt.z,
