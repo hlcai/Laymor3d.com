@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3D HUB v2 - Kiến Trúc & Sơ Đồ Hệ Thống Trực Quan</title>
+  <title>LAYMOR 3D — Báo Cáo Tiến Độ & Lộ Trình Triển Khai Dự Án</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #F8F9FA;
@@ -15,884 +15,173 @@
       --text-muted: #64748B;
       --cyan-primary: #0891B2;
       --cyan-light: #CFFAFE;
-      --cyan-gradient: linear-gradient(135deg, #06B6D4 0%, #0284C7 100%);
-      --glass-panel: rgba(255, 255, 255, 0.85);
+      --glass-panel: rgba(255, 255, 255, 0.9);
       --glass-border: rgba(226, 232, 240, 0.9);
-      --shadow-spatial: 0 20px 48px -12px rgba(15, 23, 42, 0.08), 0 4px 16px -2px rgba(15, 23, 42, 0.03);
-      --radius-xl: 32px;
-      --radius-lg: 20px;
+      --shadow-spatial: 0 20px 48px -12px rgba(15, 23, 42, 0.08);
+      --radius-xl: 28px;
+      --radius-lg: 18px;
     }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; }
     body {
       background-color: var(--bg);
-      background-image: 
+      background-image:
         radial-gradient(circle at 15% 10%, rgba(6, 182, 212, 0.12) 0%, transparent 40%),
-        radial-gradient(circle at 85% 35%, rgba(14, 165, 233, 0.1) 0%, transparent 45%),
-        radial-gradient(circle at 40% 90%, rgba(254, 243, 199, 0.25) 0%, transparent 50%);
-      background-attachment: fixed;
+        radial-gradient(circle at 85% 35%, rgba(14, 165, 233, 0.1) 0%, transparent 45%);
       color: var(--text-main);
-      padding: 32px 20px 60px;
+      padding: 28px 18px 60px;
       min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
     }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 32px;
-    }
-
-    /* VisionOS Glass Capsule Header */
+    .container { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
     .header-capsule {
       background: var(--glass-panel);
-      backdrop-filter: blur(28px);
-      -webkit-backdrop-filter: blur(28px);
+      backdrop-filter: blur(24px);
       border: 1px solid var(--glass-border);
       box-shadow: var(--shadow-spatial);
-      border-radius: 9999px;
-      padding: 14px 28px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    .brand-group {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .brand-icon {
-      width: 42px;
-      height: 42px;
-      border-radius: 50%;
-      background: rgba(6, 182, 212, 0.12);
-      border: 1px solid rgba(6, 182, 212, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--cyan-primary);
-      font-weight: 800;
-      font-size: 18px;
-    }
-
-    .brand-title {
-      font-size: 17px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      color: var(--text-main);
-    }
-
-    .brand-badge {
-      font-size: 10px;
-      font-weight: 700;
-      background: #E0F2FE;
-      color: #0369A1;
-      padding: 3px 10px;
       border-radius: 999px;
-      border: 1px solid #BAE6FD;
-      text-transform: uppercase;
-    }
-
-    .header-links {
+      padding: 14px 26px;
       display: flex;
       align-items: center;
-      gap: 10px;
-    }
-
-    .pill-link {
-      padding: 8px 16px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-      text-decoration: none;
-      color: var(--text-main);
-      background: rgba(241, 245, 249, 0.8);
-      border: 1px solid rgba(226, 232, 240, 0.9);
-      transition: all 0.2s;
-    }
-
-    .pill-link:hover {
-      background: #E0F2FE;
-      color: #0369A1;
-      border-color: #7DD3FC;
-      transform: translateY(-1px);
-    }
-
-    .pill-link.primary {
-      background: var(--cyan-gradient);
-      color: #FFFFFF;
-      border: none;
-      box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
-    }
-
-    /* Hero Glass Banner */
-    .hero-banner {
-      background: var(--glass-panel);
-      backdrop-filter: blur(32px);
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-xl);
-      padding: 40px;
-      box-shadow: var(--shadow-spatial);
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 32px;
-      align-items: center;
-    }
-
-    .hero-text h1 {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.25;
-      margin-bottom: 12px;
-    }
-
-    .hero-text h1 span {
-      background: var(--cyan-gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .hero-text p {
-      font-size: 14px;
-      line-height: 1.6;
-      color: var(--text-muted);
-      max-width: 680px;
-    }
-
-    .stats-card-group {
-      display: flex;
-      gap: 16px;
-    }
-
-    .stat-box {
-      background: rgba(248, 250, 252, 0.9);
-      border: 1px solid rgba(226, 232, 240, 0.9);
-      border-radius: var(--radius-lg);
-      padding: 18px 24px;
-      text-align: center;
-      min-width: 120px;
-    }
-
-    .stat-number {
-      font-size: 26px;
-      font-weight: 800;
-      color: var(--cyan-primary);
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .stat-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    /* Layer Explorer Section */
-    .section-card {
-      background: var(--glass-panel);
-      backdrop-filter: blur(32px);
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-xl);
-      padding: 36px;
-      box-shadow: var(--shadow-spatial);
-    }
-
-    .section-title {
-      font-size: 20px;
-      font-weight: 800;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .section-subtitle {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-bottom: 24px;
-    }
-
-    .layer-selector {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-      margin-bottom: 24px;
-    }
-
-    .layer-btn {
-      padding: 20px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--glass-border);
-      background: rgba(255, 255, 255, 0.7);
-      text-align: left;
-      cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .layer-btn:hover {
-      background: #FFFFFF;
-      border-color: #7DD3FC;
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(6, 182, 212, 0.08);
-    }
-
-    .layer-btn.active {
-      background: #EFF6FF;
-      border-color: #0284C7;
-      box-shadow: 0 8px 24px rgba(2, 132, 199, 0.12);
-    }
-
-    .layer-badge {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--cyan-primary);
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-
-    .layer-name {
-      font-size: 16px;
-      font-weight: 800;
-      color: var(--text-main);
-      margin-bottom: 4px;
-    }
-
-    .layer-desc {
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-    }
-
-    .layer-detail-box {
-      background: #FFFFFF;
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-    }
-
-    .detail-col h4 {
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      color: var(--cyan-primary);
-      margin-bottom: 12px;
-    }
-
-    .detail-list {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .detail-list li {
-      font-size: 13px;
-      color: var(--text-main);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .detail-list li::before {
-      content: '✓';
-      display: inline-flex;
-      width: 18px;
-      height: 18px;
-      background: #DCFCE7;
-      color: #15803D;
-      border-radius: 50%;
-      font-size: 11px;
-      font-weight: bold;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .code-preview {
-      background: #0F172A;
-      color: #E2E8F0;
-      padding: 18px;
-      border-radius: 14px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      overflow-x: auto;
-    }
-
-    /* 6 Function Modules Grid */
-    .modules-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 20px;
-    }
-
-    .module-card {
-      background: #FFFFFF;
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      transition: all 0.3s;
-      display: flex;
-      flex-direction: column;
       justify-content: space-between;
-    }
-
-    .module-card:hover {
-      border-color: #38BDF8;
-      box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
-      transform: translateY(-3px);
-    }
-
-    .module-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 12px;
-    }
-
-    .module-tag {
-      font-size: 10px;
-      font-weight: 800;
-      background: #FEF3C7;
-      color: #92400E;
-      padding: 3px 8px;
-      border-radius: 6px;
-      text-transform: uppercase;
-    }
-
-    .module-title {
-      font-size: 16px;
-      font-weight: 800;
-      color: var(--text-main);
-      margin-bottom: 4px;
-    }
-
-    .module-path {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: var(--cyan-primary);
-      margin-bottom: 12px;
-      display: block;
-    }
-
-    .module-desc {
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 16px;
-    }
-
-    .submodule-chips {
-      display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 16px;
+      gap: 14px;
     }
-
-    .chip {
-      font-size: 11px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: #F1F5F9;
-      color: #334155;
-      font-weight: 600;
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 16px; }
+    .brand-badge {
+      font-size: 11px; font-weight: 700; background: #E0F2FE; color: #0369A1;
+      padding: 4px 12px; border-radius: 999px; border: 1px solid #BAE6FD;
     }
-
-    .module-footer {
-      border-top: 1px solid #F1F5F9;
-      padding-top: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    .nav-links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill-link {
+      padding: 8px 16px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      text-decoration: none; color: var(--text-main); background: #F1F5F9; border: 1px solid #E2E8F0;
     }
-
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      color: #166534;
+    .pill-link.primary { background: var(--cyan-primary); color: #fff; border-color: var(--cyan-primary); }
+    .card {
+      background: var(--glass-panel);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--shadow-spatial);
+      border-radius: var(--radius-xl);
+      padding: 32px;
     }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #22C55E;
-      box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
-    }
-
-    /* Roadmap & Table */
-    .roadmap-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 14px;
-      font-size: 13px;
-    }
-
-    .roadmap-table th {
-      text-align: left;
-      padding: 12px 16px;
-      background: #F8FAFC;
-      color: var(--text-muted);
-      font-weight: 700;
-      font-size: 11px;
-      text-transform: uppercase;
-      border-bottom: 1px solid var(--glass-border);
-    }
-
-    .roadmap-table td {
-      padding: 14px 16px;
-      border-bottom: 1px solid #F1F5F9;
-      color: var(--text-main);
-    }
-
-    .roadmap-table tr:hover td {
-      background: #F8FAFC;
-    }
-
-    /* Footer */
-    footer {
-      text-align: center;
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 20px;
-    }
-
-    @media (max-width: 768px) {
-      .hero-banner {
-        grid-template-columns: 1fr;
-      }
-      .layer-selector {
-        grid-template-columns: 1fr;
-      }
-      .layer-detail-box {
-        grid-template-columns: 1fr;
-      }
-    }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 24px; }
+    .kpi-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: var(--radius-lg); padding: 18px; text-align: center; }
+    .kpi-num { font-size: 28px; font-weight: 800; color: var(--cyan-primary); }
+    .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+    .phase-list { display: flex; flex-direction: column; gap: 20px; margin-top: 20px; }
+    .phase-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 22px; padding: 24px; }
+    .phase-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .phase-tag { background: var(--cyan-primary); color: #fff; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 999px; }
+    .status-ok { background: #DCFCE7; color: #166534; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 999px; }
+    .status-active { background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 999px; }
+    .steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+    .step-item { background: #fff; border: 1px solid #E2E8F0; border-radius: 14px; padding: 14px; }
+    .step-item h4 { font-size: 13px; font-weight: 800; margin-bottom: 6px; color: var(--text-main); }
+    .step-item p { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    footer { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 12px; }
   </style>
 </head>
 <body>
-
   <div class="container">
-    <!-- Header Capsule -->
     <header class="header-capsule">
-      <div class="brand-group">
-        <div class="brand-icon">3D</div>
-        <div>
-          <div class="brand-title">3D HUB Spatial Studio</div>
-        </div>
-        <span class="brand-badge">Clean Architecture 3-Tier</span>
+      <div class="brand">
+        <span>LAYMOR 3D</span>
+        <span class="brand-badge">Báo Cáo Tiến Độ Đầu Tư</span>
       </div>
-
-      <nav class="header-links">
+      <nav class="nav-links">
         <a href="/" class="pill-link">Trang Chủ</a>
-        <a href="/studio" class="pill-link">3D Studio</a>
-        <a href="/crawler" class="pill-link">Crawler</a>
-        <a href="/trends" class="pill-link">Xu Hướng</a>
-        <a href="/shop" class="pill-link">Cửa Hàng</a>
-        <a href="/admin" class="pill-link">Quản Trị</a>
-        <a href="/overview.md" class="pill-link primary">Tài Liệu AI (MD)</a>
+        <a href="/studio" class="pill-link">Không Gian 3D Studio</a>
+        <a href="/3dsim" class="pill-link">Bộ Giả Lập PrintSim Pro</a>
+        <a href="/shop" class="pill-link">Cửa Hàng & Đặt In</a>
+        <a href="/overview" class="pill-link primary">Bản Đầy Đủ Tương Tác (/overview)</a>
       </nav>
     </header>
 
-    <!-- Hero Banner -->
-    <section class="hero-banner">
-      <div class="hero-text">
-        <h1>Kiến Trúc &amp; Phân Hệ Cốt Lõi <span>3D Hub v2</span></h1>
-        <p>
-          Hệ thống được thiết kế theo chuẩn <strong>Clean Architecture 3 lớp</strong> độc lập (UI - Feature Hook - Backend), đóng gói theo từng <strong>Function Module</strong> riêng biệt với ngôn ngữ thị giác không gian <strong>Apple VisionOS (Trắng Kem + Xanh Cyan Kem)</strong>. Khi phát triển tính năng, kỹ sư và AI chỉ cần tập trung vào đúng module được chỉ định.
-        </p>
-      </div>
-
-      <div class="stats-card-group">
-        <div class="stat-box">
-          <div class="stat-number">6</div>
-          <div class="stat-label">Function Modules</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-number">3</div>
-          <div class="stat-label">Lớp Độc Lập</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-number">100%</div>
-          <div class="stat-label">Tiến Độ Tách Lớp</div>
-        </div>
+    <section class="card">
+      <h1 style="font-size: 28px; font-weight: 800; margin-bottom: 10px;">Tổng Quan Lộ Trình &amp; Tiến Độ Dự Án LAYMOR 3D</h1>
+      <p style="font-size: 14px; color: var(--text-muted); line-height: 1.6;">
+        Báo cáo dành cho Nhà đầu tư &amp; Đối tác chiến lược về tiến độ hoàn thiện 5 giai đoạn phát triển hệ sinh thái sáng tạo 3D, mô phỏng kiểm định chất lượng và dịch vụ sản xuất in 3D theo yêu cầu. Tài liệu chỉ trình bày thông tin tiến độ tổng quan nhằm bảo mật tuyệt đối công nghệ lõi.
+      </p>
+      <div class="kpi-grid">
+        <div class="kpi-box"><div class="kpi-num">96%</div><div class="kpi-label">Tiến Độ Tổng Thể</div></div>
+        <div class="kpi-box"><div class="kpi-num">5 Phases</div><div class="kpi-label">Giai Đoạn Lộ Trình</div></div>
+        <div class="kpi-box"><div class="kpi-num">7 / 7</div><div class="kpi-label">Phân Hệ Hoạt Động</div></div>
+        <div class="kpi-box"><div class="kpi-num">24/7</div><div class="kpi-label">Vận Hành Khép Kín</div></div>
       </div>
     </section>
 
-    <!-- Layer Switcher Section -->
-    <section class="section-card">
-      <h2 class="section-title">📐 Sơ Đồ Kiến Trúc 3 Lớp (Clean Architecture Rules)</h2>
-      <p class="section-subtitle">Bấm vào từng lớp bên dưới để xem quy chuẩn trách nhiệm và cách tổ chức mã nguồn:</p>
-
-      <div class="layer-selector">
-        <div class="layer-btn active" onclick="switchLayer('ui')">
-          <div class="layer-badge">Lớp 1</div>
-          <div class="layer-name">Giao Diện (UI - Presentation)</div>
-          <div class="layer-desc">React 19, Three.js WebGL Viewers, Frosted Milk Glass panels.</div>
-        </div>
-        <div class="layer-btn" onclick="switchLayer('hook')">
-          <div class="layer-badge">Lớp 2</div>
-          <div class="layer-name">Hook Tính Năng (Feature Hooks)</div>
-          <div class="layer-desc">Reactive state, điều phối tương tác người dùng, gọi backend services.</div>
-        </div>
-        <div class="layer-btn" onclick="switchLayer('backend')">
-          <div class="layer-badge">Lớp 3</div>
-          <div class="layer-name">Backend &amp; Domain Services</div>
-          <div class="layer-desc">Logic cắt lớp 3D, bóc tách giá thành, tích hợp AI đa nguồn, Repositories.</div>
-        </div>
-      </div>
-
-      <div class="layer-detail-box" id="layerDetail">
-        <div class="detail-col">
-          <h4 id="detailTitle">Lớp 1: Giao Diện Người Dùng (UI)</h4>
-          <ul class="detail-list" id="detailList">
-            <li>Nằm tại <code>src/modules/[module]/ui/</code></li>
-            <li>Thuần túy là Presentation Components nhận props và state từ Hook.</li>
-            <li>Không chứa logic nghiệp vụ, không fetch API trực tiếp.</li>
-            <li>Chuẩn VisionOS: Kính mờ trắng sữa, đổ bóng không gian nhẹ, điểm nhấn xanh Cyan.</li>
-          </ul>
-        </div>
-        <div class="detail-col">
-          <h4>Ví Dụ Cấu Trúc Mã Nguồn</h4>
-          <pre class="code-preview" id="codePreview">// src/modules/studio/ui/StudioPage.tsx
-export default function StudioPage() {
-  // Lớp 1 gọi Lớp 2 (Hook) để lấy state & actions
-  const { currentModel, handleSlice, isSlicing } = usePrintSlicer();
-
-  return (
-    &lt;div className="vision-glass-panel"&gt;
-      &lt;ThreeCanvasViewer model={currentModel} /&gt;
-      &lt;button onClick={handleSlice}&gt;Bắt Đầu Cắt Lớp&lt;/button&gt;
-    &lt;/div&gt;
-  );
-}</pre>
-        </div>
-      </div>
-    </section>
-
-    <!-- 6 Function Modules Section -->
-    <section class="section-card">
-      <h2 class="section-title">📦 Danh Mục 6 Function Modules Cốt Lõi</h2>
-      <p class="section-subtitle">Mỗi module tự quản lý trọn vẹn 3 lớp UI - Hook - Backend của mình:</p>
-
-      <div class="modules-grid">
-        <!-- Module 1 -->
-        <div class="module-card">
-          <div>
-            <div class="module-header">
-              <span class="module-tag">Module 1</span>
-              <span class="status-badge"><span class="status-dot"></span> Đã chuẩn hóa</span>
-            </div>
-            <h3 class="module-title">3D Studio &amp; Slicer Engine</h3>
-            <span class="module-path">src/modules/studio/</span>
-            <p class="module-desc">Trình xem 3D Three.js WebGL tương tác xoay 360°, tính toán đường in slicer, cây chống tree support, sinh 3D AI đa cấp độ và xuất file .3MF OrcaSlicer.</p>
-            <div class="submodule-chips">
-              <span class="chip">viewer</span>
-              <span class="chip">slicer</span>
-              <span class="chip">ai-generator</span>
-              <span class="chip">presets</span>
-            </div>
+    <section class="card">
+      <h2 style="font-size: 20px; font-weight: 800;">Lộ Trình 5 Giai Đoạn Thực Hiện (Project Phases)</h2>
+      <div class="phase-list">
+        <div class="phase-box">
+          <div class="phase-header">
+            <strong><span class="phase-tag">Phase 01</span> &nbsp; Định Hình Hệ Sinh Thái &amp; Nền Tảng Trải Nghiệm</strong>
+            <span class="status-ok">Hoàn thành 100%</span>
           </div>
-          <div class="module-footer">
-            <span style="font-size: 11px; color: var(--text-muted);">Route: <code>/studio</code></span>
-            <a href="/studio" class="pill-link" style="padding: 4px 12px; font-size: 11px;">Mở Studio →</a>
+          <div class="steps-grid">
+            <div class="step-item"><h4>Bước 1.1: Chuẩn hóa chuỗi giá trị</h4><p>Hoàn thiện quy trình 5 bước từ ý tưởng khách hàng đến bàn giao sản phẩm.</p></div>
+            <div class="step-item"><h4>Bước 1.2: Thiết kế giao diện không gian</h4><p>Đồng bộ trải nghiệm trực quan trên cả máy tính và thiết bị di động.</p></div>
+            <div class="step-item"><h4>Bước 1.3: Phân quyền vận hành 4 cấp</h4><p>Tách biệt quyền hạn Khách hàng, Đối tác thiết kế, Nhân sự xưởng và Quản trị.</p></div>
+            <div class="step-item"><h4>Bước 1.4: Tiêu chuẩn an toàn thông tin</h4><p>Bảo vệ quyền sở hữu trí tuệ mẫu thiết kế và dữ liệu giao dịch.</p></div>
           </div>
         </div>
 
-        <!-- Module 2 -->
-        <div class="module-card">
-          <div>
-            <div class="module-header">
-              <span class="module-tag">Module 2</span>
-              <span class="status-badge"><span class="status-dot"></span> Đã chuẩn hóa</span>
-            </div>
-            <h3 class="module-title">Crawler &amp; Knowledge Vault</h3>
-            <span class="module-path">src/modules/crawler/</span>
-            <p class="module-desc">Cào dữ liệu tự động từ 8+ nền tảng (MakerWorld, Printables, Thingiverse, YouTube 3D...) và đồng bộ tri thức kỹ thuật vào Obsidian Vault.</p>
-            <div class="submodule-chips">
-              <span class="chip">scrapers</span>
-              <span class="chip">youtube-ai</span>
-              <span class="chip">obsidian-vault</span>
-            </div>
+        <div class="phase-box">
+          <div class="phase-header">
+            <strong><span class="phase-tag">Phase 02</span> &nbsp; Không Gian Sáng Tạo 3D &amp; Báo Giá Tự Động (/studio)</strong>
+            <span class="status-ok">Hoàn thành 100%</span>
           </div>
-          <div class="module-footer">
-            <span style="font-size: 11px; color: var(--text-muted);">Route: <code>/crawler</code></span>
-            <a href="/crawler" class="pill-link" style="padding: 4px 12px; font-size: 11px;">Mở Crawler →</a>
+          <div class="steps-grid">
+            <div class="step-item"><h4>Bước 2.1: Không gian quan sát 3D</h4><p>Xoay 360°, đo lường kích thước thực tế (mm) và tùy chỉnh tỷ lệ mẫu in.</p></div>
+            <div class="step-item"><h4>Bước 2.2: Tạo mẫu 3D thông minh 3 cấp</h4><p>Khởi tạo mô hình từ hình ảnh theo 3 gói chất lượng: Tiêu chuẩn, Nâng cao, Cao cấp.</p></div>
+            <div class="step-item"><h4>Bước 2.3: Định giá tự động tức thì</h4><p>Bóc tách khối lượng vật tư, thời gian máy chạy và báo giá minh bạch.</p></div>
+            <div class="step-item"><h4>Bước 2.4: Chuẩn hóa hồ sơ sản xuất</h4><p>Đóng gói thông số kỹ thuật tiêu chuẩn chuyển giao thẳng xuống xưởng.</p></div>
           </div>
         </div>
 
-        <!-- Module 3 -->
-        <div class="module-card">
-          <div>
-            <div class="module-header">
-              <span class="module-tag">Module 3</span>
-              <span class="status-badge"><span class="status-dot"></span> Đã chuẩn hóa</span>
-            </div>
-            <h3 class="module-title">Market Trends &amp; AI Intelligence</h3>
-            <span class="module-path">src/modules/trends/</span>
-            <p class="module-desc">Giám sát tốc độ tăng trưởng velocity toàn cầu, tag cloud thị trường, tích hợp Google Gemini AI tư vấn sản phẩm ngách FDM.</p>
-            <div class="submodule-chips">
-              <span class="chip">velocity</span>
-              <span class="chip">gemini-advisor</span>
-              <span class="chip">tag-cloud</span>
-            </div>
+        <div class="phase-box">
+          <div class="phase-header">
+            <strong><span class="phase-tag">Phase 03</span> &nbsp; Giả Lập &amp; Kiểm Định Chất Lượng Sản Xuất (/3dsim)</strong>
+            <span class="status-ok">Hoàn thành 100%</span>
           </div>
-          <div class="module-footer">
-            <span style="font-size: 11px; color: var(--text-muted);">Route: <code>/trends</code></span>
-            <a href="/trends" class="pill-link" style="padding: 4px 12px; font-size: 11px;">Mở Trends →</a>
+          <div class="steps-grid">
+            <div class="step-item"><h4>Bước 3.1: Mô phỏng theo từng lớp cắt</h4><p>Quan sát quá trình hình thành sản phẩm và tua nhanh tiến độ 1x - 1000x.</p></div>
+            <div class="step-item"><h4>Bước 3.2: Cảnh báo rủi ro sản xuất sớm</h4><p>Phát hiện sớm các vùng góc nghiêng, độ bám dính và lưu lượng vật liệu.</p></div>
+            <div class="step-item"><h4>Bước 3.3: Tự động tối ưu thông số</h4><p>Hiệu chỉnh cấu trúc giá đỡ và độ đặc ruột tự động chỉ với 1 thao tác.</p></div>
+            <div class="step-item"><h4>Bước 3.4: Chấm điểm kiểm định (QC)</h4><p>Đánh giá độ khả thi sản xuất trên thang 100 và lưu hồ sơ chất lượng.</p></div>
           </div>
         </div>
 
-        <!-- Module 4 -->
-        <div class="module-card">
-          <div>
-            <div class="module-header">
-              <span class="module-tag">Module 4</span>
-              <span class="status-badge"><span class="status-dot"></span> Đã chuẩn hóa</span>
-            </div>
-            <h3 class="module-title">Shop &amp; 3D Manufacturing</h3>
-            <span class="module-path">src/modules/shop/</span>
-            <p class="module-desc">Chợ mô hình 3D bản quyền, danh mục cuộn nhựa &amp; phụ kiện, hệ thống báo giá in gia công xưởng Bambu Lab tự động giao 24h.</p>
-            <div class="submodule-chips">
-              <span class="chip">marketplace</span>
-              <span class="chip">materials</span>
-              <span class="chip">order-modal</span>
-            </div>
+        <div class="phase-box">
+          <div class="phase-header">
+            <strong><span class="phase-tag">Phase 04</span> &nbsp; Thương Mại Điện Tử, Ví Thanh Toán &amp; Phân Tích Thị Trường</strong>
+            <span class="status-ok">Hoàn thành 100%</span>
           </div>
-          <div class="module-footer">
-            <span style="font-size: 11px; color: var(--text-muted);">Route: <code>/shop</code></span>
-            <a href="/shop" class="pill-link" style="padding: 4px 12px; font-size: 11px;">Mở Cửa Hàng →</a>
+          <div class="steps-grid">
+            <div class="step-item"><h4>Bước 4.1: Cửa hàng Vật tư &amp; Đặt in 24h</h4><p>Cung cấp vật liệu chính hãng, phụ kiện và dịch vụ in gia công toàn quốc.</p></div>
+            <div class="step-item"><h4>Bước 4.2: Kênh Đối tác Bán hàng (Seller)</h4><p>Chợ bản quyền thiết kế 3D và công cụ quản lý doanh thu cho nhà thiết kế.</p></div>
+            <div class="step-item"><h4>Bước 4.3: Ví điện tử &amp; Thanh toán QR</h4><p>Nạp số dư tự động, thanh toán nhanh và theo dõi lịch sử giao dịch.</p></div>
+            <div class="step-item"><h4>Bước 4.4: Dự báo Xu hướng Thị trường</h4><p>Phân tích tốc độ tăng trưởng sản phẩm và gợi ý danh mục hàng hóa tiềm năng.</p></div>
           </div>
         </div>
 
-        <!-- Module 5 -->
-        <div class="module-card">
-          <div>
-            <div class="module-header">
-              <span class="module-tag">Module 5</span>
-              <span class="status-badge"><span class="status-dot"></span> Đã chuẩn hóa</span>
-            </div>
-            <h3 class="module-title">Wallet &amp; Order Fulfillment</h3>
-            <span class="module-path">src/modules/wallet-orders/</span>
-            <p class="module-desc">Ví điểm ảo thanh toán tức thì qua VietQR / MoMo, hồ sơ người dùng RBAC 4 cấp, quy trình điều phối in ấn xưởng khép kín.</p>
-            <div class="submodule-chips">
-              <span class="chip">vietqr-topup</span>
-              <span class="chip">user-rbac</span>
-              <span class="chip">farm-pipeline</span>
-            </div>
+        <div class="phase-box">
+          <div class="phase-header">
+            <strong><span class="phase-tag">Phase 05</span> &nbsp; Hợp Nhất Đám Mây &amp; Mở Rộng Vận Hành Xưởng Thông Minh</strong>
+            <span class="status-active">Đang triển khai (85%)</span>
           </div>
-          <div class="module-footer">
-            <span style="font-size: 11px; color: var(--text-muted);">Route: <code>/profile</code></span>
-            <a href="/profile" class="pill-link" style="padding: 4px 12px; font-size: 11px;">Mở Hồ Sơ →</a>
-          </div>
-        </div>
-
-        <!-- Module 6 -->
-        <div class="module-card">
-          <div>
-            <div class="module-header">
-              <span class="module-tag">Module 6</span>
-              <span class="status-badge"><span class="status-dot"></span> Đã chuẩn hóa</span>
-            </div>
-            <h3 class="module-title">Admin Core &amp; System Guard</h3>
-            <span class="module-path">src/modules/admin-core/</span>
-            <p class="module-desc">Quản lý cấu hình API Keys động (Gemini, Fal.ai, Meshy), phân quyền module theo vai trò, nhật ký audit log và Sandbox Dock.</p>
-            <div class="submodule-chips">
-              <span class="chip">config-keys</span>
-              <span class="chip">module-guard</span>
-              <span class="chip">audit-logs</span>
-            </div>
-          </div>
-          <div class="module-footer">
-            <span style="font-size: 11px; color: var(--text-muted);">Route: <code>/admin</code></span>
-            <a href="/admin" class="pill-link" style="padding: 4px 12px; font-size: 11px;">Mở Admin →</a>
+          <div class="steps-grid">
+            <div class="step-item"><h4>Bước 5.1: Hợp nhất cổng dịch vụ</h4><p>Kết nối liền mạch toàn bộ các phân hệ trên một nền tảng trực tuyến duy nhất.</p></div>
+            <div class="step-item"><h4>Bước 5.2: Điều phối xưởng 5 công đoạn</h4><p>Quản lý đơn hàng từ Tiếp nhận → Chuẩn bị → Sản xuất → Hậu kỳ → Giao hàng.</p></div>
+            <div class="step-item"><h4>Bước 5.3: Đồng bộ đám mây tập trung</h4><p>Lưu trữ bền vững dữ liệu vận hành doanh nghiệp với độ sẵn sàng 24/7.</p></div>
+            <div class="step-item"><h4>Bước 5.4: Mở rộng quy mô thương mại</h4><p>Kết nối thêm năng lực xưởng sản xuất và đối tác giao vận toàn quốc.</p></div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Roadmap & Implementation Matrix -->
-    <section class="section-card">
-      <h2 class="section-title">📊 Tiến Trình Thực Hiện &amp; Trạng Thái Tính Năng</h2>
-      <p class="section-subtitle">Ma trận kiểm chuẩn 3 lớp và lộ trình hoàn thiện các tính năng cốt lõi:</p>
-
-      <table class="roadmap-table">
-        <thead>
-          <tr>
-            <th>Module Chức Năng</th>
-            <th>Tính Năng Trọng Tâm</th>
-            <th>3 Lớp Clean Arch</th>
-            <th>Trạng Thái</th>
-            <th>Ghi Chú Kỹ Thuật</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>3D Studio</strong></td>
-            <td>WebGL Viewer Three.js (Thước mm, Lưới, Wireframe)</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>ThreeCanvasViewer, ModelBuilder</td>
-          </tr>
-          <tr>
-            <td><strong>3D Studio</strong></td>
-            <td>Slicer Intelligence &amp; Xuất .3MF OrcaSlicer</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>Bambu Lab, Prusa, Creality K1</td>
-          </tr>
-          <tr>
-            <td><strong>Crawler</strong></td>
-            <td>Universal Scraping &amp; YouTube Video AI</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>Gemini Vision &amp; Obsidian Vault</td>
-          </tr>
-          <tr>
-            <td><strong>Trends</strong></td>
-            <td>Velocity Leaderboard &amp; Gemini Advisor</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>Top 5 mô hình hot nhất tuần</td>
-          </tr>
-          <tr>
-            <td><strong>Shop</strong></td>
-            <td>Chợ mô hình, Vật liệu &amp; Báo giá in 24h</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>Tự động tính chi phí nhựa &amp; điện</td>
-          </tr>
-          <tr>
-            <td><strong>Database</strong></td>
-            <td>Neon Serverless PostgreSQL (Scale-to-Zero)</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>Tự động migrate schema &amp; Graceful Fallback</td>
-          </tr>
-          <tr>
-            <td><strong>Crawler &amp; Vault</strong></td>
-            <td>GitHub Vault Sync Service (Obsidian Markdown)</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>REST API đồng bộ tự động lên GitHub</td>
-          </tr>
-          <tr>
-            <td><strong>Admin</strong></td>
-            <td>API Keys động &amp; Giám sát Telemetry</td>
-            <td>✅ UI - Hook - BE</td>
-            <td><span class="status-badge"><span class="status-dot"></span> Hoàn thành</span></td>
-            <td>RBAC 4 cấp, Live Telemetry</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <!-- Footer -->
     <footer>
-      <p>© 2026 3D HUB Spatial Studio • Hệ sinh thái In 3D &amp; Trí Tuệ Nhân Tạo Không Gian • Clean Architecture v2.0</p>
+      <p>© 2026 LAYMOR 3D • Tài liệu Báo cáo Tiến độ Dự án dành cho Nhà đầu tư • Bảo mật Công nghệ Lõi</p>
     </footer>
   </div>
-
-  <script>
-    const layerData = {
-      ui: {
-        title: "Lớp 1: Giao Diện Người Dùng (UI - Presentation)",
-        items: [
-          "Nằm tại: src/modules/[module]/ui/",
-          "Thuần túy là Presentation Components nhận props và state từ Hook.",
-          "Tuyệt đối không chứa logic nghiệp vụ, không fetch API trực tiếp.",
-          "Chuẩn VisionOS: Kính mờ trắng sữa, đổ bóng không gian nhẹ, điểm nhấn xanh Cyan."
-        ],
-        code: `// src/modules/studio/ui/StudioPage.tsx
-export default function StudioPage() {
-  // Lớp 1 gọi Lớp 2 (Hook) để lấy state & actions
-  const { currentModel, handleSlice, isSlicing } = usePrintSlicer();
-
-  return (
-    <div className="vision-glass-panel">
-      <ThreeCanvasViewer model={currentModel} />
-      <button onClick={handleSlice}>Bắt Đầu Cắt Lớp</button>
-    </div>
-  );
-}`
-      },
-      hook: {
-        title: "Lớp 2: Hook Tính Năng (Feature Hooks - Orchestration)",
-        items: [
-          "Nằm tại: src/modules/[module]/hooks/",
-          "Quản lý Reactive State (useState, useCallback, useEffect).",
-          "Chịu trách nhiệm validation, điều phối sự kiện người dùng và gọi Lớp 3 (Backend).",
-          "Cung cấp giao diện action tinh gọn cho Lớp 1 (UI) sử dụng."
-        ],
-        code: `// src/modules/studio/hooks/usePrintSlicer.ts
-export function usePrintSlicer() {
-  const [isSlicing, setIsSlicing] = useState(false);
-
-  const handleSlice = useCallback(async (params) => {
-    setIsSlicing(true);
-    // Gọi xuống Lớp 3 (Backend service)
-    const result = await SlicingPresetService.calculate(params);
-    setIsSlicing(false);
-    return result;
-  }, []);
-
-  return { isSlicing, handleSlice };
-}`
-      },
-      backend: {
-        title: "Lớp 3: Backend Code & Domain Services",
-        items: [
-          "Nằm tại: src/modules/[module]/backend/ hoặc src/backend/",
-          "Chứa Pure Functions, hình học 3D Three.js, tính toán giá thành, AI Adapters.",
-          "Không phụ thuộc vào React Hook hay DOM element, có thể Unit Test 100%.",
-          "Tương tác với database, mock storage và external APIs."
-        ],
-        code: `// src/modules/studio/backend/slicing/PrintCostCalculator.ts
-export class PrintCostCalculator {
-  static calculateCost(weightGrams: number, printHours: number, materialRate: number): number {
-    const materialCost = weightGrams * materialRate;
-    const machineDepreciation = printHours * 8000;
-    return Math.round(materialCost + machineDepreciation);
-  }
-}`
-      }
-    };
-
-    function switchLayer(layerKey) {
-      document.querySelectorAll('.layer-btn').forEach(btn => btn.classList.remove('active'));
-      event.currentTarget.classList.add('active');
-
-      const data = layerData[layerKey];
-      document.getElementById('detailTitle').textContent = data.title;
-      
-      const listEl = document.getElementById('detailList');
-      listEl.innerHTML = '';
-      data.items.forEach(item => {
-        const li = document.createElement('li');
-        li.textContent = item;
-        listEl.appendChild(li);
-      });
-
-      document.getElementById('codePreview').textContent = data.code;
-    }
-  </script>
 </body>
 </html>

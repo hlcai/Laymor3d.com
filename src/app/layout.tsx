@@ -42,7 +42,7 @@ export default function RootLayout({
                 <span className="text-[var(--vision-text-secondary)]">Apple VisionOS Spatial Glass • Clean Architecture v2</span>
               </div>
               <div className="flex items-center gap-6 text-[var(--vision-text-muted)]">
-                <a href="/overview.html" className="text-cyan-700 font-semibold hover:underline">Sơ Đồ Hệ Thống (overview.html)</a>
+                <a href="/overview" className="text-cyan-700 font-semibold hover:underline">Báo Cáo Tiến Độ Dự Án (/overview)</a>
                 <span className="hover:text-[var(--vision-text-primary)] transition-colors cursor-pointer">Bảo mật</span>
                 <span className="hover:text-[var(--vision-text-primary)] transition-colors cursor-pointer">Điều khoản</span>
                 <span>© 2026 3D HUB Inc.</span>
