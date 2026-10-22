@@ -13,7 +13,15 @@ import {
   IconChevronLeft,
   IconChevronRight,
 } from '@/components/icons/MinimalIcons';
-import { ISimulationProfile, MaterialType, InfillPattern, SupportType } from '@/types/simulator';
+import {
+  ISimulationProfile,
+  MaterialType,
+  InfillPattern,
+  SupportType,
+  BrimTypeMode,
+  FuzzySkinMode,
+  SeamPositionType,
+} from '@/types/simulator';
 import { PRESET_PROFILES, MATERIAL_PALETTE } from '@/services/presetProfiles';
 
 interface ProfileSettingsPanelProps {
@@ -41,13 +49,16 @@ export function ProfileSettingsPanel({
 }: ProfileSettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('basic');
 
-  const materials: MaterialType[] = ['PLA', 'PETG', 'ABS', 'TPU', 'PLA-CF'];
+  const materials: MaterialType[] = ['PLA', 'PETG', 'ABS', 'TPU', 'PLA-CF', 'ASA', 'PA-CF'];
+  const nozzleSizes = [0.2, 0.4, 0.6, 0.8];
   const infillTypes: { id: InfillPattern; label: string }[] = [
     { id: 'gyroid', label: 'Gyroid (Đẳng hướng 3D)' },
     { id: 'grid', label: 'Grid (Lưới trực giao)' },
     { id: 'honeycomb', label: 'Honeycomb (Cấu trúc tổ ong)' },
     { id: 'triangles', label: 'Triangles (Khung giàn tam giác)' },
     { id: 'concentric', label: 'Concentric (Biên dạng đồng tâm)' },
+    { id: 'cubic', label: 'Cubic (Khối lập phương 3D)' },
+    { id: 'lightning', label: 'Lightning (Tia chớp tiết kiệm nhựa)' },
   ];
   const supportModes: { id: SupportType; label: string }[] = [
     { id: 'none', label: 'Tắt' },
@@ -67,7 +78,7 @@ export function ProfileSettingsPanel({
   return (
     <aside
       className={`fixed top-16 left-3 z-20 transition-all duration-300 ${
-        isOpen ? 'w-80 md:w-[356px]' : 'w-12'
+        isOpen ? 'w-80 md:w-[372px]' : 'w-12'
       }`}
     >
       {!isOpen ? (
@@ -77,7 +88,7 @@ export function ProfileSettingsPanel({
             data-testid="toggle-profile-panel-btn"
             onClick={onToggleOpen}
             className="w-8 h-8 rounded-xl studio-gold-badge hover:opacity-90 flex items-center justify-center transition-all cursor-pointer"
-            title="Mở bảng thông số cắt lớp (Process)"
+            title="Mở bảng thông số cắt lớp Bambu Studio (Process)"
           >
             <IconChevronRight size={14} />
           </button>
@@ -113,10 +124,10 @@ export function ProfileSettingsPanel({
               </div>
               <div className="leading-tight">
                 <h3 className="text-[11px] font-semibold studio-text-primary uppercase tracking-wider">
-                  Thông Số Cắt Lớp (Process)
+                  Thông Số Cắt Lớp (Bambu Process)
                 </h3>
                 <p className="text-[10px] studio-text-secondary font-mono">
-                  {profile.material} • {profile.layerHeight}mm • {profile.infillDensity}%
+                  {profile.material} • {profile.nozzleDiameter || 0.4}mm Nozzle • {profile.layerHeight}mm • {profile.infillDensity}%
                 </p>
               </div>
             </div>
@@ -152,18 +163,21 @@ export function ProfileSettingsPanel({
             })}
           </div>
 
-        {/* Scrollable Inspector Body */}
-        {isOpen && (
+          {/* Scrollable Inspector Body */}
           <div className="p-3.5 space-y-3 overflow-y-auto text-xs">
-            {/* ================= TAB 1: CƠ BẢN ================= */}
+            {/* ================= TAB 1: CƠ BẢN (PRESET, FILAMENT, NOZZLE, LAYER, INFILL) ================= */}
             {activeTab === 'basic' && (
               <>
-                {/* 1. Preset Selector */}
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold studio-text-primary flex items-center justify-between">
-                    <span>Cấu hình mẫu (System Preset)</span>
-                    <span className="text-[9px] font-mono studio-text-gold uppercase">0.4mm Nozzle</span>
-                  </label>
+                {/* 1. Preset Selector & Nozzle Diameter */}
+                <div className="p-3 rounded-xl studio-card space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold studio-text-primary">
+                      Cấu hình mẫu (Bambu System Preset)
+                    </span>
+                    <span className="text-[9px] font-mono studio-text-gold uppercase">
+                      {profile.nozzleDiameter || 0.4}mm Nozzle
+                    </span>
+                  </div>
                   <select
                     value={profile.id}
                     onChange={(e) => onApplyPreset(e.target.value)}
@@ -175,26 +189,56 @@ export function ProfileSettingsPanel({
                       </option>
                     ))}
                   </select>
-                  <p className="text-[10px] studio-text-secondary leading-relaxed px-0.5">{profile.description}</p>
+                  <p className="text-[10px] studio-text-secondary leading-relaxed">
+                    {profile.description}
+                  </p>
+
+                  {/* Nozzle Diameter Selection */}
+                  <div className="pt-2 border-t studio-border space-y-1.5">
+                    <span className="text-[10px] studio-text-secondary block">
+                      Đường kính kim phun (Nozzle Diameter):
+                    </span>
+                    <div className="grid grid-cols-4 gap-1">
+                      {nozzleSizes.map((nz) => (
+                        <button
+                          key={nz}
+                          onClick={() =>
+                            onChangeProfile({
+                              nozzleDiameter: nz,
+                              lineWidth: Number((nz * 1.05).toFixed(2)),
+                              outerWallLineWidth: Number(nz.toFixed(2)),
+                            })
+                          }
+                          className={`py-1 rounded-lg text-[10px] font-mono transition-all cursor-pointer ${
+                            (profile.nozzleDiameter || 0.4) === nz
+                              ? 'studio-pill-active font-bold'
+                              : 'studio-card studio-pill-inactive'
+                          }`}
+                        >
+                          {nz.toFixed(1)}mm
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 {/* 2. Filament Material & Color Swatch */}
                 <div className="p-3 rounded-xl studio-card space-y-2.5">
                   <label className="text-[11px] font-semibold studio-text-primary flex items-center justify-between">
-                    <span>Nhựa In (Filament)</span>
+                    <span>Nhựa In (Filament Type)</span>
                     <span className="text-[10px] font-mono studio-text-secondary">
                       {profile.nozzleTemp}°C / {profile.bedTemp}°C
                     </span>
                   </label>
 
-                  <div className="grid grid-cols-5 gap-1">
+                  <div className="grid grid-cols-4 gap-1">
                     {materials.map((m) => (
                       <button
                         key={m}
                         onClick={() => onChangeProfile({ material: m })}
-                        className={`py-1.5 px-1 rounded-lg text-[11px] transition-all cursor-pointer ${
+                        className={`py-1.5 px-1 rounded-lg text-[10px] transition-all cursor-pointer ${
                           profile.material === m
-                            ? 'studio-pill-active'
+                            ? 'studio-pill-active font-bold'
                             : 'studio-card studio-pill-inactive font-medium'
                         }`}
                       >
@@ -205,7 +249,7 @@ export function ProfileSettingsPanel({
 
                   {/* Color Swatches */}
                   <div className="flex items-center justify-between pt-1.5 border-t studio-border">
-                    <span className="text-[10px] studio-text-secondary">Màu sắc phôi:</span>
+                    <span className="text-[10px] studio-text-secondary">Màu sắc phôi 3D:</span>
                     <div className="flex items-center gap-1.5">
                       {(MATERIAL_PALETTE[profile.material] || MATERIAL_PALETTE.PLA).map((hex) => (
                         <button
@@ -224,8 +268,8 @@ export function ProfileSettingsPanel({
                   </div>
                 </div>
 
-                {/* 3. Layer Height Slider */}
-                <div className="p-3 rounded-xl studio-card space-y-2">
+                {/* 3. Layer Height & Initial Layer Height */}
+                <div className="p-3 rounded-xl studio-card space-y-2.5">
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="studio-text-primary flex items-center gap-1.5 font-semibold">
                       <IconLayers size={12} className="studio-text-gold" />
@@ -238,16 +282,34 @@ export function ProfileSettingsPanel({
                   <input
                     type="range"
                     min="0.08"
-                    max="0.32"
-                    step="0.04"
+                    max="0.36"
+                    step="0.02"
                     value={profile.layerHeight}
                     onChange={(e) => onChangeProfile({ layerHeight: Number(e.target.value) })}
                     className="w-full cursor-pointer"
                   />
                   <div className="flex justify-between text-[9px] studio-text-muted font-mono">
-                    <span>0.08mm (Fine)</span>
+                    <span>0.08mm (Ultra Fine)</span>
                     <span>0.20mm (Standard)</span>
-                    <span>0.32mm (Draft)</span>
+                    <span>0.36mm (Draft)</span>
+                  </div>
+
+                  <div className="pt-2 border-t studio-border flex items-center justify-between">
+                    <span className="text-[10px] studio-text-secondary">
+                      Độ dày lớp đầu tiên (Initial Layer):
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.02"
+                        min="0.12"
+                        max="0.36"
+                        value={profile.firstLayerHeight || 0.2}
+                        onChange={(e) => onChangeProfile({ firstLayerHeight: Number(e.target.value) })}
+                        className="w-18 px-2 py-1 rounded-lg glass-input text-xs font-mono font-semibold text-right"
+                      />
+                      <span className="text-[10px] font-mono studio-text-muted">mm</span>
+                    </div>
                   </div>
                 </div>
 
@@ -269,7 +331,7 @@ export function ProfileSettingsPanel({
                     className="w-full cursor-pointer"
                   />
                   <div className="space-y-1 pt-0.5">
-                    <label className="text-[10px] studio-text-secondary">Cấu trúc chịu lực bên trong:</label>
+                    <label className="text-[10px] studio-text-secondary">Mẫu kết cấu chịu lực (Pattern):</label>
                     <select
                       value={profile.infillType}
                       onChange={(e) => onChangeProfile({ infillType: e.target.value as InfillPattern })}
@@ -289,7 +351,7 @@ export function ProfileSettingsPanel({
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold studio-text-primary flex items-center gap-1.5">
                       <IconSupport size={12} className="studio-text-gold" />
-                      <span>Cấu trúc đỡ (Support)</span>
+                      <span>Cấu trúc đỡ (Support) &amp; Bám Bàn</span>
                     </span>
                     <button
                       onClick={() => setActiveTab('support')}
@@ -320,12 +382,23 @@ export function ProfileSettingsPanel({
                       <div className="text-[11px] font-medium studio-text-primary">
                         Vành Bám Bàn (Brim {profile.brimWidthMm || 5}mm)
                       </div>
-                      <div className="text-[10px] studio-text-secondary">Tăng diện tích tiếp xúc đáy</div>
+                      <div className="text-[10px] studio-text-secondary">
+                        Hiển thị trực tiếp trên bàn in 3D
+                      </div>
                     </div>
                     <input
                       type="checkbox"
                       checked={profile.brimEnabled}
-                      onChange={(e) => onChangeProfile({ brimEnabled: e.target.checked })}
+                      onChange={(e) =>
+                        onChangeProfile({
+                          brimEnabled: e.target.checked,
+                          brimType: e.target.checked
+                            ? profile.brimType === 'none' || !profile.brimType
+                              ? 'outer_only'
+                              : profile.brimType
+                            : 'none',
+                        })
+                      }
                       className="w-4 h-4 accent-[var(--accent-gold)] rounded cursor-pointer"
                     />
                   </div>
@@ -333,9 +406,10 @@ export function ProfileSettingsPanel({
               </>
             )}
 
-            {/* ================= TAB 2: VÁCH & VỎ ================= */}
+            {/* ================= TAB 2: VÁCH, VỎ, SEAM & BỀ MẶT (QUALITY & STRENGTH) ================= */}
             {activeTab === 'quality' && (
               <div className="space-y-3">
+                {/* Wall Loops */}
                 <div className="p-3 rounded-xl studio-card space-y-2">
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="studio-text-primary font-semibold">Số vòng tường (Wall Loops)</span>
@@ -344,74 +418,195 @@ export function ProfileSettingsPanel({
                   <input
                     type="range"
                     min="1"
-                    max="6"
+                    max="8"
                     step="1"
                     value={profile.wallLoops}
                     onChange={(e) => onChangeProfile({ wallLoops: Number(e.target.value) })}
                     className="w-full cursor-pointer"
                   />
                   <div className="text-[10px] studio-text-secondary">
-                    2 vòng cho mô hình tiêu chuẩn, 4 vòng cho chi tiết cơ khí.
+                    Thể hiện tức thì số đường chu vi trên mặt cắt mô phỏng.
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl studio-card space-y-2">
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="studio-text-primary font-semibold">Độ dày lớp đầu tiên</span>
-                    <span className="font-mono font-semibold studio-text-gold">{profile.firstLayerHeight || 0.2} mm</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.12"
-                    max="0.28"
-                    step="0.02"
-                    value={profile.firstLayerHeight || 0.2}
-                    onChange={(e) => onChangeProfile({ firstLayerHeight: Number(e.target.value) })}
-                    className="w-full cursor-pointer"
-                  />
-                </div>
-
+                {/* Line Width & Outer Wall Line Width */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="p-2.5 rounded-xl studio-card space-y-1">
-                    <span className="text-[10px] studio-text-secondary">Lớp Nóc (Top Shells)</span>
+                    <span className="text-[10px] studio-text-secondary">Bề rộng nét (Line Width)</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.02"
+                        min="0.20"
+                        max="0.90"
+                        value={profile.lineWidth || 0.42}
+                        onChange={(e) => onChangeProfile({ lineWidth: Number(e.target.value) })}
+                        className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                      />
+                      <span className="text-[10px] studio-text-muted font-mono">mm</span>
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Nét tường ngoài (Outer)</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.02"
+                        min="0.20"
+                        max="0.85"
+                        value={profile.outerWallLineWidth || 0.42}
+                        onChange={(e) => onChangeProfile({ outerWallLineWidth: Number(e.target.value) })}
+                        className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                      />
+                      <span className="text-[10px] studio-text-muted font-mono">mm</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top / Bottom Shell Layers & Infill Overlap */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Lớp Nóc (Top)</span>
                     <input
                       type="number"
-                      min="2"
-                      max="8"
-                      value={profile.topShellLayers || 4}
+                      min="1"
+                      max="10"
+                      value={profile.topShellLayers ?? 4}
                       onChange={(e) => onChangeProfile({ topShellLayers: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                      className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
                     />
                   </div>
                   <div className="p-2.5 rounded-xl studio-card space-y-1">
-                    <span className="text-[10px] studio-text-secondary">Lớp Đáy (Bottom Shells)</span>
+                    <span className="text-[10px] studio-text-secondary">Lớp Đáy (Bot)</span>
                     <input
                       type="number"
-                      min="2"
-                      max="8"
-                      value={profile.bottomShellLayers || 3}
+                      min="1"
+                      max="10"
+                      value={profile.bottomShellLayers ?? 3}
                       onChange={(e) => onChangeProfile({ bottomShellLayers: Number(e.target.value) })}
-                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                      className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Overlap (%)</span>
+                    <input
+                      type="number"
+                      min="5"
+                      max="35"
+                      value={profile.infillOverlapPercent ?? 15}
+                      onChange={(e) => onChangeProfile({ infillOverlapPercent: Number(e.target.value) })}
+                      className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
                     />
                   </div>
                 </div>
 
+                {/* Z-Seam Position (Hiển thị trực tiếp đường Seam trắng trên mẫu 3D) */}
                 <div className="p-3 rounded-xl studio-card space-y-1.5">
-                  <label className="text-[11px] font-semibold studio-text-primary">Vị trí mối nối Z-Seam:</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold studio-text-primary">
+                      Vị trí mối nối Z-Seam:
+                    </label>
+                    <span className="text-[9px] font-mono studio-text-gold">Hiển thị 3D trực tiếp</span>
+                  </div>
                   <select
                     value={profile.seamPosition || 'aligned'}
-                    onChange={(e) => onChangeProfile({ seamPosition: e.target.value as any })}
+                    onChange={(e) =>
+                      onChangeProfile({ seamPosition: e.target.value as SeamPositionType })
+                    }
                     className="w-full px-3 py-1.5 rounded-lg glass-input text-xs font-medium cursor-pointer"
                   >
-                    <option value="aligned" className="bg-neutral-900">Aligned (Giấu dọc cạnh sắc)</option>
-                    <option value="nearest" className="bg-neutral-900">Nearest (Gần nhất - tối ưu tốc độ)</option>
-                    <option value="random" className="bg-neutral-900">Random (Phân tán ngẫu nhiên)</option>
+                    <option value="aligned" className="bg-neutral-900">
+                      Aligned (Dọc thẳng hàng góc cạnh)
+                    </option>
+                    <option value="nearest" className="bg-neutral-900">
+                      Nearest (Gần nhất - tối ưu tốc độ)
+                    </option>
+                    <option value="back" className="bg-neutral-900">
+                      Back (Giấu toàn bộ ra mặt lưng -Z)
+                    </option>
+                    <option value="random" className="bg-neutral-900">
+                      Random (Chấm ngẫu nhiên phân tán)
+                    </option>
                   </select>
+                </div>
+
+                {/* Surface Finish: Ironing & Fuzzy Skin (Hiển thị trực tiếp trên mẫu 3D) */}
+                <div className="p-3 rounded-xl studio-card space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold studio-text-primary">
+                        Là phẳng mặt đỉnh (Top Surface Ironing)
+                      </div>
+                      <div className="text-[10px] studio-text-secondary">
+                        Tạo hiệu ứng mặt trên bóng láng trên phôi 3D
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(profile.ironingEnabled)}
+                      onChange={(e) => onChangeProfile({ ironingEnabled: e.target.checked })}
+                      className="w-4 h-4 accent-[var(--accent-gold)] rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="pt-2 border-t studio-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold studio-text-primary">
+                        Tạo nhám bề mặt (Fuzzy Skin)
+                      </span>
+                      <span className="text-[10px] font-mono studio-text-gold">
+                        {profile.fuzzySkin || 'none'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { id: 'none', label: 'Tắt (Mịn)' },
+                          { id: 'outside', label: 'Vỏ Ngoài' },
+                          { id: 'all', label: 'Toàn Bộ' },
+                        ] as { id: FuzzySkinMode; label: string }[]
+                      ).map((fz) => (
+                        <button
+                          key={fz.id}
+                          onClick={() => onChangeProfile({ fuzzySkin: fz.id })}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] transition-all cursor-pointer ${
+                            (profile.fuzzySkin || 'none') === fz.id
+                              ? 'studio-pill-active font-bold'
+                              : 'studio-card studio-pill-inactive'
+                          }`}
+                        >
+                          {fz.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {profile.fuzzySkin && profile.fuzzySkin !== 'none' && (
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-[10px]">
+                          <span className="studio-text-secondary">Biên độ hạt nhám (Fuzzy Thickness):</span>
+                          <span className="font-mono studio-text-gold">
+                            {(profile.fuzzySkinThickness || 0.3).toFixed(2)} mm
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.10"
+                          max="0.60"
+                          step="0.05"
+                          value={profile.fuzzySkinThickness || 0.3}
+                          onChange={(e) =>
+                            onChangeProfile({ fuzzySkinThickness: Number(e.target.value) })
+                          }
+                          className="w-full cursor-pointer"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* ================= TAB 3: SUPPORT BAMBU STUDIO ================= */}
+            {/* ================= TAB 3: SUPPORT & BÁM BÀN BAMBU STUDIO ================= */}
             {activeTab === 'support' && (
               <div className="space-y-3">
                 {/* Support Engine Architecture Card */}
@@ -425,9 +620,6 @@ export function ProfileSettingsPanel({
                       CONFORMAL + CLI
                     </span>
                   </div>
-                  <p className="text-[10px] studio-text-secondary leading-relaxed">
-                    Tự động nạp G-code từ <strong>Bambu Studio CLI</strong> hoặc dựng mặt tiếp xúc <strong>Triangle-Conformal</strong> ôm sát 100% biên dạng vỏ.
-                  </p>
                   <div className="grid grid-cols-2 gap-1.5 pt-1">
                     {onOpenLocalSlicerModal && (
                       <button
@@ -473,7 +665,9 @@ export function ProfileSettingsPanel({
                 {/* 2. Tree Support Style */}
                 {profile.supportMode === 'tree' && (
                   <div className="p-3 rounded-xl studio-card space-y-2">
-                    <label className="text-[11px] font-semibold studio-text-primary">Kiểu nhánh Tree Support:</label>
+                    <label className="text-[11px] font-semibold studio-text-primary">
+                      Kiểu nhánh Tree Support:
+                    </label>
                     <div className="grid grid-cols-2 gap-1.5">
                       {[
                         { id: 'organic', name: 'Tree Organic', desc: 'Mượt, ôm sát vách' },
@@ -498,7 +692,7 @@ export function ProfileSettingsPanel({
                   </div>
                 )}
 
-                {/* 3. Overhang Angle & Z-Distance */}
+                {/* 3. Overhang Angle, Z-Distance, Branch Diameter & Angle */}
                 {profile.supportMode !== 'none' && (
                   <div className="p-3 rounded-xl studio-card space-y-3">
                     <div className="space-y-1.5">
@@ -510,34 +704,173 @@ export function ProfileSettingsPanel({
                       </div>
                       <input
                         type="range"
-                        min="30"
+                        min="15"
                         max="75"
-                        step="1"
+                        step="5"
                         value={profile.supportAngleThreshold || 45}
-                        onChange={(e) => onChangeProfile({ supportAngleThreshold: Number(e.target.value) })}
+                        onChange={(e) =>
+                          onChangeProfile({ supportAngleThreshold: Number(e.target.value) })
+                        }
                         className="w-full cursor-pointer"
                       />
                     </div>
 
-                    <div className="space-y-1.5 pt-2 border-t studio-border">
-                      <div className="flex justify-between items-center text-[11px]">
-                        <span className="studio-text-primary font-semibold">Khe hở bóc tách (Top Z)</span>
-                        <span className="font-mono font-semibold studio-text-gold">
-                          {(profile.supportTopZDistance || 0.2).toFixed(2)} mm
-                        </span>
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t studio-border">
+                      <div className="space-y-1">
+                        <span className="text-[10px] studio-text-secondary">Top Z-Distance (mm)</span>
+                        <input
+                          type="number"
+                          step="0.02"
+                          min="0.06"
+                          max="0.40"
+                          value={profile.supportTopZDistance ?? 0.2}
+                          onChange={(e) =>
+                            onChangeProfile({ supportTopZDistance: Number(e.target.value) })
+                          }
+                          className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                        />
                       </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] studio-text-secondary">Bot Z-Distance (mm)</span>
+                        <input
+                          type="number"
+                          step="0.02"
+                          min="0.06"
+                          max="0.40"
+                          value={profile.supportBottomZDistance ?? 0.2}
+                          onChange={(e) =>
+                            onChangeProfile({ supportBottomZDistance: Number(e.target.value) })
+                          }
+                          className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t studio-border">
+                      <div className="space-y-1">
+                        <span className="text-[10px] studio-text-secondary">ĐK Nhánh (mm)</span>
+                        <input
+                          type="number"
+                          step="0.2"
+                          min="1.0"
+                          max="5.0"
+                          value={profile.supportBranchDiameter ?? 2.2}
+                          onChange={(e) =>
+                            onChangeProfile({ supportBranchDiameter: Number(e.target.value) })
+                          }
+                          className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] studio-text-secondary">Góc Nhánh (°)</span>
+                        <input
+                          type="number"
+                          step="5"
+                          min="25"
+                          max="65"
+                          value={profile.supportBranchAngle ?? 45}
+                          onChange={(e) =>
+                            onChangeProfile({ supportBranchAngle: Number(e.target.value) })
+                          }
+                          className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] studio-text-secondary">Lớp Đệm Đỉnh</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="5"
+                          value={profile.supportInterfaceLayers ?? 2}
+                          onChange={(e) =>
+                            onChangeProfile({ supportInterfaceLayers: Number(e.target.value) })
+                          }
+                          className="w-full px-2 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t studio-border">
+                      <span className="text-[11px] studio-text-primary font-medium">
+                        Chỉ mọc từ bàn in (On build plate only)
+                      </span>
                       <input
-                        type="range"
-                        min="0.10"
-                        max="0.32"
-                        step="0.02"
-                        value={profile.supportTopZDistance || 0.2}
-                        onChange={(e) => onChangeProfile({ supportTopZDistance: Number(e.target.value) })}
-                        className="w-full cursor-pointer"
+                        type="checkbox"
+                        checked={profile.supportOnBuildPlateOnly !== false}
+                        onChange={(e) =>
+                          onChangeProfile({ supportOnBuildPlateOnly: e.target.checked })
+                        }
+                        className="w-4 h-4 accent-[var(--accent-gold)] rounded cursor-pointer"
                       />
                     </div>
                   </div>
                 )}
+
+                {/* 4. Bed Adhesion: Brim Type, Brim Width & Raft Layers */}
+                <div className="p-3 rounded-xl studio-card space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold studio-text-primary">
+                      Kiểu Vành Bám Bàn (Brim Type):
+                    </span>
+                    <span className="text-[9px] font-mono studio-text-gold">3D Realtime</span>
+                  </div>
+                  <select
+                    value={profile.brimEnabled ? profile.brimType || 'outer_only' : 'none'}
+                    onChange={(e) => {
+                      const val = e.target.value as BrimTypeMode;
+                      onChangeProfile({
+                        brimType: val,
+                        brimEnabled: val !== 'none',
+                        brimWidthMm: val !== 'none' && !profile.brimWidthMm ? 5 : profile.brimWidthMm,
+                      });
+                    }}
+                    className="w-full px-3 py-1.5 rounded-lg glass-input text-xs font-medium cursor-pointer"
+                  >
+                    <option value="none" className="bg-neutral-900">
+                      No-brim (Không dùng vành Brim)
+                    </option>
+                    <option value="outer_only" className="bg-neutral-900">
+                      Outer brim only (Vành bao ngoài)
+                    </option>
+                    <option value="inner_only" className="bg-neutral-900">
+                      Inner brim only (Vành lòng trong)
+                    </option>
+                    <option value="outer_and_inner" className="bg-neutral-900">
+                      Outer and inner brim (Trong &amp; Ngoài)
+                    </option>
+                    <option value="mouse_ears" className="bg-neutral-900">
+                      Mouse-ear brim (Tai chuột 4 góc chống vênh)
+                    </option>
+                  </select>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="space-y-1">
+                      <span className="text-[10px] studio-text-secondary">Độ rộng Brim (mm)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="15"
+                        value={profile.brimWidthMm}
+                        onChange={(e) => {
+                          const w = Number(e.target.value);
+                          onChangeProfile({ brimWidthMm: w, brimEnabled: w > 0 });
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] studio-text-secondary">Đế lót Raft (Lớp)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="5"
+                        value={profile.raftLayers ?? 0}
+                        onChange={(e) => onChangeProfile({ raftLayers: Number(e.target.value) })}
+                        className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                      />
+                    </div>
+                  </div>
+                </div>
 
                 {onOpenGeminiKeyModal && (
                   <button
@@ -554,7 +887,7 @@ export function ProfileSettingsPanel({
               </div>
             )}
 
-            {/* ================= TAB 4: TỐC ĐỘ ================= */}
+            {/* ================= TAB 4: TỐC ĐỘ & GIA TỐC (SPEED & ACCEL) ================= */}
             {activeTab === 'speed' && (
               <div className="space-y-3">
                 <div className="p-3 rounded-xl studio-card space-y-2">
@@ -575,7 +908,7 @@ export function ProfileSettingsPanel({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="p-2.5 rounded-xl studio-card space-y-1">
-                    <span className="text-[10px] studio-text-secondary">Tường ngoài (mm/s)</span>
+                    <span className="text-[10px] studio-text-secondary">Tường ngoài (Outer Wall)</span>
                     <input
                       type="number"
                       value={profile.outerWallSpeed || Math.round(profile.printSpeed * 0.6)}
@@ -584,11 +917,29 @@ export function ProfileSettingsPanel({
                     />
                   </div>
                   <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Tường trong (Inner Wall)</span>
+                    <input
+                      type="number"
+                      value={profile.innerWallSpeed || profile.printSpeed}
+                      onChange={(e) => onChangeProfile({ innerWallSpeed: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
                     <span className="text-[10px] studio-text-secondary">Ruột Infill (mm/s)</span>
                     <input
                       type="number"
-                      value={profile.infillSpeed || Math.round(profile.printSpeed * 1.1)}
+                      value={profile.infillSpeed || Math.round(profile.printSpeed * 1.15)}
                       onChange={(e) => onChangeProfile({ infillSpeed: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Mặt đỉnh (Top Surface)</span>
+                    <input
+                      type="number"
+                      value={profile.topSurfaceSpeed || Math.round(profile.printSpeed * 0.5)}
+                      onChange={(e) => onChangeProfile({ topSurfaceSpeed: Number(e.target.value) })}
                       className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
                     />
                   </div>
@@ -601,7 +952,7 @@ export function ProfileSettingsPanel({
                   </div>
                   <input
                     type="range"
-                    min="200"
+                    min="150"
                     max="700"
                     step="50"
                     value={profile.travelSpeed || 500}
@@ -609,10 +960,33 @@ export function ProfileSettingsPanel({
                     className="w-full cursor-pointer"
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Gia tốc chuẩn (mm/s²)</span>
+                    <input
+                      type="number"
+                      step="500"
+                      value={profile.defaultAcceleration || 10000}
+                      onChange={(e) => onChangeProfile({ defaultAcceleration: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Gia tốc vỏ ngoài (mm/s²)</span>
+                    <input
+                      type="number"
+                      step="500"
+                      value={profile.outerWallAcceleration || 5000}
+                      onChange={(e) => onChangeProfile({ outerWallAcceleration: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* ================= TAB 5: NHIỆT ĐỘ & LÀM MÁT ================= */}
+            {/* ================= TAB 5: NHIỆT ĐỘ, BUỒNG KÍN & LÀM MÁT ================= */}
             {activeTab === 'thermals' && (
               <div className="space-y-3">
                 <div className="p-3 rounded-xl studio-card space-y-2">
@@ -623,7 +997,7 @@ export function ProfileSettingsPanel({
                   <input
                     type="range"
                     min="180"
-                    max="290"
+                    max="310"
                     step="5"
                     value={profile.nozzleTemp}
                     onChange={(e) => onChangeProfile({ nozzleTemp: Number(e.target.value) })}
@@ -638,8 +1012,8 @@ export function ProfileSettingsPanel({
                   </div>
                   <input
                     type="range"
-                    min="35"
-                    max="110"
+                    min="30"
+                    max="120"
                     step="5"
                     value={profile.bedTemp}
                     onChange={(e) => onChangeProfile({ bedTemp: Number(e.target.value) })}
@@ -649,56 +1023,122 @@ export function ProfileSettingsPanel({
 
                 <div className="p-3 rounded-xl studio-card space-y-2">
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="studio-text-primary font-semibold">Quạt làm mát (Part Fan)</span>
-                    <span className="font-mono font-semibold studio-text-gold">{profile.coolingFanSpeed}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="10"
-                    value={profile.coolingFanSpeed}
-                    onChange={(e) => onChangeProfile({ coolingFanSpeed: Number(e.target.value) })}
-                    className="w-full cursor-pointer"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* ================= TAB 6: ĐÙN NHỰA & RETRACTION ================= */}
-            {activeTab === 'extrusion' && (
-              <div className="space-y-3">
-                <div className="p-3 rounded-xl studio-card space-y-2">
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="studio-text-primary font-semibold">Hệ số dòng đùn (Flow Ratio)</span>
+                    <span className="studio-text-primary font-semibold">Nhiệt độ Buồng in (Chamber)</span>
                     <span className="font-mono font-semibold studio-text-gold">
-                      {(profile.flowRateMm3s || 0.98).toFixed(2)}
+                      {profile.chamberTemp ?? 35}°C
                     </span>
                   </div>
                   <input
                     type="range"
-                    min="0.85"
-                    max="1.15"
-                    step="0.01"
-                    value={profile.flowRateMm3s || 0.98}
+                    min="0"
+                    max="65"
+                    step="5"
+                    value={profile.chamberTemp ?? 35}
+                    onChange={(e) => onChangeProfile({ chamberTemp: Number(e.target.value) })}
+                    className="w-full cursor-pointer"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2.5 rounded-xl studio-card space-y-1.5">
+                    <div className="flex justify-between text-[10px]">
+                      <span className="studio-text-secondary">Quạt Part Fan</span>
+                      <span className="font-mono studio-text-gold font-bold">{profile.coolingFanSpeed}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="10"
+                      value={profile.coolingFanSpeed}
+                      onChange={(e) => onChangeProfile({ coolingFanSpeed: Number(e.target.value) })}
+                      className="w-full cursor-pointer"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1.5">
+                    <div className="flex justify-between text-[10px]">
+                      <span className="studio-text-secondary">Quạt Aux Fan</span>
+                      <span className="font-mono studio-text-gold font-bold">
+                        {profile.auxFanSpeed ?? 70}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="10"
+                      value={profile.auxFanSpeed ?? 70}
+                      onChange={(e) => onChangeProfile({ auxFanSpeed: Number(e.target.value) })}
+                      className="w-full cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ================= TAB 6: ĐÙN NHỰA, PA & RETRACTION ================= */}
+            {activeTab === 'extrusion' && (
+              <div className="space-y-3">
+                <div className="p-3 rounded-xl studio-card space-y-2">
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="studio-text-primary font-semibold">
+                      Lưu lượng cực đại (Max Volumetric Flow)
+                    </span>
+                    <span className="font-mono font-semibold studio-text-gold">
+                      {profile.flowRateMm3s || 21} mm³/s
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="2"
+                    max="35"
+                    step="1"
+                    value={profile.flowRateMm3s || 21}
                     onChange={(e) => onChangeProfile({ flowRateMm3s: Number(e.target.value) })}
                     className="w-full cursor-pointer"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Hệ số dòng (Flow Ratio)</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.80"
+                      max="1.20"
+                      value={profile.flowRatio ?? 0.98}
+                      onChange={(e) => onChangeProfile({ flowRatio: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-xl studio-card space-y-1">
+                    <span className="text-[10px] studio-text-secondary">Pressure Advance (K)</span>
+                    <input
+                      type="number"
+                      step="0.005"
+                      min="0.00"
+                      max="0.15"
+                      value={profile.pressureAdvance ?? 0.02}
+                      onChange={(e) => onChangeProfile({ pressureAdvance: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
+                    />
+                  </div>
                 </div>
 
                 <div className="p-3 rounded-xl studio-card space-y-2">
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="studio-text-primary font-semibold">Cự ly rút nhựa (Retraction)</span>
                     <span className="font-mono font-semibold studio-text-gold">
-                      {profile.retractionDistanceMm || 0.8} mm
+                      {profile.retractionDistanceMm ?? 0.8} mm
                     </span>
                   </div>
                   <input
                     type="range"
-                    min="0.2"
+                    min="0.0"
                     max="6.0"
                     step="0.2"
-                    value={profile.retractionDistanceMm || 0.8}
+                    value={profile.retractionDistanceMm ?? 0.8}
                     onChange={(e) => onChangeProfile({ retractionDistanceMm: Number(e.target.value) })}
                     className="w-full cursor-pointer"
                   />
@@ -719,7 +1159,7 @@ export function ProfileSettingsPanel({
                     <input
                       type="number"
                       step="0.1"
-                      value={profile.zHopMm || 0.4}
+                      value={profile.zHopMm ?? 0.4}
                       onChange={(e) => onChangeProfile({ zHopMm: Number(e.target.value) })}
                       className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-mono font-semibold"
                     />
@@ -728,7 +1168,6 @@ export function ProfileSettingsPanel({
               </div>
             )}
           </div>
-        )}
         </div>
       )}
     </aside>

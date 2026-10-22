@@ -18,6 +18,7 @@ interface PreflightReportModalProps {
   onApplyFix: (action: Partial<ISimulationProfile>) => void;
   onStartSimulation: () => void;
   profile?: ISimulationProfile;
+  onOpenDefectKnowledgeModal?: () => void;
 }
 
 export function PreflightReportModal({
@@ -27,6 +28,7 @@ export function PreflightReportModal({
   onApplyFix,
   onStartSimulation,
   profile,
+  onOpenDefectKnowledgeModal,
 }: PreflightReportModalProps) {
   const [exportingVault, setExportingVault] = useState<boolean>(false);
   const [vaultMessage, setVaultMessage] = useState<string | null>(null);
@@ -142,9 +144,22 @@ export function PreflightReportModal({
 
         {/* Detailed Issues List */}
         <div className="space-y-2.5">
-          <h3 className="text-[11px] font-bold uppercase tracking-wider studio-text-secondary">
-            Chi Tiết Các Cảnh Báo &amp; Khuyến Nghị Kỹ Thuật ({report.errors.length})
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider studio-text-secondary">
+              Chi Tiết Các Cảnh Báo &amp; Khuyến Nghị Kỹ Thuật ({report.errors.length})
+            </h3>
+            {onOpenDefectKnowledgeModal && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenDefectKnowledgeModal();
+                }}
+                className="px-3 py-1 rounded-lg studio-gold-badge text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:opacity-90 transition-all"
+              >
+                + Nhập Lỗi Thực Tế &amp; Dạy AI Giả Lập
+              </button>
+            )}
+          </div>
 
           {report.errors.length === 0 ? (
             <div className="p-4 rounded-xl studio-card border border-emerald-500/30 text-xs flex items-center gap-2.5">
@@ -161,7 +176,7 @@ export function PreflightReportModal({
                   className="p-3.5 rounded-xl studio-card space-y-2 text-xs"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
                           err.severity === 'critical'
@@ -177,6 +192,11 @@ export function PreflightReportModal({
                           ? 'Cảnh Báo'
                           : 'Lưu Ý'}
                       </span>
+                      {err.isLearnedFromCommunity && (
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-mono font-bold uppercase">
+                          Tri Thức DB • {err.contributor || 'Cộng đồng'}
+                        </span>
+                      )}
                       <h4 className="font-bold studio-text-primary text-xs">{err.title}</h4>
                     </div>
 
@@ -188,6 +208,13 @@ export function PreflightReportModal({
                   <p className="text-[11px] studio-text-secondary leading-relaxed">
                     {err.description}
                   </p>
+
+                  {err.rootCause && (
+                    <div className="text-[10px] studio-text-muted italic">
+                      <strong className="studio-text-secondary not-italic">Nguyên nhân gốc rễ:</strong>{' '}
+                      {err.rootCause}
+                    </div>
+                  )}
 
                   <div className="p-2.5 rounded-lg bg-[var(--bg-subtle)] border studio-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="text-[11px] studio-text-primary">

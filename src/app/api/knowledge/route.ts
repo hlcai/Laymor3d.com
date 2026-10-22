@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { knowledgeRepository } from '@/backend/repositories/KnowledgeRepository';
-import { IKnowledgeEntry } from '@/backend/domain/knowledge';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +12,6 @@ export async function GET(req: NextRequest) {
     const entries = knowledgeRepository.searchEntries(query, category, filament, printerId);
     const all = knowledgeRepository.getAllEntries();
 
-    // Thống kê nhanh theo danh mục
     const categoryCounts: Record<string, number> = {};
     for (const e of all) {
       categoryCounts[e.category] = (categoryCounts[e.category] || 0) + 1;
@@ -34,11 +32,30 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { title, category, solutionText, problemSymptom, rootCause, slicerOverrides, applicablePrinters, applicableFilaments, tags, id } = body;
+    const {
+      id,
+      title,
+      category,
+      defectType,
+      severity,
+      solutionText,
+      problemSymptom,
+      rootCause,
+      slicerOverrides,
+      triggerCondition,
+      autoFixPatch,
+      submittedBy,
+      applicablePrinters,
+      applicableFilaments,
+      tags,
+      isVerified,
+      confidenceScore,
+      sourcePlatform,
+    } = body;
 
     if (!title || !solutionText) {
       return NextResponse.json(
-        { success: false, error: 'Tiêu đề và nội dung giải pháp là bắt buộc.' },
+        { success: false, error: 'Tiêu đề lỗi và giải pháp chi tiết là bắt buộc.' },
         { status: 400 }
       );
     }
@@ -46,28 +63,37 @@ export async function POST(req: NextRequest) {
     const saved = knowledgeRepository.upsertEntry({
       id,
       title,
-      category,
+      category: category || 'simulator_defect_learning',
+      defectType: defectType || 'custom_defect',
+      severity: severity || 'medium',
       solutionText,
       problemSymptom,
       rootCause,
       slicerOverrides,
-      applicablePrinters,
-      applicableFilaments,
-      tags,
-      isVerified: true,
-      confidenceScore: 95,
-      verificationCount: 1,
-      sourcePlatform: 'expert_curated',
+      triggerCondition,
+      autoFixPatch,
+      submittedBy: submittedBy || 'user_contribution',
+      applicablePrinters: applicablePrinters || ['all'],
+      applicableFilaments: applicableFilaments || ['PLA', 'PETG'],
+      tags: tags || ['defect_learning', '3dsim'],
+      isVerified: isVerified !== undefined ? Boolean(isVerified) : true,
+      confidenceScore: confidenceScore !== undefined ? Number(confidenceScore) : 94,
+      verificationCount: body.verificationCount || 1,
+      sourcePlatform: sourcePlatform || 'user_contributed',
     });
 
     return NextResponse.json({
       success: true,
       entry: saved,
-      message: 'Đã lưu tri thức in 3D đối chiếu thành công!',
+      message: 'Đã cập nhật dữ liệu lỗi & giải thích chi tiết vào Kho Tri Thức Giả Lập!',
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
+}
+
+export async function PUT(req: NextRequest) {
+  return POST(req);
 }
 
 export async function DELETE(req: NextRequest) {

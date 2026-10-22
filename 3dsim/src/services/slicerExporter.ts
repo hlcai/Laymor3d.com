@@ -5,51 +5,119 @@ import { ISlicingMetrics } from './slicingEngine';
 import { applyTransformToGeometry } from './sampleModels';
 
 /**
- * Xuất cấu hình chuẩn Bambu Studio / OrcaSlicer (.json)
+ * Xuất cấu hình chuẩn Bambu Studio / OrcaSlicer (.json / project_settings.config)
+ * Đầy đủ 100% thông số Process, Filament và Machine để mở và in ngay trong Bambu Studio.
  */
 export function generateBambuOrcaProfileJson(
   profile: ISimulationProfile,
   metrics: ISlicingMetrics,
   modelName: string = 'Model'
 ): string {
+  const nozzleDia = (profile.nozzleDiameter || 0.4).toString();
+  const lineWidth = (profile.lineWidth || 0.42).toString();
+  const outerWallWidth = (profile.outerWallLineWidth || 0.42).toString();
+  const firstLayerH = (profile.firstLayerHeight || Math.min(0.28, Number((profile.layerHeight * 1.2).toFixed(2)))).toString();
+
+  const brimTypeBambu = !profile.brimEnabled
+    ? 'no_brim'
+    : profile.brimType === 'mouse_ears'
+    ? 'brim_ears'
+    : profile.brimType || 'outer_only';
+
   const bambuConfig = {
-    name: `${profile.name} - 3D PrintSim Optimized`,
-    from: '3D PrintSim Pro AI Slicer Engine',
+    name: `${profile.name} - Laymor 3D PrintSim Pro`,
+    from: 'User',
     instantiation: 'true',
-    version: '1.9.1.0',
-    inherits: 'fdm_process_common',
+    version: '1.10.0.0',
+    inherits: '0.20mm Standard @BBL X1C',
+
+    // 1. Quality, Layer, Seam & Surface
     layer_height: profile.layerHeight.toString(),
-    initial_layer_print_height: (profile.layerHeight * 1.25).toFixed(2),
+    initial_layer_print_height: firstLayerH,
+    line_width: lineWidth,
+    outer_wall_line_width: outerWallWidth,
+    inner_wall_line_width: (Number(lineWidth) * 1.05).toFixed(2),
+    initial_layer_line_width: (Number(lineWidth) * 1.15).toFixed(2),
+    seam_position: profile.seamPosition || 'aligned',
+    ironing_type: profile.ironingEnabled ? 'top' : 'no ironing',
+    ironing_flow: '10%',
+    ironing_speed: '30',
+    fuzzy_skin: profile.fuzzySkin || 'none',
+    fuzzy_skin_thickness: (profile.fuzzySkinThickness ?? 0.3).toString(),
+    fuzzy_skin_point_distance: '0.8',
+
+    // 2. Strength, Walls, Shells & Infill
     wall_loops: profile.wallLoops.toString(),
-    top_shell_layers: (profile.topShellLayers || 4).toString(),
-    bottom_shell_layers: (profile.bottomShellLayers || 3).toString(),
+    top_shell_layers: (profile.topShellLayers ?? 4).toString(),
+    bottom_shell_layers: (profile.bottomShellLayers ?? 3).toString(),
     sparse_infill_density: `${profile.infillDensity}%`,
-    sparse_infill_pattern:
-      profile.infillType === 'gyroid'
-        ? 'gyroid'
-        : profile.infillType === 'grid'
-        ? 'grid'
-        : 'concentric',
+    sparse_infill_pattern: profile.infillType || 'gyroid',
+    infill_wall_overlap: `${profile.infillOverlapPercent ?? 15}%`,
+
+    // 3. Speed & Acceleration
     outer_wall_speed: (profile.outerWallSpeed || Math.round(profile.printSpeed * 0.6)).toString(),
-    inner_wall_speed: profile.printSpeed.toString(),
+    inner_wall_speed: (profile.innerWallSpeed || profile.printSpeed).toString(),
     sparse_infill_speed: (profile.infillSpeed || Math.round(profile.printSpeed * 1.15)).toString(),
+    internal_solid_infill_speed: Math.round(profile.printSpeed * 0.95).toString(),
+    top_surface_speed: (profile.topSurfaceSpeed || Math.round(profile.printSpeed * 0.55)).toString(),
     travel_speed: (profile.travelSpeed || 500).toString(),
     initial_layer_speed: '50',
+    initial_layer_infill_speed: '95',
+    default_acceleration: (profile.defaultAcceleration || 10000).toString(),
+    outer_wall_acceleration: (profile.outerWallAcceleration || 5000).toString(),
+    inner_wall_acceleration: Math.round((profile.defaultAcceleration || 10000) * 0.8).toString(),
+
+    // 4. Support & Bed Adhesion
     enable_support: profile.supportMode !== 'none' ? '1' : '0',
     support_type: profile.supportMode === 'tree' ? 'tree(auto)' : 'normal(auto)',
-    support_threshold_angle: (profile.supportAngleThreshold || 45).toString(),
-    enable_brim: profile.brimEnabled ? '1' : '0',
-    brim_width: profile.brimWidthMm.toString(),
-    fan_cooling_layer_time: '60',
-    fan_max_speed: profile.coolingFanSpeed.toString(),
-    fan_min_speed: Math.round(profile.coolingFanSpeed * 0.7).toString(),
+    support_style: profile.supportMode === 'tree' ? `tree_${profile.treeStyle || 'organic'}` : 'default',
+    support_threshold_angle: (profile.supportAngleThreshold ?? 45).toString(),
+    support_top_z_distance: (profile.supportTopZDistance ?? 0.2).toString(),
+    support_bottom_z_distance: (profile.supportBottomZDistance ?? 0.2).toString(),
+    tree_support_branch_diameter: (profile.supportBranchDiameter ?? 2.2).toString(),
+    tree_support_branch_angle: (profile.supportBranchAngle ?? 45).toString(),
+    support_interface_top_layers: (profile.supportInterfaceLayers ?? 2).toString(),
+    support_on_build_plate_only: profile.supportOnBuildPlateOnly !== false ? '1' : '0',
+    brim_type: brimTypeBambu,
+    brim_width: profile.brimEnabled ? (profile.brimWidthMm || 5).toString() : '0',
+    raft_layers: (profile.raftLayers ?? 0).toString(),
+
+    // 5. Filament, Thermal, Cooling & Extrusion Arrays (Chuẩn Bambu Studio Project Config)
+    nozzle_diameter: [nozzleDia],
+    filament_type: [profile.material],
+    filament_colour: [profile.materialColor],
+    nozzle_temperature: [profile.nozzleTemp.toString()],
+    nozzle_temperature_initial_layer: [(profile.nozzleTemp + 5).toString()],
+    hot_plate_temp: [profile.bedTemp.toString()],
+    hot_plate_temp_initial_layer: [profile.bedTemp.toString()],
+    textured_plate_temp: [profile.bedTemp.toString()],
+    textured_plate_temp_initial_layer: [profile.bedTemp.toString()],
+    chamber_temperature: [(profile.chamberTemp ?? 35).toString()],
+    fan_max_speed: [profile.coolingFanSpeed.toString()],
+    fan_min_speed: [Math.round(profile.coolingFanSpeed * 0.7).toString()],
+    additional_cooling_fan_speed: [(profile.auxFanSpeed ?? 70).toString()],
+    filament_max_volumetric_speed: [(profile.flowRateMm3s || 21).toString()],
+    filament_flow_ratio: [(profile.flowRatio ?? 0.98).toString()],
+    enable_pressure_advance: [(profile.pressureAdvance ?? 0.02) > 0 ? '1' : '0'],
+    pressure_advance: [(profile.pressureAdvance ?? 0.02).toString()],
+    filament_retraction_length: [(profile.retractionDistanceMm ?? 0.8).toString()],
+    filament_retraction_speed: [(profile.retractionSpeedMmS ?? 35).toString()],
+    filament_z_hop: [(profile.zHopMm ?? 0.4).toString()],
+
+    // 6. Legacy nested filament & metadata block for universal compatibility
     filament: {
       type: profile.material,
+      color: profile.materialColor,
+      nozzle_diameter: nozzleDia,
       nozzle_temperature: profile.nozzleTemp.toString(),
-      nozzle_temperature_initial_layer: (profile.nozzleTemp + 5).toString(),
       bed_temperature: profile.bedTemp.toString(),
-      bed_temperature_initial_layer: profile.bedTemp.toString(),
-      max_volumetric_speed: profile.material === 'PLA-CF' ? '18' : '22',
+      chamber_temperature: (profile.chamberTemp ?? 35).toString(),
+      max_volumetric_speed: (profile.flowRateMm3s || 21).toString(),
+      flow_ratio: (profile.flowRatio ?? 0.98).toString(),
+      pressure_advance: (profile.pressureAdvance ?? 0.02).toString(),
+      retraction_length: (profile.retractionDistanceMm ?? 0.8).toString(),
+      retraction_speed: (profile.retractionSpeedMmS ?? 35).toString(),
+      z_hop: (profile.zHopMm ?? 0.4).toString(),
     },
     metadata: {
       model_target: modelName,
@@ -65,9 +133,13 @@ export function generateBambuOrcaProfileJson(
 }
 
 /**
- * Đóng gói và tải xuống tệp dự án .3MF chuẩn OPC (Open Packaging Conventions)
- * Chứa lưới tam giác 3D thực tế (đã chuẩn hóa kích thước mm, không bị lỗi 1x1x1 của Fal.ai)
- * cùng cấu hình cắt lớp Bambu Studio / OrcaSlicer / PrusaSlicer.
+ * Đóng gói và tải xuống tệp dự án .3MF chuẩn OPC (Open Packaging Conventions) & Bambu Studio
+ * Chứa lưới tam giác 3D thực tế cùng đầy đủ:
+ * - 3D/3dmodel.model
+ * - Metadata/project_settings.config
+ * - Metadata/model_settings.config
+ * - Metadata/slice_info.config
+ * Giúp người dùng mở trực tiếp trong Bambu Studio / OrcaSlicer là có sẵn toàn bộ Profile để in ngay!
  */
 export function download3MFProject(
   geometry: THREE.BufferGeometry,
@@ -95,7 +167,6 @@ export function download3MFProject(
   const sizeZ = bbox.max.z - bbox.min.z;
   const maxDim = Math.max(sizeX, sizeY, sizeZ, 0.0001);
 
-  // Bảo vệ chống trường hợp mesh thô 1x1x1 từ Fal.ai chưa được scale
   if (maxDim < 5) {
     const scaleTo80Mm = 80 / maxDim;
     exportGeom.scale(scaleTo80Mm, scaleTo80Mm, scaleTo80Mm);
@@ -114,7 +185,6 @@ export function download3MFProject(
   const posAttr = exportGeom.getAttribute('position');
   const vertexCount = posAttr ? posAttr.count : 0;
 
-  // Xây dựng mảng XML hiệu năng cao cho <vertices> và <triangles>
   // Chuyển từ hệ tọa độ Three.js (Y-up) sang chuẩn máy in 3MF (Z-up, đơn vị millimeter, tâm bàn in 128,128)
   const vertexLines: string[] = new Array(vertexCount);
   for (let i = 0; i < vertexCount; i++) {
@@ -134,9 +204,10 @@ export function download3MFProject(
   }
 
   const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
+  <metadata name="Application">BambuStudio-01.10.00.00</metadata>
+  <metadata name="BambuStudio:3mfVersion">1</metadata>
   <metadata name="Title">${modelName}</metadata>
-  <metadata name="Application">PrintSim Pro CAD Slicer Studio</metadata>
   <resources>
     <object id="1" name="${safeName}" type="model">
       <mesh>
@@ -150,9 +221,50 @@ ${triangleLines.join('\n')}
     </object>
   </resources>
   <build>
-    <item objectid="1" />
+    <item objectid="1" printable="1" />
   </build>
 </model>`;
+
+  const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <object id="1">
+    <metadata key="name" value="${safeName}"/>
+    <metadata key="extruder" value="1"/>
+    <metadata key="layer_height" value="${profile.layerHeight}"/>
+    <metadata key="wall_loops" value="${profile.wallLoops}"/>
+    <metadata key="sparse_infill_density" value="${profile.infillDensity}%"/>
+    <metadata key="sparse_infill_pattern" value="${profile.infillType}"/>
+    <metadata key="enable_support" value="${profile.supportMode !== 'none' ? '1' : '0'}"/>
+    <part id="1" subtype="normal_part">
+      <metadata key="name" value="${safeName}"/>
+      <metadata key="face_count" value="${triCount}"/>
+    </part>
+  </object>
+  <plate>
+    <metadata key="plater_id" value="1"/>
+    <metadata key="plater_name" value="Laymor3D_Plate_1"/>
+    <metadata key="locked" value="false"/>
+    <model_instance>
+      <metadata key="object_id" value="1"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="1"/>
+    </model_instance>
+  </plate>
+</config>`;
+
+  const sliceInfoXml = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <header>
+    <header_item key="X-BBL-Client-Type" value="slicer"/>
+    <header_item key="X-BBL-Client-Version" value="01.10.00.00"/>
+  </header>
+  <plate>
+    <metadata key="index" value="1"/>
+    <metadata key="prediction" value="${metrics.estimatedPrintTimeSec}"/>
+    <metadata key="weight" value="${metrics.estimatedFilamentGrams}"/>
+    <filament id="1" type="${profile.material}" color="${profile.materialColor}" used_g="${metrics.estimatedFilamentGrams}" />
+  </plate>
+</config>`;
 
   const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -174,6 +286,8 @@ ${triangleLines.join('\n')}
     '[Content_Types].xml': strToU8(contentTypesXml),
     '3D/3dmodel.model': strToU8(modelXml),
     'Metadata/project_settings.config': strToU8(bambuJson),
+    'Metadata/model_settings.config': strToU8(modelSettingsXml),
+    'Metadata/slice_info.config': strToU8(sliceInfoXml),
   };
 
   const zipped = zipSync(zipFiles);
@@ -245,7 +359,6 @@ export function downloadBinarySTL(
   let offset = 84;
   for (let i = 0; i < triCount; i++) {
     const i3 = i * 3;
-    // Chuyển từ Three.js Y-up sang STL Z-up: (x, -z, y)
     pA.set(posAttr.getX(i3), -posAttr.getZ(i3), posAttr.getY(i3));
     pB.set(posAttr.getX(i3 + 1), -posAttr.getZ(i3 + 1), posAttr.getY(i3 + 1));
     pC.set(posAttr.getX(i3 + 2), -posAttr.getZ(i3 + 2), posAttr.getY(i3 + 2));
@@ -299,9 +412,11 @@ export function generateSampleGcode(
     `; ========================================================`,
     `; G-Code sinh bởi 3D PrintSim Pro - CoreXY Simulator`,
     `; Tên mô hình: ${modelName}`,
-    `; Vật liệu: ${profile.material} (${profile.materialColor})`,
-    `; Chiều cao lớp: ${profile.layerHeight} mm | Số lớp: ${metrics.totalLayers}`,
-    `; Tốc độ in: ${profile.printSpeed} mm/s | Mật độ ruột: ${profile.infillDensity}% (${profile.infillType})`,
+    `; Vật liệu: ${profile.material} (${profile.materialColor}) | Nozzle: ${profile.nozzleDiameter || 0.4} mm`,
+    `; Chiều cao lớp: ${profile.layerHeight} mm (Lớp 1: ${profile.firstLayerHeight || 0.2} mm) | Số lớp: ${metrics.totalLayers}`,
+    `; Vòng tường: ${profile.wallLoops} loops | Seam: ${profile.seamPosition || 'aligned'} | Ironing: ${profile.ironingEnabled ? 'Bật' : 'Tắt'}`,
+    `; Tốc độ in: ${profile.printSpeed} mm/s | Gia tốc: ${profile.defaultAcceleration || 10000} mm/s²`,
+    `; Mật độ ruột: ${profile.infillDensity}% (${profile.infillType})`,
     `; Thời gian in ước tính: ${Math.round(metrics.estimatedPrintTimeSec / 60)} phút`,
     `; Khối lượng nhựa: ${metrics.estimatedFilamentGrams} g`,
     `; ========================================================`,
@@ -327,7 +442,6 @@ export function generateSampleGcode(
     ``,
   ];
 
-  // Sinh mẫu 5 layer đầu tiên
   const maxSimLayers = Math.min(5, metrics.totalLayers);
   for (let l = 1; l <= maxSimLayers; l++) {
     const layerZ = (l * profile.layerHeight).toFixed(3);
@@ -336,7 +450,7 @@ export function generateSampleGcode(
     lines.push(`G1 Z${layerZ} F${profile.printSpeed * 60}`);
 
     if (l === 1 && profile.brimEnabled) {
-      lines.push(`;TYPE:BRIM`);
+      lines.push(`;TYPE:BRIM (${profile.brimType || 'outer_only'})`);
       lines.push(`G1 X-20 Y-20 F6000`);
       lines.push(`G1 X20 Y-20 E2.1 F${Math.round(profile.printSpeed * 30)}`);
       lines.push(`G1 X20 Y20 E2.1`);
@@ -394,18 +508,19 @@ export function downloadFile(filename: string, content: string, mimeType: string
  */
 export async function copyProfileToClipboard(profile: ISimulationProfile, metrics: ISlicingMetrics): Promise<boolean> {
   const text = [
-    `=== THÔNG SỐ CÀI ĐẶT IN 3D TỐI ƯU (3D PrintSim Pro) ===`,
+    `=== THÔNG SỐ CÀI ĐẶT IN 3D TỐI ƯU (3D PrintSim Pro - Bambu Studio) ===`,
     `- Tên Profile: ${profile.name}`,
-    `- Vật liệu: ${profile.material} (${profile.materialColor})`,
-    `- Chiều cao lớp (Layer Height): ${profile.layerHeight} mm`,
-    `- Số vòng tường (Wall Loops): ${profile.wallLoops}`,
-    `- Ruột in (Infill): ${profile.infillDensity}% (${profile.infillType})`,
-    `- Tốc độ in (Print Speed): ${profile.printSpeed} mm/s`,
-    `- Nhiệt độ đầu phun (Nozzle Temp): ${profile.nozzleTemp}°C`,
-    `- Nhiệt độ bàn in (Bed Temp): ${profile.bedTemp}°C`,
-    `- Cột chống (Support): ${profile.supportMode === 'tree' ? 'Tree Support (Cành Cây)' : profile.supportMode === 'normal' ? 'Normal (Lưới cột)' : 'Tắt Support'}`,
-    `- Vành bám bàn (Brim): ${profile.brimEnabled ? `Bật (${profile.brimWidthMm}mm)` : 'Tắt'}`,
-    `- Quạt làm mát: ${profile.coolingFanSpeed}%`,
+    `- Vật liệu: ${profile.material} (${profile.materialColor}) | Kim phun: ${profile.nozzleDiameter || 0.4}mm`,
+    `- Chiều cao lớp (Layer Height): ${profile.layerHeight} mm (Lớp 1: ${profile.firstLayerHeight || 0.2} mm)`,
+    `- Bề rộng nét (Line Width): ${profile.lineWidth || 0.42} mm (Outer Wall: ${profile.outerWallLineWidth || 0.42} mm)`,
+    `- Số vòng tường (Wall Loops): ${profile.wallLoops} | Nóc/Đáy: ${profile.topShellLayers ?? 4}/${profile.bottomShellLayers ?? 3} lớp`,
+    `- Ruột in (Infill): ${profile.infillDensity}% (${profile.infillType}) | Overlap: ${profile.infillOverlapPercent ?? 15}%`,
+    `- Bề mặt: Seam=${profile.seamPosition || 'aligned'} | Ironing=${profile.ironingEnabled ? 'Bật' : 'Tắt'} | Fuzzy Skin=${profile.fuzzySkin || 'none'}`,
+    `- Tốc độ in: ${profile.printSpeed} mm/s (Outer: ${profile.outerWallSpeed || 120} mm/s, Travel: ${profile.travelSpeed || 500} mm/s)`,
+    `- Nhiệt độ: Nozzle ${profile.nozzleTemp}°C | Bed ${profile.bedTemp}°C | Chamber ${profile.chamberTemp ?? 35}°C`,
+    `- Cột chống (Support): ${profile.supportMode === 'tree' ? `Tree (${profile.treeStyle || 'organic'})` : profile.supportMode === 'normal' ? 'Normal' : 'Tắt'} | Ngưỡng ${profile.supportAngleThreshold ?? 45}°`,
+    `- Bám bàn: Brim=${profile.brimEnabled ? `${profile.brimType || 'outer_only'} (${profile.brimWidthMm}mm)` : 'Tắt'} | Raft=${profile.raftLayers ?? 0} lớp`,
+    `- Đùn nhựa: Max Flow ${profile.flowRateMm3s || 21} mm³/s | Flow Ratio ${profile.flowRatio ?? 0.98} | PA ${profile.pressureAdvance ?? 0.02} | Retraction ${profile.retractionDistanceMm ?? 0.8}mm`,
     `- Thời gian in ước tính: ${Math.round(metrics.estimatedPrintTimeSec / 60)} phút`,
     `- Lượng nhựa tiêu hao: ${metrics.estimatedFilamentGrams}g`,
     `- Chi phí sản xuất ước tính: ${metrics.estimatedCostVnd.toLocaleString('vi-VN')} VNĐ`,

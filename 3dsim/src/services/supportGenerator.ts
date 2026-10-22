@@ -767,8 +767,9 @@ export function generateBambuSupportStructures(
     return supportGroup;
   }
 
+  const effectiveThreshold = profile.supportAngleThreshold || overhangThreshold || 45;
   const { patches, baseFootprintGrid, hullRadialProfile, centerX, centerZ } =
-    extractExteriorOverhangData(geometry, overhangThreshold);
+    extractExteriorOverhangData(geometry, effectiveThreshold);
 
   if (patches.length === 0) {
     return supportGroup;
@@ -796,23 +797,25 @@ export function generateBambuSupportStructures(
   });
 
   const style: TreeSupportStyle = profile.treeStyle || 'organic';
+  const branchDiameterScale = (profile.supportBranchDiameter || 2.2) / 2.2;
+  const branchAngleScale = (profile.supportBranchAngle || 45) / 45;
 
-  let dMerge = 13.0;
-  let tipRadius = 0.8;
-  let maxTrunkRadius = 2.3;
+  let dMerge = 13.0 * branchAngleScale;
+  let tipRadius = 0.8 * branchDiameterScale;
+  let maxTrunkRadius = 2.3 * branchDiameterScale;
 
   if (style === 'slim') {
-    dMerge = 10.0;
-    tipRadius = 0.65;
-    maxTrunkRadius = 1.85;
+    dMerge = 10.0 * branchAngleScale;
+    tipRadius = 0.65 * branchDiameterScale;
+    maxTrunkRadius = 1.85 * branchDiameterScale;
   } else if (style === 'strong') {
-    dMerge = 15.5;
-    tipRadius = 1.0;
-    maxTrunkRadius = 2.85;
+    dMerge = 15.5 * branchAngleScale;
+    tipRadius = 1.0 * branchDiameterScale;
+    maxTrunkRadius = 2.85 * branchDiameterScale;
   } else if (style === 'hybrid') {
-    dMerge = 13.5;
-    tipRadius = 0.85;
-    maxTrunkRadius = 2.5;
+    dMerge = 13.5 * branchAngleScale;
+    tipRadius = 0.85 * branchDiameterScale;
+    maxTrunkRadius = 2.5 * branchDiameterScale;
   }
 
   const branchGeoms: THREE.BufferGeometry[] = [];
@@ -1068,7 +1071,7 @@ export function generateBambuSupportStructures(
   }
 
   const mergedInterfaces = safeMergeGeometries(interfaceGeoms);
-  if (mergedInterfaces) {
+  if (mergedInterfaces && (profile.supportInterfaceLayers ?? 2) > 0) {
     const interfaceMesh = new THREE.Mesh(mergedInterfaces, interfaceMat);
     interfaceMesh.name = 'conformal_tree_interfaces';
     interfaceMesh.castShadow = true;

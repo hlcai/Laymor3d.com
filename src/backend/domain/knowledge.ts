@@ -1,10 +1,11 @@
 export type KnowledgeCategory =
-  | 'troubleshooting'        // Khắc phục lỗi in (stringing, warping, z-seam, elephant foot, delamination...)
-  | 'material_benchmark'      // Đặc tính & định mức nhựa (nhiệt độ, co ngót, sấy nhựa, độ bền)
-  | 'slicer_tuning'          // Tinh chỉnh OrcaSlicer / Bambu (Scarf seam, tree support, pressure advance)
-  | 'printer_hardware'       // Phần cứng máy in (vòi thép tôi, bàn PEI, quạt gió, buồng nhiệt)
-  | 'vietnam_environment'    // Khí hậu Việt Nam (độ ẩm 85-95% mùa nồm, vệ sinh PEI bằng Sunlight)
-  | 'commercial_practice';   // Kinh nghiệm vận hành xưởng in thương mại (tối ưu giờ máy, phế phẩm)
+  | 'simulator_defect_learning' // Lỗi thực tế & Giải thích chi tiết từ người dùng / chuyên gia để App giả lập học
+  | 'troubleshooting'           // Khắc phục lỗi in (stringing, warping, z-seam, elephant foot, delamination...)
+  | 'material_benchmark'        // Đặc tính & định mức nhựa (nhiệt độ, co ngót, sấy nhựa, độ bền)
+  | 'slicer_tuning'             // Tinh chỉnh OrcaSlicer / Bambu Studio (Scarf seam, tree support, pressure advance)
+  | 'printer_hardware'          // Phần cứng máy in (vòi thép tôi, bàn PEI, quạt gió, buồng nhiệt)
+  | 'vietnam_environment'       // Khí hậu Việt Nam (độ ẩm 85-95% mùa nồm, vệ sinh PEI bằng Sunlight)
+  | 'commercial_practice';      // Kinh nghiệm vận hành xưởng in thương mại (tối ưu giờ máy, phế phẩm)
 
 export interface ISlicerParameterOverride {
   layer_height?: number;
@@ -37,25 +38,45 @@ export interface ISlicerParameterOverride {
   [key: string]: any;
 }
 
+export interface ISimulatorDefectTriggerCondition {
+  paramKey?: string;                   // VD: 'printSpeed', 'nozzleTemp', 'bedTemp', 'retractionDistanceMm', 'infillDensity', 'wallLoops', 'coolingFanSpeed', 'supportTopZDistance'
+  operator?: '>' | '<' | '>=' | '<=' | '==' | '!=';
+  thresholdValue?: number | string | boolean;
+  description?: string;                // Mô tả điều kiện kích hoạt lỗi
+}
+
 export interface IKnowledgeEntry {
   id: string;
   title: string;
   category: KnowledgeCategory;
-  problemSymptom?: string;              // Dấu hiệu nhận biết lỗi hoặc câu hỏi kỹ thuật
-  rootCause?: string;                   // Nguyên nhân gốc rễ (vật lý, nhiệt học, khí hậu)
-  solutionText: string;                 // Giải pháp và hướng dẫn thực thi
-  slicerOverrides?: ISlicerParameterOverride; // Cấu hình thông số OrcaSlicer override cụ thể
+  defectType?: string;                  // Mã loại lỗi giả lập (overhang, warping, stringing, clogging, ringing, delamination, z_seam_scarring...)
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  problemSymptom?: string;              // Dấu hiệu nhận biết lỗi trên mẫu in thực tế
+  rootCause?: string;                   // Giải thích chi tiết nguyên nhân gốc rễ (vật lý, nhiệt học, cơ học)
+  solutionText: string;                 // Giải pháp khắc phục và hướng dẫn tối ưu thông số
+  slicerOverrides?: ISlicerParameterOverride; // Cấu hình thông số Bambu Studio / OrcaSlicer override
+  triggerCondition?: ISimulatorDefectTriggerCondition; // Điều kiện để App giả lập tự động phát hiện lỗi
+  autoFixPatch?: Record<string, any>;   // Bản vá tự động áp dụng lên ISimulationProfile trong /3dsim
+  submittedBy?: string;                 // ID người dùng đóng góp (VD: hlcai_admin, maker_vn...)
   applicablePrinters: string[];         // e.g. ['all'] hoặc ['bambu-x1c-p1s', 'creality-k1']
-  applicableFilaments: string[];        // e.g. ['PLA', 'PETG', 'TPU', 'ABS', 'Carbon Fiber']
-  applicableCategories?: string[];      // e.g. ['Figure / Anime', 'Mechanical', 'Household']
-  confidenceScore: number;              // 0 - 100 (độ tin cậy được cộng đồng chứng thực)
-  verificationCount: number;            // Số ca in thành công / xác nhận từ cộng đồng
-  sourcePlatform: 'reddit' | 'bambu_forum' | 'makerworld' | 'printables' | 'vietnam_community' | 'cnc_kitchen' | 'expert_curated';
-  sourceReference?: string;             // Nguồn bài viết / video / diễn đàn
+  applicableFilaments: string[];        // e.g. ['PLA', 'PETG', 'TPU', 'ABS', 'PLA-CF', 'ASA', 'PA-CF']
+  applicableCategories?: string[];
+  confidenceScore: number;              // 0 - 100 (độ tin cậy)
+  verificationCount: number;            // Số ca kiểm chứng
+  sourcePlatform:
+    | 'user_contributed'
+    | 'expert_curated'
+    | 'reddit'
+    | 'bambu_forum'
+    | 'makerworld'
+    | 'printables'
+    | 'vietnam_community'
+    | 'cnc_kitchen';
+  sourceReference?: string;
   tags: string[];
   createdAt: string;
   updatedAt: string;
-  isVerified: boolean;
+  isVerified: boolean;                  // Admin phê duyệt để App giả lập kích hoạt học chính thức
 }
 
 export interface IRiskWarning {

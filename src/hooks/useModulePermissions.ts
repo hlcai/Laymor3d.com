@@ -15,7 +15,10 @@ export function useModulePermissions() {
       const res = await fetch('/api/admin/config');
       const data = await res.json();
       if (res.ok && data.config?.modulePermissions) {
-        setMatrix(data.config.modulePermissions);
+        setMatrix({
+          ...DEFAULT_MODULE_PERMISSIONS,
+          ...data.config.modulePermissions,
+        });
       }
     } catch (err) {
       console.error('Lỗi tải cấu hình module permissions:', err);
@@ -30,11 +33,27 @@ export function useModulePermissions() {
 
   const isModuleVisible = useCallback(
     (moduleKey: SystemModuleKey, explicitRole?: UserRole): boolean => {
-      const role = explicitRole || currentUser?.role || 'user';
+      // Nếu kiểm tra ma trận theo explicitRole (ví dụ trong bảng AdminModulesManager)
+      if (explicitRole) {
+        if (!matrix[moduleKey]) return true;
+        return matrix[moduleKey][explicitRole] ?? true;
+      }
+
+      // Master Admin luôn thấy tất cả vùng chức năng
+      if (currentUser?.role === 'admin' || currentUser?.username === 'hlcai_admin') {
+        return true;
+      }
+
+      // Nếu tài khoản đang đăng nhập có cấu hình vùng hiển thị riêng (allowedModules) do Admin thiết lập
+      if (currentUser?.allowedModules && currentUser.allowedModules[moduleKey] !== undefined) {
+        return Boolean(currentUser.allowedModules[moduleKey]);
+      }
+
+      const role: UserRole = currentUser?.role || 'user';
       if (!matrix[moduleKey]) return true;
       return matrix[moduleKey][role] ?? true;
     },
-    [matrix, currentUser?.role]
+    [matrix, currentUser]
   );
 
   const toggleModuleForRole = async (
@@ -42,11 +61,10 @@ export function useModulePermissions() {
     role: UserRole,
     isEnabled: boolean
   ): Promise<boolean> => {
-    // Optimistic update
     setMatrix((prev) => ({
       ...prev,
       [moduleKey]: {
-        ...prev[moduleKey],
+        ...(prev[moduleKey] || DEFAULT_MODULE_PERMISSIONS[moduleKey]),
         [role]: isEnabled,
       },
     }));
@@ -62,7 +80,6 @@ export function useModulePermissions() {
           isEnabled,
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
         await fetchPermissions();
         return false;

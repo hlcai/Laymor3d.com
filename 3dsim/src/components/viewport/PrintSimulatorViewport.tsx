@@ -443,11 +443,23 @@ export function PrintSimulatorViewport({
       materialColor = new THREE.Color(0xff6b00); // Màu tường ngoài chuẩn Slicer (Orange)
     }
 
+    const isFuzzyActive = Boolean(profile.fuzzySkin && profile.fuzzySkin !== 'none');
+    const isIroningActive = Boolean(profile.ironingEnabled);
+
+    const baseRoughness =
+      profile.material === 'PLA'
+        ? 0.32
+        : profile.material === 'PETG'
+        ? 0.22
+        : profile.material === 'TPU'
+        ? 0.42
+        : 0.55;
+
     const printedMaterial = new THREE.MeshStandardMaterial({
       color: isHeatmapActive ? 0xffffff : materialColor,
       vertexColors: isHeatmapActive,
-      roughness: profile.material === 'PLA' ? 0.32 : profile.material === 'PETG' ? 0.22 : 0.55,
-      metalness: profile.material === 'PLA-CF' ? 0.35 : 0.08,
+      roughness: isFuzzyActive ? 0.86 : isIroningActive ? Math.max(0.12, baseRoughness - 0.14) : baseRoughness,
+      metalness: profile.material === 'PLA-CF' || profile.material === 'PA-CF' ? 0.38 : isIroningActive ? 0.22 : 0.08,
       clippingPlanes: clippingPlaneRef.current ? [clippingPlaneRef.current] : [],
       clipShadows: true,
       side: THREE.DoubleSide,
@@ -457,6 +469,121 @@ export function PrintSimulatorViewport({
     printedMesh.visible = viewMode !== 'filament_preview';
     printedMesh.castShadow = true;
     printedMesh.receiveShadow = true;
+
+    // 2.2.1 Hiệu ứng 3D Fuzzy Skin (Hạt nhám nghệ thuật trên bề mặt mẫu giả lập)
+    if (isFuzzyActive) {
+      const fuzzyThickness = profile.fuzzySkinThickness || 0.3;
+      const posAttr = clonedGeom.getAttribute('position');
+      const normAttr = clonedGeom.getAttribute('normal');
+      if (posAttr && normAttr) {
+        const step = Math.max(1, Math.floor(posAttr.count / 3200));
+        const fzPositions: number[] = [];
+        for (let i = 0; i < posAttr.count; i += step) {
+          const ny = normAttr.getY(i);
+          if (profile.fuzzySkin === 'outside' && Math.abs(ny) > 0.65) continue;
+          const jitter = ((Math.sin(i * 12.9898) * 43758.5453) % 1) * fuzzyThickness;
+          fzPositions.push(
+            posAttr.getX(i) + normAttr.getX(i) * jitter,
+            posAttr.getY(i) + normAttr.getY(i) * jitter,
+            posAttr.getZ(i) + normAttr.getZ(i) * jitter
+          );
+        }
+        const fzGeom = new THREE.BufferGeometry();
+        fzGeom.setAttribute('position', new THREE.Float32BufferAttribute(fzPositions, 3));
+        const fzMat = new THREE.PointsMaterial({
+          color: materialColor.clone().multiplyScalar(0.82),
+          size: Math.max(0.35, fuzzyThickness * 1.6),
+          clippingPlanes: clippingPlaneRef.current ? [clippingPlaneRef.current] : [],
+        });
+        const fzPoints = new THREE.Points(fzGeom, fzMat);
+        fzPoints.name = 'fuzzy_skin_overlay';
+        printedMesh.add(fzPoints);
+      }
+    }
+
+    // 2.2.2 Hiệu ứng 3D Top Surface Ironing (Mặt đỉnh là phẳng bóng kính)
+    if (isIroningActive) {
+      const posAttr = clonedGeom.getAttribute('position');
+      const normAttr = clonedGeom.getAttribute('normal');
+      const maxModelY = (clonedGeom.boundingBox?.max.y || 30);
+      if (posAttr && normAttr) {
+        const topTris: number[] = [];
+        const count = posAttr.count;
+        const triStride = Math.max(1, Math.floor(count / 3 / 4000)) * 3;
+        for (let i = 0; i < count - 2; i += triStride) {
+          const ny = (normAttr.getY(i) + normAttr.getY(i + 1) + normAttr.getY(i + 2)) / 3;
+          const py = (posAttr.getY(i) + posAttr.getY(i + 1) + posAttr.getY(i + 2)) / 3;
+          if (ny > 0.86 && py > maxModelY * 0.25) {
+            topTris.push(
+              posAttr.getX(i), posAttr.getY(i) + 0.04, posAttr.getZ(i),
+              posAttr.getX(i + 1), posAttr.getY(i + 1) + 0.04, posAttr.getZ(i + 1),
+              posAttr.getX(i + 2), posAttr.getY(i + 2) + 0.04, posAttr.getZ(i + 2)
+            );
+          }
+        }
+        if (topTris.length > 0) {
+          const ironGeom = new THREE.BufferGeometry();
+          ironGeom.setAttribute('position', new THREE.Float32BufferAttribute(topTris, 3));
+          ironGeom.computeVertexNormals();
+          const ironMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.28,
+            roughness: 0.05,
+            metalness: 0.85,
+            clippingPlanes: clippingPlaneRef.current ? [clippingPlaneRef.current] : [],
+          });
+          const ironMesh = new THREE.Mesh(ironGeom, ironMat);
+          ironMesh.name = 'ironing_top_cap';
+          printedMesh.add(ironMesh);
+        }
+      }
+    }
+
+    // 2.2.3 Hiển thị trực tiếp Đường nối Z-Seam (White Seam Dots) theo seamPosition & Layer Height
+    {
+      const seamMode = profile.seamPosition || 'aligned';
+      const modelBbox = clonedGeom.boundingBox || new THREE.Box3();
+      const minY = Math.max(0.2, modelBbox.min.y);
+      const maxY = modelBbox.max.y;
+      const cx = (modelBbox.min.x + modelBbox.max.x) / 2;
+      const cz = (modelBbox.min.z + modelBbox.max.z) / 2;
+      const rx = Math.max(2, (modelBbox.max.x - modelBbox.min.x) * 0.46);
+      const rz = Math.max(2, (modelBbox.max.z - modelBbox.min.z) * 0.46);
+      const stepY = Math.max(0.25, (profile.layerHeight || 0.2) * 2.2);
+      const seamPts: number[] = [];
+
+      let layerIdx = 0;
+      for (let y = minY + 0.3; y <= maxY - 0.3; y += stepY) {
+        layerIdx++;
+        let angle = Math.PI * 0.25; // aligned: góc trước-phải
+        if (seamMode === 'back') {
+          angle = -Math.PI * 0.5; // mặt lưng -Z
+        } else if (seamMode === 'nearest') {
+          angle = (layerIdx % 4) * (Math.PI * 0.5) + 0.3;
+        } else if (seamMode === 'random') {
+          angle = ((Math.sin(layerIdx * 91.7) * 43758.5453) % 1) * Math.PI * 2;
+        }
+        seamPts.push(cx + Math.cos(angle) * rx, y, cz + Math.sin(angle) * rz);
+      }
+
+      if (seamPts.length > 0) {
+        const seamGeom = new THREE.BufferGeometry();
+        seamGeom.setAttribute('position', new THREE.Float32BufferAttribute(seamPts, 3));
+        const retractionFactor = (profile.retractionDistanceMm ?? 0.8) < 0.3 ? 1.45 : 1.0;
+        const seamMat = new THREE.PointsMaterial({
+          color: 0xffffff,
+          size: Math.min(1.6, Math.max(0.55, (profile.layerHeight || 0.2) * 3.2 * retractionFactor)),
+          transparent: true,
+          opacity: 0.85,
+          clippingPlanes: clippingPlaneRef.current ? [clippingPlaneRef.current] : [],
+        });
+        const seamPointsObj = new THREE.Points(seamGeom, seamMat);
+        seamPointsObj.name = 'z_seam_indicator_group';
+        printedMesh.add(seamPointsObj);
+      }
+    }
+
     parentGroup.add(printedMesh);
     modelMeshRef.current = printedMesh;
 
@@ -581,13 +708,35 @@ export function PrintSimulatorViewport({
         modelTransform.scale
       );
     }
+    // Làm mới mặt cắt Toolpath khi đổi Wall Loops / Infill / Line Width
+    lastRenderedLayerRef.current = -1;
   }, [
     geometry,
     profile.material,
     profile.materialColor,
     profile.layerHeight,
+    profile.firstLayerHeight,
+    profile.lineWidth,
+    profile.outerWallLineWidth,
+    profile.wallLoops,
+    profile.infillDensity,
+    profile.infillType,
+    profile.seamPosition,
+    profile.ironingEnabled,
+    profile.fuzzySkin,
+    profile.fuzzySkinThickness,
     profile.supportMode,
+    profile.treeStyle,
+    profile.supportAngleThreshold,
+    profile.supportBranchDiameter,
+    profile.supportBranchAngle,
+    profile.supportInterfaceLayers,
     profile.brimEnabled,
+    profile.brimType,
+    profile.brimWidthMm,
+    profile.raftLayers,
+    profile.retractionDistanceMm,
+    profile.pressureAdvance,
     showHeatmap,
     showSupport,
     renderMode,
@@ -1828,11 +1977,25 @@ function updateSupportStructures(
   const existingBrim = parent.getObjectByName('brim_skirt_mesh');
   if (existingBrim) {
     parent.remove(existingBrim);
-    if (existingBrim instanceof THREE.Mesh) {
-      existingBrim.geometry.dispose();
-      if (Array.isArray(existingBrim.material)) existingBrim.material.forEach((m) => m.dispose());
-      else existingBrim.material.dispose();
-    }
+    existingBrim.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        c.geometry.dispose();
+        if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+        else c.material.dispose();
+      }
+    });
+  }
+
+  const existingRaft = parent.getObjectByName('raft_platform_mesh');
+  if (existingRaft) {
+    parent.remove(existingRaft);
+    existingRaft.traverse((c) => {
+      if (c instanceof THREE.Mesh || c instanceof THREE.LineSegments) {
+        c.geometry.dispose();
+        if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+        else c.material.dispose();
+      }
+    });
   }
 
   geometry.computeBoundingBox();
@@ -1842,23 +2005,70 @@ function updateSupportStructures(
   const centerX = (bbox.max.x + bbox.min.x) / 2;
   const centerZ = (bbox.max.z + bbox.min.z) / 2;
 
-  // 1. Vành bám bàn in Brim
-  if (profile.brimEnabled) {
-    const outerR = Math.max(dimX, dimZ) / 2 + (profile.brimWidthMm || 5);
-    const innerR = Math.max(dimX, dimZ) / 2;
-    const brimGeom = new THREE.RingGeometry(innerR, outerR, 48);
-    brimGeom.rotateX(-Math.PI / 2);
-    brimGeom.translate(centerX, 0.1, centerZ);
+  // 1. Vành bám bàn in Brim (Hỗ trợ Outer, Inner, Outer+Inner và Mouse-Ears 4 góc)
+  if (profile.brimEnabled && (profile.brimType || 'outer_only') !== 'none') {
+    const brimGroup = new THREE.Group();
+    brimGroup.name = 'brim_skirt_mesh';
+    const brimW = Math.max(1.5, profile.brimWidthMm || 5);
+    const brimType = profile.brimType || 'outer_only';
 
     const brimMat = new THREE.MeshBasicMaterial({
       color: 0x22c55e,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.68,
     });
-    const brimMesh = new THREE.Mesh(brimGeom, brimMat);
-    brimMesh.name = 'brim_skirt_mesh';
-    parent.add(brimMesh);
+
+    if (brimType === 'mouse_ears') {
+      const corners = [
+        [bbox.min.x + 2, bbox.min.z + 2],
+        [bbox.max.x - 2, bbox.min.z + 2],
+        [bbox.min.x + 2, bbox.max.z - 2],
+        [bbox.max.x - 2, bbox.max.z - 2],
+      ];
+      corners.forEach(([ex, ez]) => {
+        const earGeom = new THREE.CircleGeometry(brimW * 1.35, 24);
+        earGeom.rotateX(-Math.PI / 2);
+        earGeom.translate(ex, 0.12, ez);
+        brimGroup.add(new THREE.Mesh(earGeom, brimMat));
+      });
+    } else {
+      const baseR = Math.max(dimX, dimZ) / 2;
+      const innerR =
+        brimType === 'inner_only'
+          ? Math.max(1, baseR - brimW)
+          : brimType === 'outer_and_inner'
+          ? Math.max(1, baseR - brimW * 0.6)
+          : baseR;
+      const outerR = brimType === 'inner_only' ? baseR : baseR + brimW;
+
+      const brimGeom = new THREE.RingGeometry(innerR, outerR, 56);
+      brimGeom.rotateX(-Math.PI / 2);
+      brimGeom.translate(centerX, 0.1, centerZ);
+      brimGroup.add(new THREE.Mesh(brimGeom, brimMat));
+    }
+
+    parent.add(brimGroup);
+  }
+
+  // 1.5 Đế lót Raft đa lớp (Raft Platform)
+  if ((profile.raftLayers || 0) > 0) {
+    const raftGroup = new THREE.Group();
+    raftGroup.name = 'raft_platform_mesh';
+    const raftH = (profile.raftLayers || 1) * 0.28;
+    const raftW = dimX + 10;
+    const raftD = dimZ + 10;
+    const raftGeom = new THREE.BoxGeometry(raftW, raftH, raftD);
+    raftGeom.translate(centerX, raftH / 2, centerZ);
+    const raftMat = new THREE.MeshStandardMaterial({
+      color: 0x14b8a6,
+      roughness: 0.45,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.78,
+    });
+    raftGroup.add(new THREE.Mesh(raftGeom, raftMat));
+    parent.add(raftGroup);
   }
 
   const applyClipPlane = (root: THREE.Object3D) => {

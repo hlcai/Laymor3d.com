@@ -53,6 +53,8 @@ export function computeSlicingMetrics(
     PETG: 1.27,
     ABS: 1.04,
     TPU: 1.21,
+    ASA: 1.07,
+    'PA-CF': 1.22,
   };
   const density = densityMap[profile.material] || 1.24;
   const estimatedFilamentGrams = Number(Math.max(2, solidVolumeCm3 * density).toFixed(1));

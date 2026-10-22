@@ -144,44 +144,44 @@ const PROJECT_PHASES: ProjectPhase[] = [
   {
     id: 'phase-3',
     phaseNumber: 'Phase 03',
-    title: 'Bổ Sung & Hoàn Thiện Bộ Dữ Liệu Đầu Vào Chuẩn Bambu Studio',
-    subtitle: 'Chuẩn hóa toàn diện hệ thống thông số cắt lớp, cấu trúc cây chống (Support) và đường chạy sợi in thực tế',
-    timeline: 'Giai đoạn 3 • Trọng tâm đang triển khai',
-    progressPercent: 40,
+    title: 'Bổ Sung & Hoàn Thiện Bộ Dữ Liệu Đầu Vào Chuẩn Bambu Studio & Huấn Luyện Lỗi Thực Tế',
+    subtitle: 'Đồng bộ thông số điều chỉnh lên hình ảnh mẫu 3D tức thì, xuất file .3MF kèm đầy đủ Profile in ngay và học dữ liệu lỗi từ người dùng',
+    timeline: 'Giai đoạn 3 • Đã nâng cấp lõi thông số & xuất file .3MF',
+    progressPercent: 55,
     status: 'active',
-    statusLabel: 'Đang thực hiện (40%)',
+    statusLabel: 'Đang thực hiện (55%)',
     businessValue:
-      'Là phần lõi quan trọng nhất đang được xây dựng: giúp dữ liệu đầu vào đầy đủ, chuẩn xác theo đúng hệ quy chiếu của Bambu Studio.',
+      'Mọi thông số điều chỉnh bản in đều được thể hiện trực tiếp ngay trên mẫu 3D giả lập, xuất ra file .3MF có sẵn toàn bộ Profile để đưa vào Bambu Studio in luôn, đồng thời mở rộng kho lỗi thực tế có khả năng tự học.',
     steps: [
       {
         code: 'Bước 3.1',
-        title: 'Bổ sung & chuẩn hóa bộ thông số đầu vào theo Bambu Studio',
+        title: 'Hoàn thiện bộ thông số điều chỉnh bản in & thể hiện tức thì trên mẫu 3D giả lập',
         description:
-          'Rà soát và nhập liệu đầy đủ các nhóm thông số từ Bambu Studio (chiều cao lớp, số vách, kiểu ruột, tốc độ từng vùng, nhiệt độ và lưu lượng theo từng loại nhựa).',
-        status: 'in_progress',
-        deliverable: 'Bộ dữ liệu thông số chuẩn Bambu Studio',
+          'Bổ sung đầy đủ các nhóm thông số theo chuẩn Bambu Studio (độ dày lớp, bề rộng nét, vòng tường, mối nối, là phẳng mặt đỉnh, tạo nhám bề mặt, kiểu cây chống, vành bám bàn, đế lót, tốc độ, nhiệt độ buồng, lưu lượng) và hiển thị hiệu ứng ngay trên mô hình 3D.',
+        status: 'completed',
+        deliverable: 'Bộ thông số & Hiển thị 3D thời gian thực',
       },
       {
         code: 'Bước 3.2',
-        title: 'Hoàn thiện dữ liệu cấu trúc cây chống (Tree Support) & Sợi in',
+        title: 'Đóng gói tệp .3MF xuất ra kèm đầy đủ Profile để đưa vào Bambu Studio in ngay',
         description:
-          'Bóc tách và nạp dữ liệu đường chạy dao thực tế từ Bambu Studio để hiển thị chính xác vị trí nhánh chống và lượng nhựa tiêu hao phụ trợ.',
-        status: 'in_progress',
-        deliverable: 'Kho dữ liệu Support & Đường chạy chuẩn',
+          'Tích hợp toàn bộ thông số tinh chỉnh của bản in vào cấu trúc tệp dự án .3MF chuẩn, giúp kỹ thuật viên mở trực tiếp trên Bambu Studio là có sẵn đầy đủ cấu hình để in luôn.',
+        status: 'completed',
+        deliverable: 'Trình xuất tệp .3MF chuẩn Bambu Studio',
       },
       {
         code: 'Bước 3.3',
-        title: 'Mở rộng tập dữ liệu mẫu đa hình thái (Benchmark Dataset)',
+        title: 'Mở rộng hơn 17 nhóm lỗi thực tế & Cổng thu thập dữ liệu lỗi từ người dùng',
         description:
-          'Bổ sung thêm nhiều mẫu phôi thực tế có độ khó khác nhau (khớp động, góc nghiêng lớn, chi tiết mảnh) để làm giàu kho dữ liệu.',
+          'Bổ sung chẩn đoán chi tiết các lỗi thực tế tại xưởng (sập gãy góc nghiêng, võng cầu, cong vênh góc, phình chân voi, hụt dòng nhựa, tắc kim sợi carbon, tách lớp, tơ nhện, gợn sóng vách...) kèm tính năng cho người dùng nhập lỗi và giải thích chi tiết gửi về cơ sở dữ liệu để hệ thống học thêm kiến thức.',
         status: 'in_progress',
-        deliverable: 'Bộ dữ liệu mẫu đa kịch bản',
+        deliverable: 'Hệ thống chẩn đoán & Học dữ liệu lỗi thực tế',
       },
       {
         code: 'Bước 3.4',
-        title: 'Đồng bộ hóa sai số giữa tính toán phần mềm và thực nghiệm',
+        title: 'Đồng bộ hóa sai số giữa tính toán phần mềm và thực nghiệm đa dòng máy',
         description:
-          'Cân chỉnh lại hệ số thời gian di chuyển đầu in và lượng nhựa xả để kết quả tính toán khớp với Bambu Studio.',
+          'Tiếp tục hiệu chuẩn hệ số thời gian di chuyển đầu in và lượng nhựa xả thực tế trên nhiều dòng vật liệu kỹ thuật khác nhau.',
         status: 'upcoming',
         deliverable: 'Bảng hiệu chuẩn độ chính xác dữ liệu',
       },
@@ -236,46 +236,46 @@ const PROJECT_PHASES: ProjectPhase[] = [
   {
     id: 'phase-5',
     phaseNumber: 'Phase 05',
-    title: 'Xây Dựng Hệ Thống Tài Khoản Admin, Nhân Viên & Khách Hàng',
-    subtitle: 'Phát triển hệ thống định danh bảo mật, phân quyền nghiệp vụ thực tế và quy trình phối hợp nội bộ',
-    timeline: 'Giai đoạn 5 • Đang xây dựng luồng thực',
-    progressPercent: 15,
+    title: 'Xây Dựng Hệ Thống Đăng Nhập Tài Khoản & Phân Quyền Chi Tiết Từng Vùng Chức Năng',
+    subtitle: 'Bỏ chế độ chọn tài khoản giả lập, triển khai cổng đăng nhập riêng cùng quyền Quản trị viên tối cao kiểm soát từng vùng hiển thị và kho tri thức',
+    timeline: 'Giai đoạn 5 • Đã triển khai Đăng nhập & Phân quyền Admin',
+    progressPercent: 45,
     status: 'active',
-    statusLabel: 'Đang xây dựng (15%)',
+    statusLabel: 'Đang xây dựng (45%)',
     businessValue:
-      'Thay thế hoàn toàn cơ chế chuyển đổi tài khoản mẫu hiện tại bằng hệ thống tài khoản thực tế, phân tách rõ Admin, Nhân viên và Khách hàng.',
+      'Loại bỏ hoàn toàn kiểu chọn tài khoản giả lập; vận hành hệ thống đăng nhập riêng biệt với tài khoản Admin toàn quyền tạo tài khoản trải nghiệm, tắt/mở từng vùng giao diện và từng chức năng cho mỗi người dùng.',
     steps: [
       {
         code: 'Bước 5.1',
-        title: 'Xây dựng hệ thống Tài khoản Khách hàng (Customer Account)',
+        title: 'Triển khai hệ thống đăng nhập riêng & Tài khoản Quản trị viên tối cao (Master Admin)',
         description:
-          'Hoàn thiện luồng đăng ký, đăng nhập bảo mật, quản lý kho tệp 3D cá nhân, lưu cấu hình riêng và theo dõi lịch sử đơn hàng thực tế.',
-        status: 'in_progress',
-        deliverable: 'Phân hệ Tài khoản Khách hàng thực',
+          'Bỏ hoàn toàn thanh chuyển đổi tài khoản giả lập cũ; thiết lập cổng đăng nhập xác thực bằng ID và Mật khẩu riêng với tài khoản Admin nắm toàn quyền điều khiển hệ thống.',
+        status: 'completed',
+        deliverable: 'Hệ thống Đăng nhập & Xác thực thực tế',
       },
       {
         code: 'Bước 5.2',
-        title: 'Xây dựng phân hệ làm việc cho Nhân viên Xưởng (Staff Portal)',
+        title: 'Công cụ tạo tài khoản trải nghiệm & Tắt/Mở từng vùng hiển thị, từng chức năng theo người dùng',
         description:
-          'Thiết kế màn hình nghiệp vụ riêng cho nhân viên kỹ thuật: nhận lệnh sản xuất, cập nhật tiến độ máy in, báo cáo lỗi và xác nhận hoàn tất hậu kỳ.',
-        status: 'upcoming',
-        deliverable: 'Phân hệ Điều phối dành cho Nhân viên',
+          'Cho phép Admin tạo tài khoản người dùng mới và cấu hình chi tiết từng vùng giao diện tài khoản đó được phép nhìn thấy cũng như từng chức năng cụ thể được phép sử dụng.',
+        status: 'completed',
+        deliverable: 'Bảng kiểm soát vùng hiển thị & quyền chức năng',
       },
       {
         code: 'Bước 5.3',
-        title: 'Hoàn thiện Trung tâm Quản trị Hệ thống (Admin Control Center)',
+        title: 'Quyền Admin truy cập, kiểm duyệt & chỉnh sửa kho tri thức của bộ giả lập',
         description:
-          'Xây dựng công cụ quản trị thực tế cho Admin: quản lý tài khoản nhân viên & khách hàng, phân quyền chi tiết, cấu hình đơn giá và kiểm duyệt toàn hệ thống.',
-        status: 'in_progress',
-        deliverable: 'Hệ thống Quản trị Admin chuyên sâu',
+          'Admin có toàn quyền xem, chỉnh sửa nội dung giải thích, phê duyệt kích hoạt hoặc xóa các quy tắc lỗi do người dùng gửi về cơ sở dữ liệu tri thức.',
+        status: 'completed',
+        deliverable: 'Trình quản trị Tri thức Giả lập (Admin)',
       },
       {
         code: 'Bước 5.4',
-        title: 'Xây dựng cổng Đối tác Thiết kế & Kiểm duyệt viên (Seller & Mod)',
+        title: 'Hoàn thiện phân hệ điều phối ca làm việc cho Nhân viên xưởng & Đối tác',
         description:
-          'Cho phép nhà thiết kế tải mẫu thương mại lên chợ, kiểm duyệt viên rà soát chất lượng file trước khi mở bán và đối soát doanh thu.',
-        status: 'upcoming',
-        deliverable: 'Quy trình kiểm duyệt & tài khoản Seller',
+          'Tiếp tục mở rộng các màn hình nghiệp vụ chuyên sâu cho nhân viên vận hành dàn máy in tại xưởng và đối tác kiểm duyệt mẫu.',
+        status: 'in_progress',
+        deliverable: 'Phân hệ Nghiệp vụ Nhân viên & Đối tác',
       },
     ],
   },
@@ -428,23 +428,23 @@ const CURRENT_FOCUS_AREAS = [
     badgeColor: 'bg-rose-50 text-rose-800 border-rose-200',
   },
   {
-    title: '2. Bổ Sung & Hoàn Thiện Bộ Dữ Liệu Đầu Vào Theo Bambu Studio',
-    status: 'Đang thực hiện (40%)',
-    desc: 'Phần dữ liệu đầu vào hiện vẫn chưa hoàn thiện. Đội ngũ đang tiếp tục bóc tách, chuẩn hóa và nạp bổ sung bộ thông số cắt lớp, cấu trúc cây chống (Support) và đường chạy sợi in chuẩn từ Bambu Studio.',
+    title: '2. Hoàn Thiện Thông Số Bambu Studio, Xuất .3MF In Ngay & Học Lỗi Thực Tế',
+    status: 'Đang thực hiện (55%)',
+    desc: 'Đã bổ sung bộ thông số hiển thị trực tiếp trên mẫu 3D giả lập, xuất file .3MF có sẵn đầy đủ Profile để đưa vào Bambu Studio in luôn, mở rộng 17+ nhóm lỗi thực tế và cổng cho người dùng đóng góp lỗi kèm giải thích về cơ sở dữ liệu.',
     icon: Database,
     badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
   },
   {
     title: '3. Xây Dựng Tính Năng Đối Chiếu & So Sánh Thông Số',
-    status: 'Đang phát triển (20%)',
+    status: 'Đang phát triển (25%)',
     desc: 'Phát triển công cụ đối chiếu trực tiếp giữa các cấu hình in, so sánh thông số người dùng tinh chỉnh với thông số gốc của Bambu Studio để đánh giá mức độ chênh lệch chi phí, thời gian và chất lượng.',
     icon: GitCompare,
     badgeColor: 'bg-cyan-50 text-cyan-800 border-cyan-200',
   },
   {
-    title: '4. Xây Dựng Hệ Thống Tài Khoản Admin, Nhân Viên & Khách Hàng',
-    status: 'Đang phát triển (15%)',
-    desc: 'Hiện trên web mới chỉ là nút chuyển đổi vai trò giả lập để xem thử giao diện. Cần xây dựng toàn bộ hệ thống đăng nhập, bảo mật phân quyền và màn hình làm việc riêng biệt cho Admin, Nhân viên xưởng và Khách hàng.',
+    title: '4. Hệ Thống Đăng Nhập Riêng, Phân Quyền Từng Vùng & Quản Trị Tri Thức',
+    status: 'Đang hoàn thiện (45%)',
+    desc: 'Đã bỏ kiểu chọn tài khoản giả lập, triển khai hệ thống đăng nhập riêng cùng tài khoản Admin toàn quyền: tạo tài khoản trải nghiệm, tắt/mở từng vùng hiển thị & chức năng của từng người dùng, và chỉnh sửa kho kiến thức của bộ giả lập.',
     icon: Users,
     badgeColor: 'bg-indigo-50 text-indigo-800 border-indigo-200',
   },
@@ -477,10 +477,10 @@ const BUSINESS_MODULES = [
     icon: Sparkles,
   },
   {
-    name: 'Bộ Giả Lập & Dữ Liệu Chuẩn Bambu Studio (/3dsim)',
-    role: 'Đang bổ sung và hoàn thiện bộ dữ liệu đầu vào theo chuẩn Bambu Studio (hiện dữ liệu vẫn chưa xong)',
-    progress: 40,
-    status: 'Đang nạp dữ liệu',
+    name: 'Bộ Giả Lập, Xuất .3MF & Học Lỗi Chuẩn Bambu Studio (/3dsim)',
+    role: 'Thể hiện thông số ngay trên mẫu 3D, xuất .3MF đầy đủ Profile in luôn, cảnh báo 17+ lỗi thực tế & học kiến thức lỗi từ người dùng',
+    progress: 55,
+    status: 'Đang hoàn thiện',
     statusStyle: 'bg-amber-50 text-amber-800 border-amber-200',
     href: '/3dsim',
     icon: Cpu,
@@ -489,7 +489,7 @@ const BUSINESS_MODULES = [
   {
     name: 'Tính Năng Đối Chiếu Thông Số & Kiểm Định Chéo',
     role: 'Đối chiếu trực tiếp thông số giữa các phiên chạy và so sánh với tiêu chuẩn gốc Bambu Studio',
-    progress: 20,
+    progress: 25,
     status: 'Đang phát triển',
     statusStyle: 'bg-cyan-50 text-cyan-800 border-cyan-200',
     href: '/3dsim',
@@ -497,10 +497,10 @@ const BUSINESS_MODULES = [
     isExternalSpa: true,
   },
   {
-    name: 'Hệ Thống Tài Khoản Admin, Nhân Viên & Khách Hàng',
-    role: 'Đang xây dựng hệ thống đăng nhập, phân quyền thực tế và không gian làm việc riêng cho từng vai trò',
-    progress: 15,
-    status: 'Chưa hoàn thiện',
+    name: 'Hệ Thống Đăng Nhập, Quản Trị Vùng Hiển Thị & Kho Tri Thức (/admin)',
+    role: 'Đã có đăng nhập riêng & Master Admin toàn quyền tạo tài khoản, tắt/mở vùng chức năng cho từng người dùng và chỉnh sửa tri thức giả lập',
+    progress: 45,
+    status: 'Đang mở rộng',
     statusStyle: 'bg-indigo-50 text-indigo-800 border-indigo-200',
     href: '/admin',
     icon: Users,
@@ -589,7 +589,7 @@ export default function InvestorOverviewPage() {
           {/* Executive KPI Summary Grid */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4 shrink-0 lg:w-[370px]">
             <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 text-center">
-              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700">~38%</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700">~44%</div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-amber-900/70 mt-1">
                 Tiến Độ Toàn Lộ Trình
               </div>
@@ -620,13 +620,13 @@ export default function InvestorOverviewPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-bold text-slate-700 mb-2">
             <span>TIẾN ĐỘ TỔNG THỂ TRÊN TOÀN BỘ 8 GIAI ĐOẠN PHÁT TRIỂN (PHASE 01 – PHASE 08)</span>
             <span className="text-amber-700 font-mono">
-              Đạt ~38% • Đang trong giai đoạn thử nghiệm, chỉnh sửa UI/UX &amp; nạp dữ liệu
+              Đạt ~44% • Đã nâng cấp thông số 3D, xuất .3MF, học lỗi &amp; hệ thống tài khoản Admin
             </span>
           </div>
           <div className="w-full h-3 rounded-full bg-slate-100 border border-slate-200/80 overflow-hidden p-0.5">
             <div
               className="h-full rounded-full bg-gradient-to-r from-cyan-600 via-sky-500 to-amber-500 transition-all duration-500"
-              style={{ width: '38%' }}
+              style={{ width: '44%' }}
             />
           </div>
         </div>

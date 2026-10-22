@@ -28,7 +28,12 @@ import {
   computeProSlicerTelemetry,
   generateSurroundingGcodeBlock,
 } from '@/services/proSlicerLocalEngine';
-import { runPreflightInspection } from '@/services/preflightAnalyzer';
+import {
+  runPreflightInspection,
+  fetchLearnedDefectRulesFromDB,
+  ICustomDefectKnowledgeRule,
+} from '@/services/preflightAnalyzer';
+import { DefectKnowledgeModal } from '@/components/controls/DefectKnowledgeModal';
 import { embedProtocol } from '@/services/embedProtocol';
 import {
   clearAllSupportCaches,
@@ -105,10 +110,19 @@ export default function App() {
   const [selectedReportLogId, setSelectedReportLogId] = useState<string | null>(null);
   const [isModelLibraryOpen, setIsModelLibraryOpen] = useState<boolean>(false);
   const [isAI3DModalOpen, setIsAI3DModalOpen] = useState<boolean>(false);
+  const [isDefectKnowledgeOpen, setIsDefectKnowledgeOpen] = useState<boolean>(false);
+  const [learnedDefectRules, setLearnedDefectRulesState] = useState<ICustomDefectKnowledgeRule[]>([]);
   const [hasGeminiKey, setHasGeminiKey] = useState<boolean>(() => {
     return getSavedGeminiApiKey().length > 0;
   });
   const captureSnapshotRef = useRef<(() => string | null) | null>(null);
+
+  // Nạp quy tắc lỗi học từ Knowledge Database (/api/knowledge) khi khởi động
+  useEffect(() => {
+    fetchLearnedDefectRulesFromDB().then((rules) => {
+      setLearnedDefectRulesState(rules);
+    });
+  }, []);
 
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
   const [showToolhead, setShowToolhead] = useState<boolean>(true);
@@ -126,8 +140,8 @@ export default function App() {
   }, [geometry, profile, modelTransform.scale]);
 
   const preflightReport = React.useMemo(() => {
-    return runPreflightInspection(geometry, profile, slicingMetrics);
-  }, [geometry, profile, slicingMetrics]);
+    return runPreflightInspection(geometry, profile, slicingMetrics, learnedDefectRules);
+  }, [geometry, profile, slicingMetrics, learnedDefectRules]);
 
   // 5. Simulation State (Mặc định hiển thị 100% mô hình hoàn thiện rõ ràng ngay khi mở)
   const [simulationState, setSimulationState] = useState<ISimulationState>(() => ({
@@ -689,6 +703,7 @@ export default function App() {
         onOpenSupabaseHub={() => setIsSupabaseHubOpen(true)}
         isSupabaseConnected={isSupabaseConnected}
         onOpenAI3DModal={() => setIsAI3DModalOpen(true)}
+        onOpenDefectKnowledgeModal={() => setIsDefectKnowledgeOpen(true)}
         theme={theme}
         onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
       />
@@ -841,6 +856,16 @@ export default function App() {
           setSimulationState((prev) => ({ ...prev, isPlaying: true, isCompleted: false }));
         }}
         profile={profile}
+        onOpenDefectKnowledgeModal={() => setIsDefectKnowledgeOpen(true)}
+      />
+
+      {/* 5.05. Defect Knowledge Base & User/Admin Learning Modal */}
+      <DefectKnowledgeModal
+        isOpen={isDefectKnowledgeOpen}
+        onClose={() => setIsDefectKnowledgeOpen(false)}
+        currentProfile={profile}
+        onRulesUpdated={(rules) => setLearnedDefectRulesState(rules)}
+        onApplyFix={handleApplyFix}
       />
 
       {/* 5.1. Live Telemetry & Locked Report Parameters Inspector Modal */}

@@ -4,17 +4,20 @@ import { ISlicingMetrics } from './slicingEngine';
 
 export interface IActiveDefectAlert {
   layer: number;
-  type: 'overhang' | 'warping' | 'temperature' | 'speed';
+  type: 'overhang' | 'warping' | 'temperature' | 'speed' | 'stringing' | 'elephant_foot' | 'delamination';
   title: string;
   message: string;
   autoFixAction?: Partial<ISimulationProfile>;
 }
 
 /**
- * Tạo mô hình 3D trực quan hóa các lỗi in thực tế:
+ * Tạo mô hình 3D trực quan hóa các lỗi in thực tế ngay trên phôi mẫu giả lập:
  * 1. Sợi nhựa Spaghetti rơi vãi, võng xệ khi Overhang thiếu support
  * 2. Góc chân đế bốc cong vênh (Warping corner peel) nhấc khỏi bàn in
- * 3. Tơ mạng nhện Stringing giữa các chi tiết
+ * 3. Phình chân voi (Elephant's Foot Flare) tại các lớp đáy quá nhiệt
+ * 4. Tơ mạng nhện (Stringing Cobwebs) giăng ngang giữa các vách khi thiếu Retraction / quá nhiệt
+ * 5. Gợn sóng rung động (Ringing / Ghosting Ripples) dọc vách khi gia tốc quá cao
+ * 6. Vết nứt tách lớp (Layer Delamination Cracks) ở thân giữa khi thiếu nhiệt buồng
  */
 export function generateDefect3DGroup(
   geometry: THREE.BufferGeometry,
@@ -30,19 +33,17 @@ export function generateDefect3DGroup(
   const [dimX, dimY, dimZ] = metrics.boundingBox.dimensions;
 
   // 1. Mô phỏng SỢI NHỰA SPAGHETTI / VÕNG XỆ (Overhang Failure)
-  const hasOverhangError = report.errors.some((e) => e.type === 'overhang');
+  const hasOverhangError = report.errors.some((e) => e.type === 'overhang' || e.type === 'bridging');
   if (hasOverhangError && profile.supportMode === 'none') {
     const spaghettiGroup = new THREE.Group();
     spaghettiGroup.name = 'spaghetti_failure';
 
-    // Tạo các chùm dây nhựa rơi tự do uốn lượn hình sin/nhiễu
     const strandMaterial = new THREE.LineBasicMaterial({
-      color: 0xff3b30, // Đỏ cảnh báo khuyết tật rơi nhựa
+      color: 0xff3b30,
       linewidth: 2,
     });
 
-    const strandCount = 14;
-    // Điểm xuất phát tại các vùng nhô (mũi tàu, vòm cửa hoặc cạnh nhô)
+    const strandCount = 16;
     const startY = dimY * 0.45;
 
     for (let s = 0; s < strandCount; s++) {
@@ -56,7 +57,6 @@ export function generateDefect3DGroup(
       for (let p = 0; p <= numPoints; p++) {
         const t = p / numPoints;
         const curY = startY * (1 - t);
-        // Độ võng uốn lượn ngẫu nhiên
         const curlX = startX + Math.sin(t * 6 + s) * 2.5 * t;
         const curlZ = startZ + Math.cos(t * 5 + s) * 2.5 * t;
         points.push(new THREE.Vector3(curlX, curY, curlZ));
@@ -67,7 +67,6 @@ export function generateDefect3DGroup(
       spaghettiGroup.add(strandLine);
     }
 
-    // Đống nhựa nhão rơi xuống sàn bàn in (Puddle mess on bed)
     const puddleGeom = new THREE.RingGeometry(0.5, 4.5, 12);
     puddleGeom.rotateX(-Math.PI / 2);
     puddleGeom.translate(dimX * 0.35, 0.2, dimZ * 0.2);
@@ -84,12 +83,11 @@ export function generateDefect3DGroup(
   }
 
   // 2. Mô phỏng CONG VÊNH TRÓC BÀN (Warping Corner Lift)
-  const hasWarpingError = report.errors.some((e) => e.type === 'warping');
+  const hasWarpingError = report.errors.some((e) => e.type === 'warping' || e.type === 'knock_over');
   if (hasWarpingError && !profile.brimEnabled) {
     const warpingGroup = new THREE.Group();
     warpingGroup.name = 'warping_peel';
 
-    // 4 góc chân đế bị cong vênh vểnh lên khỏi bàn in
     const corners = [
       [-dimX / 2, -dimZ / 2],
       [dimX / 2, -dimZ / 2],
@@ -98,21 +96,18 @@ export function generateDefect3DGroup(
     ];
 
     const warpMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b, // Màu vàng cam ứng suất nhiệt
+      color: 0xf59e0b,
       roughness: 0.3,
       side: THREE.DoubleSide,
     });
 
-    corners.forEach(([cx, cz], idx) => {
-      // Tấm tam giác bốc cong vênh cao 2.5mm
+    corners.forEach(([cx, cz]) => {
       const warpGeom = new THREE.BufferGeometry();
       const vertices = new Float32Array([
-        cx, 0, cz, // Đỉnh góc bị nhấc lên
-        cx * 0.7, 0, cz, // Cạnh dưới bám sàn
-        cx, 0, cz * 0.7, // Cạnh bên bám sàn
+        cx, 2.8, cz,
+        cx * 0.7, 0, cz,
+        cx, 0, cz * 0.7,
       ]);
-      // Nâng đỉnh góc lên 2.5mm
-      vertices[1] = 2.8;
 
       warpGeom.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
       warpGeom.computeVertexNormals();
@@ -120,7 +115,6 @@ export function generateDefect3DGroup(
       const warpMesh = new THREE.Mesh(warpGeom, warpMat);
       warpingGroup.add(warpMesh);
 
-      // Mũi tên cảnh báo nhấc bàn
       const arrowGeom = new THREE.ConeGeometry(0.8, 2, 8);
       arrowGeom.translate(cx * 0.95, 3.8, cz * 0.95);
       const arrowMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
@@ -129,6 +123,101 @@ export function generateDefect3DGroup(
     });
 
     defectGroup.add(warpingGroup);
+  }
+
+  // 3. Mô phỏng PHÌNH CHÂN VOI (Elephant's Foot Flare) tại 3 lớp đáy
+  const hasElephantFoot = report.errors.some((e) => e.type === 'elephant_foot');
+  if (hasElephantFoot) {
+    const baseR = Math.max(dimX, dimZ) * 0.48;
+    const flareGeom = new THREE.TorusGeometry(baseR, 0.9, 10, 36);
+    flareGeom.rotateX(Math.PI / 2);
+    flareGeom.translate(0, 0.45, 0);
+    const flareMat = new THREE.MeshStandardMaterial({
+      color: 0xf97316,
+      emissive: 0xea580c,
+      emissiveIntensity: 0.35,
+      roughness: 0.4,
+    });
+    const flareMesh = new THREE.Mesh(flareGeom, flareMat);
+    flareMesh.name = 'elephant_foot_flare';
+    defectGroup.add(flareMesh);
+  }
+
+  // 4. Mô phỏng TƠ MẠNG NHỆN (Stringing Cobwebs)
+  const hasStringing = report.errors.some((e) => e.type === 'stringing' || e.type === 'moisture_bubbling');
+  if (hasStringing) {
+    const stringGroup = new THREE.Group();
+    stringGroup.name = 'stringing_cobwebs';
+    const webMat = new THREE.LineBasicMaterial({
+      color: 0xfde047,
+      transparent: true,
+      opacity: 0.75,
+    });
+    const r = Math.max(dimX, dimZ) * 0.42;
+    for (let i = 0; i < 18; i++) {
+      const a1 = (i * 1.7) % (Math.PI * 2);
+      const a2 = a1 + 1.2 + (i % 3) * 0.4;
+      const y1 = dimY * (0.35 + ((i * 0.07) % 0.5));
+      const y2 = y1 + ((i % 2 === 0 ? 1 : -1) * 2.2);
+      const p1 = new THREE.Vector3(Math.cos(a1) * r, y1, Math.sin(a1) * r);
+      const pMid = new THREE.Vector3(
+        ((Math.cos(a1) + Math.cos(a2)) * r) / 2,
+        Math.min(y1, y2) - 1.1,
+        ((Math.sin(a1) + Math.sin(a2)) * r) / 2
+      );
+      const p2 = new THREE.Vector3(Math.cos(a2) * r, y2, Math.sin(a2) * r);
+      const curve = new THREE.QuadraticBezierCurve3(p1, pMid, p2);
+      const webGeom = new THREE.BufferGeometry().setFromPoints(curve.getPoints(8));
+      stringGroup.add(new THREE.Line(webGeom, webMat));
+    }
+    defectGroup.add(stringGroup);
+  }
+
+  // 5. Mô phỏng GỢN SÓNG RUNG ĐỘNG (Ringing / Ghosting Ripples)
+  const hasRinging = report.errors.some((e) => e.type === 'ringing');
+  if (hasRinging) {
+    const ringGroup = new THREE.Group();
+    ringGroup.name = 'ringing_ripples';
+    const rippleMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.7 });
+    const halfX = dimX * 0.48;
+    const halfZ = dimZ * 0.48;
+    for (let w = 0; w < 6; w++) {
+      const zOff = -halfZ * 0.6 + (w / 5) * (halfZ * 1.2);
+      const pts: THREE.Vector3[] = [];
+      for (let s = 0; s <= 16; s++) {
+        const t = s / 16;
+        const y = dimY * (0.15 + t * 0.7);
+        const rippleX = halfX + Math.sin(t * Math.PI * 8 + w) * 0.65;
+        pts.push(new THREE.Vector3(rippleX, y, zOff));
+      }
+      ringGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), rippleMat));
+    }
+    defectGroup.add(ringGroup);
+  }
+
+  // 6. Mô phỏng TÁCH LỚP THÂN GIỮA (Layer Delamination Cracks)
+  const hasDelamination = report.errors.some((e) => e.type === 'delamination');
+  if (hasDelamination) {
+    const crackGroup = new THREE.Group();
+    crackGroup.name = 'delamination_cracks';
+    const crackMat = new THREE.LineBasicMaterial({ color: 0xf43f5e, linewidth: 2 });
+    const r = Math.max(dimX, dimZ) * 0.48;
+    [0.42, 0.68].forEach((ratio, idx) => {
+      const y = dimY * ratio;
+      const pts: THREE.Vector3[] = [];
+      for (let a = 0; a <= 24; a++) {
+        const ang = (a / 24) * Math.PI * 1.2 + idx;
+        pts.push(
+          new THREE.Vector3(
+            Math.cos(ang) * r,
+            y + Math.sin(a * 2.5) * 0.4,
+            Math.sin(ang) * r
+          )
+        );
+      }
+      crackGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), crackMat));
+    });
+    defectGroup.add(crackGroup);
   }
 
   return defectGroup;
@@ -143,43 +232,76 @@ export function getActiveDefectAlert(
   profile: ISimulationProfile,
   report: IPreflightReport
 ): IActiveDefectAlert | null {
-  if (!report || !report.errors) return null;
+  if (!report || !report.errors || report.errors.length === 0) return null;
 
   const progress = currentLayer / Math.max(1, totalLayers);
 
-  // 1. Lỗi Warping ở các lớp chân đế đầu tiên (Layer 1 - 25%)
-  const warpingErr = report.errors.find((e) => e.type === 'warping');
-  if (warpingErr && progress <= 0.25 && !profile.brimEnabled) {
+  // 1. Lỗi Chân Voi / First Layer ở lớp 1 - 10%
+  const firstLayerErr = report.errors.find(
+    (e) => e.type === 'first_layer' || e.type === 'elephant_foot'
+  );
+  if (firstLayerErr && progress <= 0.12) {
+    return {
+      layer: currentLayer,
+      type: 'elephant_foot',
+      title: `CẢNH BÁO LỚP ĐÁY: ${firstLayerErr.title.toUpperCase()}`,
+      message: firstLayerErr.description,
+      autoFixAction: firstLayerErr.autoFixAction,
+    };
+  }
+
+  // 2. Lỗi Warping ở các lớp chân đế đầu tiên (Layer 5% - 28%)
+  const warpingErr = report.errors.find((e) => e.type === 'warping' || e.type === 'knock_over');
+  if (warpingErr && progress <= 0.28 && !profile.brimEnabled) {
     return {
       layer: currentLayer,
       type: 'warping',
-      title: 'ĐANG XẢY RA CONG VÊNH (WARPING)',
-      message: `Góc sản phẩm đang bị co rút nhiệt và nhấc khỏi bàn in PEI do thiếu Vành Brim!`,
+      title: 'ĐANG XẢY RA CONG VÊNH (WARPING / TRÓC BÀN)',
+      message: warpingErr.description,
       autoFixAction: warpingErr.autoFixAction,
     };
   }
 
-  // 2. Lỗi Overhang tại các lớp thân giữa (Layer 35% - 75%)
-  const overhangErr = report.errors.find((e) => e.type === 'overhang');
-  if (overhangErr && progress >= 0.35 && progress <= 0.75 && profile.supportMode === 'none') {
+  // 3. Lỗi Overhang / Bridging tại các lớp thân giữa (Layer 30% - 80%)
+  const overhangErr = report.errors.find((e) => e.type === 'overhang' || e.type === 'bridging');
+  if (overhangErr && progress >= 0.30 && progress <= 0.80 && profile.supportMode === 'none') {
     return {
       layer: currentLayer,
       type: 'overhang',
       title: 'ĐANG XẢY RA SẬP CHI TIẾT (SPAGHETTI FAILURE)',
-      message: `Nhựa đang đùn vào khoảng không không có điểm tựa! Cần bật Tree Support ngay.`,
+      message: overhangErr.description,
       autoFixAction: overhangErr.autoFixAction,
     };
   }
 
-  // 3. Lỗi nhiệt độ quá nóng hoặc quá nguội
-  const tempErr = report.errors.find((e) => e.type === 'temperature_mismatch');
-  if (tempErr && progress > 0.05) {
+  // 4. Lỗi Tách lớp / Tơ nhện / Rung vách ở phần thân trên
+  const midErr = report.errors.find(
+    (e) =>
+      e.type === 'delamination' ||
+      e.type === 'stringing' ||
+      e.type === 'ringing' ||
+      e.type === 'under_extrusion' ||
+      e.type === 'clogging'
+  );
+  if (midErr && progress > 0.25) {
+    return {
+      layer: currentLayer,
+      type: 'stringing',
+      title: midErr.title.toUpperCase(),
+      message: midErr.description,
+      autoFixAction: midErr.autoFixAction,
+    };
+  }
+
+  // 5. Lỗi nhiệt độ hoặc lỗi bất kỳ còn lại
+  const fallbackErr = report.errors[0];
+  if (fallbackErr && progress > 0.05) {
     return {
       layer: currentLayer,
       type: 'temperature',
-      title: 'CẢNH BÁO NHIỆT ĐỘ KHÔNG PHÙ HỢP',
-      message: tempErr.description,
-      autoFixAction: tempErr.autoFixAction,
+      title: fallbackErr.title.toUpperCase(),
+      message: fallbackErr.description,
+      autoFixAction: fallbackErr.autoFixAction,
     };
   }
 

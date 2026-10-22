@@ -66,6 +66,7 @@ interface SimulatorHeaderProps {
   onOpenSupabaseHub?: () => void;
   isSupabaseConnected?: boolean;
   onOpenAI3DModal?: () => void;
+  onOpenDefectKnowledgeModal?: () => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
 }
@@ -101,6 +102,7 @@ export function SimulatorHeader({
   onOpenSupabaseHub,
   isSupabaseConnected,
   onOpenAI3DModal,
+  onOpenDefectKnowledgeModal,
   theme = 'dark',
   onToggleTheme,
 }: SimulatorHeaderProps) {
@@ -589,9 +591,25 @@ export function SimulatorHeader({
           )}
         </div>
 
-        {/* Live Telemetry & Supabase Cloud Hub Pill Group */}
-        {(onOpenLiveInspectorModal || onOpenSupabaseHub) && (
+        {/* Live Telemetry & Supabase Cloud Hub & Defect Knowledge Pill Group */}
+        {(onOpenLiveInspectorModal || onOpenSupabaseHub || onOpenDefectKnowledgeModal) && (
           <div className="flex items-center rounded-xl glass-panel p-0.5 shrink-0">
+            {onOpenDefectKnowledgeModal && (
+              <button
+                data-testid="defect-knowledge-header-btn"
+                onClick={onOpenDefectKnowledgeModal}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-[var(--bg-hover)] transition-all cursor-pointer"
+                title="Đóng góp lỗi thực tế kèm giải thích để dạy AI & Quản trị Tri thức Admin"
+              >
+                <IconCheckShield size={12} className="studio-text-gold shrink-0" />
+                <span className="text-[11px] studio-text-gold whitespace-nowrap">Dạy AI Lỗi</span>
+              </button>
+            )}
+
+            {onOpenDefectKnowledgeModal && (onOpenLiveInspectorModal || onOpenSupabaseHub) && (
+              <div className="w-[1px] h-3.5 bg-[var(--border-hairline)]" />
+            )}
+
             {onOpenLiveInspectorModal && (
               <button
                 data-testid="report-live-header-btn"
