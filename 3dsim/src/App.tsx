@@ -334,6 +334,16 @@ export default function App() {
   // Áp dụng kết quả Slicing từ Local Slicer CLI vào Simulation State
   const handleApplySliceResult = (res: ISliceResponse) => {
     if (!res || !res.success) return;
+    if (res.supportData) {
+      setPreloadedSupport(currentModel.name, res.supportData);
+      setPreloadedSupport(currentModel.id, res.supportData);
+      if (currentModel.path) setPreloadedSupport(currentModel.path, res.supportData);
+    }
+    if (res.toolpathData) {
+      setPreloadedToolpaths(currentModel.name, res.toolpathData);
+      setPreloadedToolpaths(currentModel.id, res.toolpathData);
+      if (currentModel.path) setPreloadedToolpaths(currentModel.path, res.toolpathData);
+    }
     setSimulationState((prev) => ({
       ...prev,
       totalLayers: res.totalLayers,

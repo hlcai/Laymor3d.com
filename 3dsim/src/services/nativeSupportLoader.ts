@@ -62,14 +62,16 @@ export async function loadNativeBambuSupport(
   }
 
   if (fallbackFile) {
-    try {
-      const res = await fetch(fallbackFile);
-      if (res.ok) {
-        const data = await res.json();
-        modelSupportCache.set(cacheKey, data);
-        return data;
-      }
-    } catch (_) {}
+    for (const candidate of ['/3dsim' + fallbackFile, fallbackFile]) {
+      try {
+        const res = await fetch(candidate);
+        if (res.ok) {
+          const data = await res.json();
+          modelSupportCache.set(cacheKey, data);
+          return data;
+        }
+      } catch (_) {}
+    }
   }
 
   return null;
@@ -422,14 +424,16 @@ export async function loadFullBambuToolpaths(
   }
 
   if (fallbackFile) {
-    try {
-      const res = await fetch(fallbackFile);
-      if (res.ok) {
-        const data: IFullToolpathData = await res.json();
-        toolpathsCache.set(cacheKey, data);
-        return data;
-      }
-    } catch (_) {}
+    for (const candidate of ['/3dsim' + fallbackFile, fallbackFile]) {
+      try {
+        const res = await fetch(candidate);
+        if (res.ok) {
+          const data: IFullToolpathData = await res.json();
+          toolpathsCache.set(cacheKey, data);
+          return data;
+        }
+      } catch (_) {}
+    }
   }
 
   return null;

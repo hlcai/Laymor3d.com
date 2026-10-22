@@ -121,6 +121,8 @@ export function LocalSlicerModal({
       `[CLI Command] ${
         selectedEngine === 'bambu_studio'
           ? `bambu-studio.exe --slice 0 --outputdir ./temp_local_slice ${currentModel.name}.3mf`
+          : selectedEngine === 'orca_slicer'
+          ? `orca-slicer.exe --slice 0 --outputdir ./temp_local_slice ${currentModel.name}.3mf`
           : `prusa-slicer-console.exe --export-gcode --support-material-style ${treeStyle} ${currentModel.name}.stl`
       }`,
       `[Support Configuration] Style=${treeStyle.toUpperCase()}, Angle=${angleThreshold}°, TopZ=${topZDistance}mm, BranchDia=${branchDiameter}mm`,
@@ -132,6 +134,7 @@ export function LocalSlicerModal({
         engine: selectedEngine,
         slicerPath: selectedEngine === 'custom' ? customPath : currentSlicer?.path,
         modelName: currentModel.name,
+        modelPath: currentModel.path,
         supportSettings: {
           enabled: supportEnabled,
           style: treeStyle as any,
