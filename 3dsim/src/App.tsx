@@ -463,6 +463,12 @@ export default function App() {
   const handleLoadCustomGeometry = (geom: THREE.BufferGeometry, modelInfo: ISampleModel) => {
     clearAllSupportCaches();
     setViewMode('cad');
+    setShowSupport(true);
+    setProfile((prev) => ({
+      ...prev,
+      supportMode: prev.supportMode === 'none' ? 'tree' : prev.supportMode,
+      treeStyle: prev.treeStyle || 'organic',
+    }));
     setModelTransform(DEFAULT_TRANSFORM);
     setBaseGeometry(geom);
     setCurrentModel(modelInfo);

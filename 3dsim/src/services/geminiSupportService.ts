@@ -195,8 +195,9 @@ export function extractGeometryMetrics(geometry: THREE.BufferGeometry) {
   const dimZ = Number((bbox.max.z - bbox.min.z).toFixed(1));
 
   const positions = geometry.getAttribute('position');
-  const count = positions ? positions.count : 0;
-  const triangleCount = Math.floor(count / 3);
+  const indexAttr = geometry.getIndex();
+  const vertCount = indexAttr ? indexAttr.count : positions ? positions.count : 0;
+  const triangleCount = Math.floor(vertCount / 3);
 
   // Tính diện tích bề mặt và phân bổ góc dốc Overhang
   let totalSurfaceArea = 0;
@@ -212,10 +213,14 @@ export function extractGeometryMetrics(geometry: THREE.BufferGeometry) {
     const edge2 = new THREE.Vector3();
     const cross = new THREE.Vector3();
 
-    for (let i = 0; i < count; i += 3) {
-      pA.fromBufferAttribute(positions, i);
-      pB.fromBufferAttribute(positions, i + 1);
-      pC.fromBufferAttribute(positions, i + 2);
+    for (let t = 0; t < triangleCount; t++) {
+      const i0 = indexAttr ? indexAttr.getX(t * 3) : t * 3;
+      const i1 = indexAttr ? indexAttr.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = indexAttr ? indexAttr.getX(t * 3 + 2) : t * 3 + 2;
+
+      pA.fromBufferAttribute(positions, i0);
+      pB.fromBufferAttribute(positions, i1);
+      pC.fromBufferAttribute(positions, i2);
 
       edge1.subVectors(pB, pA);
       edge2.subVectors(pC, pA);
@@ -241,7 +246,10 @@ export function extractGeometryMetrics(geometry: THREE.BufferGeometry) {
   const severeOverhangPercent =
     totalSurfaceArea > 0 ? (severeOverhangArea60 / totalSurfaceArea) * 100 : 0;
 
-  const patches = detectOverhangPatches(geometry, 45);
+  let patches = detectOverhangPatches(geometry, 45);
+  if (patches.length === 0) {
+    patches = detectOverhangPatches(geometry, 68);
+  }
 
   return {
     dimensions: [dimX, dimY, dimZ] as [number, number, number],
@@ -265,43 +273,34 @@ export function analyzeWithBambuExpertRules(
   const metrics = extractGeometryMetrics(geometry);
   const [dimX, dimY, dimZ] = metrics.dimensions;
 
-  // 1. Phân loại hình thái và nhu cầu Support
-  let mode: SupportType = 'none';
+  // 1. Phân loại hình thái và nhu cầu Tree Support chuẩn Bambu Studio
+  const mode: SupportType = 'tree';
   let treeStyle: TreeSupportStyle = 'organic';
   let angleThreshold = 45;
-  let topZ = 0.2;
-  let branchDia = 2.8;
-  let branchAngle = 42;
-  let onBuildPlateOnly = true;
-  let interfaceLayers = 2;
+  const topZ = 0.2;
+  let branchDia = 2.6;
+  const branchAngle = 45;
+  const onBuildPlateOnly = true;
+  const interfaceLayers = 2;
   let summary = '';
 
-  const isBoxOrFlat =
-    metrics.overhangPercent < 0.8 &&
-    (modelName.toLowerCase().includes('cube') || modelName.toLowerCase().includes('organizer'));
-
-  if (isBoxOrFlat || metrics.patches.length === 0) {
-    mode = 'none';
-    summary = `Mô hình "${modelName}" có cấu trúc vách thẳng đứng góc 90° hoặc vát góc an toàn. Không có vùng Overhang nguy hiểm, khuyên dùng KHÔNG BẬT SUPPORT (None) để tiết kiệm 100% nhựa và rút ngắn thời gian in.`;
-  } else if (metrics.severeOverhangPercent > 6.0 || metrics.patches.length > 8) {
-    mode = 'tree';
+  if (metrics.severeOverhangPercent > 5.0 || metrics.patches.length > 6) {
     treeStyle = 'organic';
-    angleThreshold = 48;
-    branchDia = 3.0;
-    summary = `Phát hiện ${metrics.patches.length} đảo Overhang với diện tích nghiêng chiếm ${metrics.overhangPercent}% bề mặt. Khuyên dùng Tree Support (Organic) với góc 48°: cành cây uốn lượn giảm 60% nhựa so với cột vuông, dễ bóc tách không để lại sẹo.`;
+    angleThreshold = 45;
+    branchDia = 2.8;
+    summary = `Phát hiện ${metrics.patches.length} vùng Overhang với diện tích nghiêng chiếm ${metrics.overhangPercent}% bề mặt. Đã kích hoạt Tree Support (Organic) chuẩn Bambu Studio với góc ngưỡng 45°: cành cây hữu cơ ôm sát bề mặt (Conformal Interface), giảm 60% nhựa và dễ bóc tách.`;
   } else {
-    mode = 'tree';
     treeStyle = 'slim';
     angleThreshold = 50;
     branchDia = 2.2;
-    summary = `Mô hình có một số chi tiết nhô nhẹ (khoảng ${metrics.patches.length} vị trí). Khuyên dùng Tree Support (Slim) thanh mảnh để cố định mũi và vòm cong, tiêu tốn chưa đến 3-5g nhựa.`;
+    summary = `Mô hình "${modelName}" đã được tối ưu hóa với Tree Support (Slim) thanh mảnh góc 50° kèm lớp đệm Conformal Interface ôm sát bề mặt cần chống đỡ, tiêu tốn chỉ ~3–5g nhựa.`;
   }
 
   // 2. Tính toán lượng nhựa dự kiến cho Support
-  const estimatedSupportGrams =
-    mode === 'none'
-      ? 0
-      : Number(((metrics.patches.length * 1.8 * (dimY / 40)) * (treeStyle === 'slim' ? 0.6 : 1.0)).toFixed(1));
+  const estimatedSupportGrams = Math.max(
+    1.8,
+    Number(((Math.max(2, metrics.patches.length) * 1.6 * (dimY / 40)) * (treeStyle === 'slim' ? 0.65 : 1.0)).toFixed(1))
+  );
 
   // 3. Khuyến nghị góc xoay mô hình tối ưu (Orientation Advice)
   let orientAxis: 'x' | 'y' | 'z' = 'x';
@@ -515,7 +514,7 @@ Hãy trả về phản hồi DUY NHẤT bằng một JSON hợp lệ (không kè
         rationale: parsed.recommendedOrientation?.rationale || 'Đặt phẳng ổn định.',
       },
       supportRecommendation: {
-        mode: parsed.recommendedMode || 'tree',
+        mode: parsed.recommendedMode === 'normal' ? 'normal' : 'tree',
         treeStyle: parsed.recommendedTreeStyle || 'organic',
         angleThreshold: parsed.angleThreshold || 48,
         topZDistance: parsed.topZDistance || 0.2,

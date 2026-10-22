@@ -616,7 +616,7 @@ export function PrintSimulatorViewport({
       parentGroup,
       clonedGeom,
       profile,
-      showSupport && viewMode !== 'filament_preview',
+      showSupport,
       currentModel?.name || currentModel?.id,
       (currentModel as any)?.path,
       clippingPlaneRef.current || undefined

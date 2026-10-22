@@ -122,9 +122,7 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
       geoms.push(bevel);
 
       const merged = mergeBufferGeometries(geoms);
-      merged.center();
-      merged.computeVertexNormals();
-      return merged;
+      return centerAndGroundGeometry(merged);
     }
 
     case 'benchy': {
@@ -208,9 +206,7 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
       geoms.push(hawseR);
 
       const merged = mergeBufferGeometries(geoms);
-      merged.center();
-      merged.computeVertexNormals();
-      return merged;
+      return centerAndGroundGeometry(merged);
     }
 
     case 'gear': {
@@ -261,9 +257,7 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
       }
 
       const merged = mergeBufferGeometries(geoms);
-      merged.center();
-      merged.computeVertexNormals();
-      return merged;
+      return centerAndGroundGeometry(merged);
     }
 
     case 'organizer': {
@@ -360,9 +354,7 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
       geoms.push(labelShelf);
 
       const merged = mergeBufferGeometries(geoms);
-      merged.center();
-      merged.computeVertexNormals();
-      return merged;
+      return centerAndGroundGeometry(merged);
     }
 
     case 'dragon':
@@ -416,15 +408,14 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
       }
 
       const merged = mergeBufferGeometries(geoms);
-      merged.center();
-      merged.computeVertexNormals();
-      return merged;
+      return centerAndGroundGeometry(merged);
     }
   }
 }
 
 /**
  * Trộn nhiều BufferGeometry thành một BufferGeometry thống nhất dùng BufferGeometryUtils
+ * và tự động căn giữa X/Z + đặt đáy chuẩn xác trên mặt bàn in (Y = 0)
  */
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const nonIndexed = geometries.map((g) => (g.index ? g.toNonIndexed() : g));
@@ -433,6 +424,18 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
     return new THREE.BoxGeometry(20, 20, 20).toNonIndexed();
   }
   return merged;
+}
+
+function centerAndGroundGeometry(geom: THREE.BufferGeometry): THREE.BufferGeometry {
+  geom.computeBoundingBox();
+  const bbox = geom.boundingBox;
+  if (bbox) {
+    const cx = (bbox.min.x + bbox.max.x) / 2;
+    const cz = (bbox.min.z + bbox.max.z) / 2;
+    geom.translate(-cx, -bbox.min.y, -cz);
+  }
+  geom.computeVertexNormals();
+  return geom;
 }
 
 function parseTransform12(str: string): number[] | null {
@@ -457,11 +460,11 @@ function applyAffineTransform(x: number, y: number, z: number, m: number[]): [nu
  * Bộ giải mã file 3MF chuyên dụng chuẩn Bambu Studio & OrcaSlicer
  * Trích xuất trực tiếp lưới tam giác từ 3D/Objects/*.model và 3D/3dmodel.model
  * Áp dụng đầy đủ ma trận biến đổi affine (Transform Matrix) từ thẻ <item> và <component>
- * để đồng bộ 100% hướng xoay, tỉ lệ và tọa độ với G-code của Bambu Studio
+ * và tự động hiệu chỉnh hướng pháp tuyến ngoài (Signed Volume) cho từng khối <mesh>
  */
 export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
   const unzipped = unzipSync(new Uint8Array(buffer));
-  const modelKeys = Object.keys(unzipped).filter((k) => k.endsWith('.model'));
+  const modelKeys = Object.keys(unzipped).filter((k) => k.toLowerCase().endsWith('.model'));
   if (modelKeys.length === 0) {
     throw new Error('File 3MF không chứa mô hình 3D (.model).');
   }
@@ -473,12 +476,12 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
   const rootModelKey = Object.keys(unzipped).find((k) => k.toLowerCase() === '3d/3dmodel.model');
   if (rootModelKey && unzipped[rootModelKey]) {
     const rootText = new TextDecoder().decode(unzipped[rootModelKey]);
-    const itemMatch = rootText.match(/<item\s+[^>]*transform="([^"]+)"/i);
+    const itemMatch = rootText.match(/<(?:\w+:)?item\s+[^>]*transform="([^"]+)"/i);
     if (itemMatch) itemTransform = parseTransform12(itemMatch[1]);
 
-    for (const cTagMatch of rootText.matchAll(/<component\s+([^>]+)>/gi)) {
+    for (const cTagMatch of rootText.matchAll(/<(?:\w+:)?component\s+([^>]+)>/gi)) {
       const attrs = cTagMatch[1];
-      const pathMatch = attrs.match(/(?:p:)?path="([^"]+)"/i);
+      const pathMatch = attrs.match(/(?:\w+:)?path="([^"]+)"/i);
       const transMatch = attrs.match(/transform="([^"]+)"/i);
       if (pathMatch && transMatch) {
         const p = pathMatch[1].replace(/^\//, '');
@@ -492,7 +495,7 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
 
   for (const k of modelKeys) {
     const text = new TextDecoder().decode(unzipped[k]);
-    if (!text.includes('<mesh>')) continue;
+    if (!/<(?:\w+:)?mesh[\s>]/i.test(text)) continue;
 
     let compTransform = componentMap.get(k) || null;
     if (!compTransform) {
@@ -504,43 +507,83 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
       }
     }
 
-    const meshRegex = /<mesh>([\s\S]*?)<\/mesh>/gi;
+    const meshRegex = /<(?:\w+:)?mesh(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?mesh>/gi;
     let meshMatch: RegExpExecArray | null;
     while ((meshMatch = meshRegex.exec(text)) !== null) {
       const meshText = meshMatch[1];
 
-      // Parse vertices cho từng khối <mesh> độc lập (tránh lệch chỉ số đỉnh khi file 3MF có nhiều part/object)
+      // Parse vertices cho từng khối <mesh> độc lập (không phụ thuộc thứ tự thuộc tính x, y, z)
       const vertices: number[] = [];
-      const vRegex = /<vertex\s+[^>]*x="([^"]+)"[^>]*y="([^"]+)"[^>]*z="([^"]+)"/gi;
-      let match: RegExpExecArray | null;
-      while ((match = vRegex.exec(meshText)) !== null) {
-        let x = parseFloat(match[1]);
-        let y = parseFloat(match[2]);
-        let z = parseFloat(match[3]);
+      const vTagRegex = /<(?:\w+:)?vertex\s+([^>]+)>/gi;
+      let vMatch: RegExpExecArray | null;
+      while ((vMatch = vTagRegex.exec(meshText)) !== null) {
+        const attrs = vMatch[1];
+        const xm = attrs.match(/\bx="([^"]+)"/i);
+        const ym = attrs.match(/\by="([^"]+)"/i);
+        const zm = attrs.match(/\bz="([^"]+)"/i);
+        if (!xm || !ym || !zm) continue;
+
+        let x = parseFloat(xm[1]);
+        let y = parseFloat(ym[1]);
+        let z = parseFloat(zm[1]);
 
         if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
         if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
 
+        // Chuyển hệ trục Z-up của 3MF (X, Y, Z) sang hệ trục Y-up của Three.js (X, Z, -Y)
+        // Phép quay chuẩn quanh trục X (-90 độ) bảo toàn định thức = +1
         if (itemTransform) {
-          // Tọa độ máy in Bambu Lab (X: 0..256, Y: 0..256, Z: cao độ đứng)
-          // Ánh xạ chuẩn xác sang Three.js (X - 128, Z, Y - 128) trùng khớp 1:1 với G-code Bambu Studio
           vertices.push(x - 128, z, y - 128);
         } else {
-          vertices.push(x, y, z);
+          vertices.push(x, z, -y);
         }
       }
-      if (vertices.length === 0) continue;
+      if (vertices.length < 9) continue;
 
-      // Parse triangles
-      // LƯU Ý QUAN TRỌNG: Phép ánh xạ (x, y, z) -> (x - 128, z, y - 128) hoán vị trục Y và Z (định thức = -1),
-      // nên cần đảo thứ tự đỉnh (v1, v3, v2) khi có itemTransform để vector pháp tuyến (Normals) luôn hướng ra ngoài!
-      const tRegex = /<triangle\s+[^>]*v1="([^"]+)"[^>]*v2="([^"]+)"[^>]*v3="([^"]+)"/gi;
-      while ((match = tRegex.exec(meshText)) !== null) {
-        const v1 = parseInt(match[1], 10);
-        const v2 = parseInt(match[2], 10);
-        const v3 = parseInt(match[3], 10);
+      const rawTris: [number, number, number][] = [];
+      const tTagRegex = /<(?:\w+:)?triangle\s+([^>]+)>/gi;
+      let tMatch: RegExpExecArray | null;
+      while ((tMatch = tTagRegex.exec(meshText)) !== null) {
+        const attrs = tMatch[1];
+        const m1 = attrs.match(/\bv1="([^"]+)"/i);
+        const m2 = attrs.match(/\bv2="([^"]+)"/i);
+        const m3 = attrs.match(/\bv3="([^"]+)"/i);
+        if (!m1 || !m2 || !m3) continue;
+        const v1 = parseInt(m1[1], 10);
+        const v2 = parseInt(m2[1], 10);
+        const v3 = parseInt(m3[1], 10);
+        if (v1 * 3 + 2 < vertices.length && v2 * 3 + 2 < vertices.length && v3 * 3 + 2 < vertices.length) {
+          rawTris.push([v1, v2, v3]);
+        }
+      }
+      if (rawTris.length === 0) continue;
 
-        if (itemTransform) {
+      // Kiểm tra thể tích có dấu (Signed Volume) chính xác của khối <mesh> để đảm bảo pháp tuyến luôn hướng ra ngoài
+      const refX = vertices[0];
+      const refY = vertices[1];
+      const refZ = vertices[2];
+      let signedVolume6 = 0;
+      for (let i = 0; i < rawTris.length; i++) {
+        const [i1, i2, i3] = rawTris[i];
+        const ax = vertices[i1 * 3] - refX;
+        const ay = vertices[i1 * 3 + 1] - refY;
+        const az = vertices[i1 * 3 + 2] - refZ;
+        const bx = vertices[i2 * 3] - refX;
+        const by = vertices[i2 * 3 + 1] - refY;
+        const bz = vertices[i2 * 3 + 2] - refZ;
+        const cx = vertices[i3 * 3] - refX;
+        const cy = vertices[i3 * 3 + 1] - refY;
+        const cz = vertices[i3 * 3 + 2] - refZ;
+        signedVolume6 +=
+          ax * (by * cz - bz * cy) +
+          ay * (bz * cx - bx * cz) +
+          az * (bx * cy - by * cx);
+      }
+
+      const flipWinding = signedVolume6 < 0;
+      for (let i = 0; i < rawTris.length; i++) {
+        const [v1, v2, v3] = rawTris[i];
+        if (flipWinding) {
           allPositions.push(
             vertices[v1 * 3], vertices[v1 * 3 + 1], vertices[v1 * 3 + 2],
             vertices[v3 * 3], vertices[v3 * 3 + 1], vertices[v3 * 3 + 2],
@@ -563,29 +606,8 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
 
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
-
-  if (itemTransform) {
-    geom.userData = { hasItemTransform: true };
-    geom.computeBoundingBox();
-    const bbox = geom.boundingBox;
-    if (bbox) {
-      const cx = (bbox.min.x + bbox.max.x) / 2;
-      const cz = (bbox.min.z + bbox.max.z) / 2;
-      const shiftX = Math.abs(cx) > 75 ? -cx : 0;
-      const shiftZ = Math.abs(cz) > 75 ? -cz : 0;
-      geom.translate(shiftX, -bbox.min.y, shiftZ);
-    }
-    geom.computeVertexNormals();
-  } else {
-    geom.userData = { hasItemTransform: false };
-    geom.rotateX(-Math.PI / 2);
-    geom.center();
-    geom.computeBoundingBox();
-    if (geom.boundingBox) {
-      geom.translate(0, -geom.boundingBox.min.y, 0);
-    }
-    geom.computeVertexNormals();
-  }
+  geom.userData = { hasItemTransform: true };
+  centerAndGroundGeometry(geom);
 
   return geom;
 }
@@ -605,7 +627,25 @@ export function parseCADFile(buffer: ArrayBuffer, fileName: string): THREE.Buffe
       geom = parse3MFBuffer(buffer);
       hasItemTransform = Boolean(geom.userData?.hasItemTransform);
     } catch (err) {
-      console.warn('3MF parsing error, trying standard fallback:', err);
+      // Kiểm tra nếu file .3mf thực chất là file JSON preset từ phiên bản cũ (ví dụ benchy.3mf)
+      try {
+        const headText = new TextDecoder().decode(buffer.slice(0, 4096)).trim();
+        if (headText.startsWith('{')) {
+          const parsedJson = JSON.parse(new TextDecoder().decode(buffer));
+          const modelIdRaw = String(parsedJson?.model?.id || parsedJson?.model?.name || fileName).toLowerCase();
+          if (modelIdRaw.includes('cube')) geom = generateProceduralGeometry('cube');
+          else if (modelIdRaw.includes('gear')) geom = generateProceduralGeometry('gear');
+          else if (modelIdRaw.includes('organizer') || modelIdRaw.includes('gridfinity')) geom = generateProceduralGeometry('organizer');
+          else if (modelIdRaw.includes('dragon')) geom = generateProceduralGeometry('dragon');
+          else geom = generateProceduralGeometry('benchy');
+          hasItemTransform = true;
+        }
+      } catch {
+        // Không phải JSON preset
+      }
+      if (!geom) {
+        console.warn('3MF parsing error, trying standard fallback:', err);
+      }
     }
   } else if (isObj) {
     try {
@@ -642,9 +682,6 @@ export function parseCADFile(buffer: ArrayBuffer, fileName: string): THREE.Buffe
     throw new Error('File không chứa dữ liệu hình học 3D (Lưới tam giác rỗng).');
   }
 
-  // Nếu file 3MF đã có Item Transform thì tọa độ, góc xoay và tỉ lệ đã được Bambu Studio ấn định chuẩn xác.
-  // Nếu là file STL (chuẩn Z-up của máy in 3D), tiến hành chuyển Z-up sang Three.js Y-up.
-  // Lưu ý: 3MF thô không có itemTransform đã được parse3MFBuffer xoay chuẩn 1 lần, KHÔNG xoay thêm lần 2.
   if (!hasItemTransform) {
     if (lower.endsWith('.stl')) {
       geom.rotateX(-Math.PI / 2);
@@ -669,13 +706,7 @@ export function parseCADFile(buffer: ArrayBuffer, fileName: string): THREE.Buffe
     }
   }
 
-  // Đặt đáy mô hình nằm chuẩn xác tại Y = 0 (trên bàn in PEI)
-  geom.computeBoundingBox();
-  const finalBbox = geom.boundingBox!;
-  if (finalBbox && finalBbox.min.y !== 0) {
-    geom.translate(0, -finalBbox.min.y, 0);
-  }
-
+  centerAndGroundGeometry(geom);
   return geom;
 }
 

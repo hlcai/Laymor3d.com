@@ -469,7 +469,8 @@ function StudioInner() {
               PresetGeneratorService.downloadSTL(
                 customModel ? customModel.fileName : selectedModelId,
                 dimensionsMm,
-                customModel?.group
+                customModel?.group,
+                supportConfig
               )
             }
           />
@@ -559,7 +560,8 @@ function StudioInner() {
                   PresetGeneratorService.downloadSTL(
                     customModel ? customModel.fileName : selectedModelId,
                     dimensionsMm,
-                    customModel?.group
+                    customModel?.group,
+                    supportConfig
                   );
                   showStudioToast('📥 Đang tải tệp Binary STL chuẩn thực tế về thiết bị...');
                 }}

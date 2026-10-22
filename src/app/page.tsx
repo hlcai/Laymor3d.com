@@ -345,6 +345,13 @@ export default function HomePage() {
                 options={viewerOptions}
                 sampleModelId={selectedModelId}
                 dimensionsMm={selectedModel.defaultDimensionsMm}
+                supportConfig={{
+                  enabled: true,
+                  type: 'tree',
+                  overhangThresholdDegrees: 45,
+                  supportDensityPercent: 15,
+                  interfaceLayers: 3,
+                }}
                 className="w-full h-full"
               />
 

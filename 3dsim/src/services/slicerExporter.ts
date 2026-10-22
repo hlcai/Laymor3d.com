@@ -271,30 +271,25 @@ export function download3MFProject(
     return { vLines, tLines, tCount };
   };
 
-  const mainMeshData = serializeMeshTo3MF(exportGeom);
   const supportGeom =
     includeSupportMesh && profile.supportMode !== 'none'
       ? buildExportSupportGeometry(exportGeom, profile)
       : null;
-  const supportMeshData = supportGeom ? serializeMeshTo3MF(supportGeom) : null;
 
-  const supportObjectXml = supportMeshData
-    ? `
-    <object id="2" name="${safeName}_TreeSupport" type="model">
-      <mesh>
-        <vertices>
-${supportMeshData.vLines.join('\n')}
-        </vertices>
-        <triangles>
-${supportMeshData.tLines.join('\n')}
-        </triangles>
-      </mesh>
-    </object>`
-    : '';
+  let combinedGeom = exportGeom;
+  if (supportGeom) {
+    const mPos = exportGeom.getAttribute('position');
+    const sPos = supportGeom.getAttribute('position');
+    if (mPos && sPos) {
+      const mergedArr = new Float32Array((mPos.count + sPos.count) * 3);
+      mergedArr.set(mPos.array as Float32Array, 0);
+      mergedArr.set(sPos.array as Float32Array, mPos.count * 3);
+      combinedGeom = new THREE.BufferGeometry();
+      combinedGeom.setAttribute('position', new THREE.BufferAttribute(mergedArr, 3));
+    }
+  }
 
-  const supportBuildItemXml = supportMeshData
-    ? `\n    <item objectid="2" printable="1" />`
-    : '';
+  const mainMeshData = serializeMeshTo3MF(combinedGeom);
 
   const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
@@ -311,35 +306,12 @@ ${mainMeshData.vLines.join('\n')}
 ${mainMeshData.tLines.join('\n')}
         </triangles>
       </mesh>
-    </object>${supportObjectXml}
+    </object>
   </resources>
   <build>
-    <item objectid="1" printable="1" />${supportBuildItemXml}
+    <item objectid="1" printable="1" />
   </build>
 </model>`;
-
-  const supportObjectSettingsXml = supportMeshData
-    ? `
-  <object id="2">
-    <metadata key="name" value="${safeName}_TreeSupport"/>
-    <metadata key="extruder" value="1"/>
-    <metadata key="support_type" value="${profile.supportMode === 'tree' ? 'tree(auto)' : 'normal(auto)'}"/>
-    <metadata key="support_style" value="${profile.supportMode === 'tree' ? `tree_${profile.treeStyle || 'organic'}` : 'default'}"/>
-    <part id="1" subtype="normal_part">
-      <metadata key="name" value="${safeName}_TreeSupport"/>
-      <metadata key="face_count" value="${supportMeshData.tCount}"/>
-    </part>
-  </object>`
-    : '';
-
-  const supportInstanceXml = supportMeshData
-    ? `
-    <model_instance>
-      <metadata key="object_id" value="2"/>
-      <metadata key="instance_id" value="0"/>
-      <metadata key="identify_id" value="2"/>
-    </model_instance>`
-    : '';
 
   const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
 <config>
@@ -364,7 +336,7 @@ ${mainMeshData.tLines.join('\n')}
       <metadata key="name" value="${safeName}"/>
       <metadata key="face_count" value="${mainMeshData.tCount}"/>
     </part>
-  </object>${supportObjectSettingsXml}
+  </object>
   <plate>
     <metadata key="plater_id" value="1"/>
     <metadata key="plater_name" value="Laymor3D_Plate_1"/>
@@ -373,7 +345,7 @@ ${mainMeshData.tLines.join('\n')}
       <metadata key="object_id" value="1"/>
       <metadata key="instance_id" value="0"/>
       <metadata key="identify_id" value="1"/>
-    </model_instance>${supportInstanceXml}
+    </model_instance>
   </plate>
 </config>`;
 

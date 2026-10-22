@@ -145,7 +145,8 @@ function clipTriangleToContactRadius(
  */
 function extractExteriorOverhangData(
   geometry: THREE.BufferGeometry,
-  thresholdDeg: number = 45
+  thresholdDeg: number = 45,
+  allowPerimeterFallback: boolean = false
 ): {
   patches: IConformalOverhangPatch[];
   baseFootprintGrid: Set<string>;
@@ -155,8 +156,11 @@ function extractExteriorOverhangData(
 } {
   geometry.computeBoundingBox();
   const bbox = geometry.boundingBox || new THREE.Box3();
-  const minY = bbox.min.y;
-  const maxY = bbox.max.y;
+  const rawMinY = bbox.min.y;
+  const rawMaxY = bbox.max.y;
+  const yShift = -rawMinY;
+  const minY = 0;
+  const maxY = Math.max(1.0, rawMaxY - rawMinY);
   const centerX = (bbox.max.x + bbox.min.x) / 2;
   const centerZ = (bbox.max.z + bbox.min.z) / 2;
 
@@ -222,6 +226,9 @@ function extractExteriorOverhangData(
     pA.fromBufferAttribute(positions, i0);
     pB.fromBufferAttribute(positions, i1);
     pC.fromBufferAttribute(positions, i2);
+    pA.y += yShift;
+    pB.y += yShift;
+    pC.y += yShift;
 
     edge1.subVectors(pB, pA);
     edge2.subVectors(pC, pA);
@@ -296,41 +303,25 @@ function extractExteriorOverhangData(
     }
   }
 
-  // Tự động kiểm tra và hiệu chỉnh nếu Mesh có pháp tuyến bị ngược (Inside-Out)
-  const centerY = (minY + maxY) * 0.5;
-  let normalOrientationCheck = 0;
-  for (let i = 0; i < allTris.length; i++) {
-    const t = allTris[i];
-    normalOrientationCheck +=
-      ((t.mx - centerX) * t.nx + (t.my - centerY) * t.ny + (t.mz - centerZ) * t.nz) * t.area;
-  }
-  if (normalOrientationCheck < 0) {
-    for (let i = 0; i < allTris.length; i++) {
-      const t = allTris[i];
-      t.nx = -t.nx;
-      t.ny = -t.ny;
-      t.nz = -t.nz;
-    }
-  }
-
   // Lọc ra các tam giác Overhang thực sự nằm ở mặt ngoài và cần chống đỡ
   const validOverhangs: IOverhangTriangle[] = [];
 
   for (let idx = 0; idx < allTris.length; idx++) {
     const t = allTris[idx];
     if (t.ny >= normalThresholdY) continue;
-    if (t.my <= minY + 1.2) continue;
+    if (t.my <= minY + 1.0) continue;
 
     const key = `${Math.floor(t.mx / xzGridCell)}_${Math.floor(t.mz / xzGridCell)}`;
     const candidates = spatialGrid.get(key) || [];
 
     let highestHitBelowY = -Infinity;
-    let lowestHitAboveY = Infinity;
-    let lowestHitAboveNy = 0;
 
     for (const cIdx of candidates) {
       if (cIdx === idx) continue;
       const other = allTris[cIdx];
+      // Chỉ xét các mặt sàn hướng lên (other.ny > 0.25) nằm phía dưới làm vật cản đỡ bên dưới
+      if (other.ny <= 0.25) continue;
+
       const hitY = sampleTriangleHeightAtXZ(
         t.mx,
         t.mz,
@@ -346,25 +337,17 @@ function extractExteriorOverhangData(
       );
       if (hitY === null) continue;
 
-      if (hitY < t.my - 0.08 && hitY > highestHitBelowY) {
+      if (hitY < t.my - 0.6 && hitY > highestHitBelowY) {
         highestHitBelowY = hitY;
       }
-      if (hitY > t.my + 0.08 && hitY < lowestHitAboveY) {
-        lowestHitAboveY = hitY;
-        lowestHitAboveNy = other.ny;
-      }
     }
 
-    // Loại bỏ các mặt có khoảng hở thẳng đứng quá hẹp (< 1.8mm) không đủ chỗ luồn nhánh Tree Support
+    // Loại bỏ các mặt có khoảng hở thẳng đứng quá hẹp (< 1.5mm) so với mặt sàn đỡ ngay bên dưới
     if (highestHitBelowY > -Infinity) {
       const verticalClearance = t.my - highestHitBelowY;
-      if (verticalClearance < 1.8) {
+      if (verticalClearance < 1.5) {
         continue;
       }
-    }
-
-    if (lowestHitAboveY < Infinity && lowestHitAboveY - t.my < 0.45 && lowestHitAboveNy > 0.2) {
-      continue;
     }
 
     const angleWithVertical = Math.acos(Math.max(-1, Math.min(1, -t.ny))) * (180 / Math.PI);
@@ -376,6 +359,51 @@ function extractExteriorOverhangData(
       angleDeg,
       floorY,
     });
+  }
+
+  // Nếu mô hình chỉ có vách đứng/nghiêng nhẹ nhưng người dùng bật chế độ Tree Support,
+  // tự động chọn các mặt biên ngoài ở độ cao 35%..72% thân mô hình để neo nhánh Conformal Tree Support
+  if (validOverhangs.length === 0 && allowPerimeterFallback && allTris.length > 0) {
+    const sectors = 6;
+    const bestPerSector: (IRawTri | null)[] = new Array(sectors).fill(null);
+    const bestScorePerSector: number[] = new Array(sectors).fill(-Infinity);
+    const lowBandY = Math.max(1.5, maxY * 0.32);
+    const highBandY = Math.max(lowBandY + 1.5, maxY * 0.78);
+
+    for (let i = 0; i < allTris.length; i++) {
+      const t = allTris[i];
+      if (t.my < lowBandY || t.my > highBandY) continue;
+      if (t.ny > 0.35) continue; // ưu tiên mặt nghiêng âm hoặc mặt vách ngoài
+      const dx = t.mx - centerX;
+      const dz = t.mz - centerZ;
+      const distR = Math.hypot(dx, dz);
+      if (distR < 1.0) continue;
+      const outwardDot = (dx * t.nx + dz * t.nz) / distR;
+      if (outwardDot < 0.25) continue;
+
+      let sIdx = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * sectors);
+      sIdx = Math.max(0, Math.min(sectors - 1, sIdx));
+      const score = distR * 1.5 - t.ny * 8.0 + t.area * 0.2;
+      if (score > bestScorePerSector[sIdx]) {
+        bestScorePerSector[sIdx] = score;
+        bestPerSector[sIdx] = t;
+      }
+    }
+
+    for (const chosen of bestPerSector) {
+      if (!chosen) continue;
+      const adjNy = Math.min(-0.35, chosen.ny);
+      const normLen = Math.hypot(chosen.nx, adjNy, chosen.nz) || 1;
+      validOverhangs.push({
+        ...chosen,
+        nx: chosen.nx / normLen,
+        ny: adjNy / normLen,
+        nz: chosen.nz / normLen,
+        area: Math.max(chosen.area, 2.5),
+        angleDeg: 42,
+        floorY: 0,
+      });
+    }
   }
 
   if (validOverhangs.length === 0) {
@@ -772,9 +800,12 @@ export function generateBambuSupportStructures(
   }
 
   const effectiveThreshold = profile.supportAngleThreshold || overhangThreshold || 45;
-  let overhangData = extractExteriorOverhangData(geometry, effectiveThreshold);
+  let overhangData = extractExteriorOverhangData(geometry, effectiveThreshold, false);
   if (overhangData.patches.length === 0 && effectiveThreshold < 68) {
-    overhangData = extractExteriorOverhangData(geometry, 68);
+    overhangData = extractExteriorOverhangData(geometry, 68, false);
+  }
+  if (overhangData.patches.length === 0) {
+    overhangData = extractExteriorOverhangData(geometry, 78, true);
   }
   const { patches, baseFootprintGrid, hullRadialProfile, centerX, centerZ } = overhangData;
 
@@ -863,7 +894,7 @@ export function generateBambuSupportStructures(
       const maxClusterFloorY = Math.max(...cluster.map((p) => p.floorY));
       const totalArea = cluster.reduce((sum, p) => sum + p.areaMm2, 0);
 
-      if (minClusterY < 1.8) continue;
+      if (minClusterY < 0.8) continue;
 
       const { rootX, rootZ, normX, normZ, routesAroundHull } = findOptimalRootPosition(
         avgX,

@@ -486,10 +486,11 @@ export function ThreeCanvasViewer({
     const supports = SupportBuilder.buildSupports(
       supportConfig.type,
       sampleModelId,
-      clipPlaneRef.current || undefined
+      clipPlaneRef.current || undefined,
+      sampleModelId === 'custom' ? customLoadedModel?.group : undefined
     );
     sGroup.add(supports);
-  }, [supportConfig, sampleModelId]);
+  }, [supportConfig, sampleModelId, customLoadedModel]);
 
   // 6. Cập nhật góc đặt và căn phẳng bàn in khi options.orientationDeg hoặc options.showDimensions thay đổi
   useEffect(() => {
