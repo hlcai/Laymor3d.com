@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Maximize2, Link2, Unlink, AlertTriangle, Zap } from 'lucide-react';
+import { Maximize2, Link2, Unlink, AlertTriangle, Zap } from '@/components/icons/MinimalIcons';
 import { IPrintEstimation, IPrinterProfile } from '@/backend/domain/slicing';
 
 interface DimensionsControlProps {

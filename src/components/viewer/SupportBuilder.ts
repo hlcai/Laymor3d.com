@@ -313,8 +313,8 @@ export class SupportBuilder {
         const dist = Math.hypot(dx, dz) || 1;
         const nx = dx / dist;
         const nz = dz / dist;
-        const bedOffset = Math.max(0.24, Math.min(0.45, tgt.y * 0.34));
-        const safeBedR = Math.max(dist + bedOffset, sectorHullRadius[s] + 0.18);
+        const bedOffset = Math.max(0.16, Math.min(0.32, tgt.y * 0.25));
+        const safeBedR = dist + bedOffset;
         foundSpecs.push({
           bedX: center.x + nx * safeBedR,
           bedZ: center.z + nz * safeBedR,

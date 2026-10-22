@@ -16,7 +16,7 @@ import {
   ArrowRight,
   Repeat,
   X,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 
 interface BuildPlateToolbarProps {
   transform?: IModelTransform;

@@ -11,7 +11,7 @@ import {
   Truck,
   CheckCircle2,
   Sparkles,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IPrintingServicePackage, IServiceQuoteResult } from '@/backend/domain/shop';
 
 export interface OrderServiceModalProps {

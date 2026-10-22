@@ -15,7 +15,7 @@ import {
   Sliders,
   Info,
   Cpu,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useModulePermissions } from '@/hooks/useModulePermissions';
 import { SystemModuleKey } from '@/backend/domain/config';
 import { UserRole } from '@/backend/domain/user';

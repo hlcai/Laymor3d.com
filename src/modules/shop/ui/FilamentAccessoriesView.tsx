@@ -9,7 +9,7 @@ import {
   Gauge,
   Sliders,
   Eye,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IFilamentItem, IAccessoryItem } from '@/backend/domain/shop';
 
 interface FilamentAccessoriesViewProps {

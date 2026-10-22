@@ -11,7 +11,7 @@ import { CartDrawer } from '@/components/shop/CartDrawer';
 import { ProductDetailModal } from '@/components/shop/ProductDetailModal';
 import { OrderServiceModal } from '@/components/shop/OrderServiceModal';
 import { IPrintingServicePackage, IServiceQuoteResult } from '@/backend/domain/shop';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle } from '@/components/icons/MinimalIcons';
 
 function ShopInner() {
   const shop = useShop();

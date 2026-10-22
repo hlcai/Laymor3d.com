@@ -10,7 +10,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts';
-import { Layers, Globe, TrendingUp } from 'lucide-react';
+import { Layers, Globe, TrendingUp } from '@/components/icons/MinimalIcons';
 import { ITrendMetric } from '@/backend/domain/models';
 import {
   IFilamentDistribution,

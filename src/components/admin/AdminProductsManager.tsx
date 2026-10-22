@@ -32,7 +32,7 @@ import {
   Clock,
   Check,
   FileCode,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useShopManagement } from '@/hooks/useShopManagement';
 import { IFilamentItem, IAccessoryItem, FilamentMaterial, AccessorySubCategory } from '@/backend/domain/shop';
 

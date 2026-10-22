@@ -21,7 +21,7 @@ import {
   KeyRound,
   Layers,
   CheckSquare,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   IUser,
   UserRole,

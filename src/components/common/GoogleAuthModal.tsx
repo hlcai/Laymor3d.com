@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Shield, Lock, User, LogIn, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { X, Shield, Lock, User, LogIn, Eye, EyeOff, AlertCircle, CheckCircle2 } from '@/components/icons/MinimalIcons';
 import { useUserSession } from '@/hooks/useUserSession';
 
 interface GoogleAuthModalProps {

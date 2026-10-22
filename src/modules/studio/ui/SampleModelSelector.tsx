@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Sparkles, Ship, Bot, Flame, Cog, Shield, Fan, Landmark } from 'lucide-react';
+import { Sparkles, Ship, Bot, Flame, Cog, Shield, Fan, Landmark } from '@/components/icons/MinimalIcons';
 import { SAMPLE_PRINT_MODELS, SampleModelId, ISamplePrintModel } from '@/backend/domain/sample-models';
 
 interface SampleModelSelectorProps {

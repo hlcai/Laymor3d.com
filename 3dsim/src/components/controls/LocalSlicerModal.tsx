@@ -18,7 +18,7 @@ import {
   ShieldCheck,
   Check,
   ChevronRight,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   detectLocalSlicers,
   runLocalSlice,
@@ -34,6 +34,7 @@ interface LocalSlicerModalProps {
   profile: ISimulationProfile;
   onApplyProfilePatch: (patch: Partial<ISimulationProfile>) => void;
   onApplySliceResult?: (result: ISliceResponse) => void;
+  onImportBambuGcodeFile?: (file: File) => void;
 }
 
 export function LocalSlicerModal({
@@ -43,7 +44,9 @@ export function LocalSlicerModal({
   profile,
   onApplyProfilePatch,
   onApplySliceResult,
+  onImportBambuGcodeFile,
 }: LocalSlicerModalProps) {
+  const gcodeFileInputRef = useRef<HTMLInputElement>(null);
   // 1. Slicer Engine State
   const [slicers, setSlicers] = useState<ILocalSlicerInfo[]>([]);
   const [selectedEngine, setSelectedEngine] = useState<'bambu_studio' | 'prusa_slicer' | 'orca_slicer' | 'custom'>('bambu_studio');
@@ -84,7 +87,7 @@ export function LocalSlicerModal({
         `[System Probe] Đã hoàn tất dò quét phần mềm Slicer cục bộ trên máy tính.`,
         ...data.slicers.map(
           (s) =>
-            ` - [${s.isAvailable ? 'SẴN SÀNG ✅' : 'CHƯA CÀI ⚠️'}] ${s.name}: ${s.path}`
+            ` - [${s.isAvailable ? 'SẴN SÀNG' : 'CHƯA CÀI'}] ${s.name}: ${s.path}`
         ),
         `[Default Engine] Kích hoạt mặc định: ${detectedDefault.toUpperCase()}`,
         `[Model Target] Mô hình mục tiêu: ${currentModel.name} (${currentModel.dimensionsMm.join(' x ')} mm)`,
@@ -117,7 +120,7 @@ export function LocalSlicerModal({
     setTerminalLogs((prev) => [
       ...prev,
       `\n-----------------------------------------------------------`,
-      `[${timestamp}] 🚀 Bắt đầu lệnh Slicing cục bộ...`,
+      `[${timestamp}] Bắt đầu lệnh Slicing cục bộ...`,
       `[CLI Command] ${
         selectedEngine === 'bambu_studio'
           ? `bambu-studio.exe --slice 0 --outputdir ./temp_local_slice ${currentModel.name}.3mf`
@@ -160,8 +163,8 @@ export function LocalSlicerModal({
     } catch (err: any) {
       setTerminalLogs((prev) => [
         ...prev,
-        `[Error ❌] Lỗi thực thi Slicing: ${err.message}`,
-        `[Fallback] Hãy kiểm tra đường dẫn file thực thi slicer hoặc cho phép quyền ứng dụng.`,
+        `[Error] Lỗi thực thi Slicing: ${err.message}`,
+        `[Fallback] Hãy kiểm tra đường dẫn file thực thi slicer hoặc nạp trực tiếp file .gcode.3mf / .gcode bên trên.`,
       ]);
     } finally {
       setIsSlicing(false);
@@ -250,6 +253,54 @@ export function LocalSlicerModal({
 
         {/* Content Body Grid */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          {/* Direct Bambu Studio .gcode.3mf / .gcode Import Banner (Works on Vercel & Local) */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/70 via-teal-950/60 to-slate-900 border border-emerald-400/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-md bg-emerald-400/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-mono uppercase font-bold">
+                  100% Bambu Native Support
+                </span>
+                <h3 className="text-xs font-black text-white uppercase tracking-wider">
+                  Nạp Trực Tiếp Support Gốc Sinh Ra Từ Bambu Studio (.gcode.3mf / .gcode)
+                </h3>
+              </div>
+              <p className="text-[11px] text-white/70 leading-relaxed">
+                Trong <strong className="text-emerald-300">Bambu Studio / OrcaSlicer</strong>: Nhấn{' '}
+                <code className="text-emerald-300 font-mono">Slice Plate</code> → chọn{' '}
+                <code className="text-emerald-300 font-mono">File → Export → Export plate sliced file (.gcode.3mf)</code>{' '}
+                hoặc <code className="text-emerald-300 font-mono">Export G-code...</code> rồi tải lên đây để áp dụng chính xác 100% cây chống gốc lên mô hình.
+              </p>
+            </div>
+
+            <div className="shrink-0">
+              <input
+                ref={gcodeFileInputRef}
+                type="file"
+                accept=".3mf,.gcode,.gco"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f && onImportBambuGcodeFile) {
+                    onImportBambuGcodeFile(f);
+                    setAppliedNotice(`Đã nạp trực tiếp Tree Support gốc từ file ${f.name}!`);
+                    setTimeout(() => {
+                      setAppliedNotice(null);
+                      onClose();
+                    }, 1100);
+                  }
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+              <button
+                onClick={() => gcodeFileInputRef.current?.click()}
+                className="px-4 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-black text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-500/20 active:scale-95"
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span>Chọn File .gcode.3mf / .gcode</span>
+              </button>
+            </div>
+          </div>
+
           {/* Top Row: Engine Selection & Model Info */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Slicer 1: Bambu Studio CLI */}
@@ -273,7 +324,7 @@ export function LocalSlicerModal({
                 </div>
                 {slicers.find((s) => s.id === 'bambu_studio')?.isAvailable ? (
                   <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-black text-[9px] font-black uppercase">
-                    Đã Cài ✅
+                    Đã Cài
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/50 text-[9px] font-mono">
@@ -307,7 +358,7 @@ export function LocalSlicerModal({
                 </div>
                 {slicers.find((s) => s.id === 'prusa_slicer')?.isAvailable ? (
                   <span className="px-2 py-0.5 rounded-full bg-orange-400 text-black text-[9px] font-black uppercase">
-                    Đã Cài ✅
+                    Đã Cài
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/50 text-[9px] font-mono">
@@ -341,7 +392,7 @@ export function LocalSlicerModal({
                 </div>
                 {slicers.find((s) => s.id === 'orca_slicer')?.isAvailable ? (
                   <span className="px-2 py-0.5 rounded-full bg-cyan-400 text-black text-[9px] font-black uppercase">
-                    Đã Cài ✅
+                    Đã Cài
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/50 text-[9px] font-mono">

@@ -23,7 +23,7 @@ import {
   Wrench,
   CalendarClock,
   Palette,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 
 type StepStatus = 'completed' | 'in_progress' | 'upcoming';
 
@@ -71,11 +71,11 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 1.2',
-        title: 'Dựng bản nháp giao diện (Draft UI/UX) trên môi trường thử nghiệm',
+        title: 'Dựng bản nháp giao diện & chuẩn hóa bộ Icon Minimalist CAD độc quyền',
         description:
-          'Triển khai các màn hình mẫu ban đầu cho Trang chủ, Không gian 3D, Buồng giả lập và Cửa hàng để phục vụ đánh giá trực quan.',
+          'Triển khai các màn hình mẫu ban đầu và thay thế toàn bộ bộ icon mặc định phổ thông bằng hệ thống Icon Minimalist CAD/Architectural tự thiết kế riêng (16x16 vector kỹ thuật), loại bỏ hoàn toàn cảm giác giao diện mẫu đại trà.',
         status: 'completed',
-        deliverable: 'Giao diện thử nghiệm bản đầu tiên',
+        deliverable: 'Giao diện thử nghiệm & Bộ Icon Minimalist CAD riêng',
       },
       {
         code: 'Bước 1.3',
@@ -163,11 +163,11 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 3.2',
-        title: 'Đóng gói tệp .3MF xuất ra kèm đầy đủ Profile để đưa vào Bambu Studio in ngay',
+        title: 'Nạp trực tiếp Tree Support gốc từ Bambu Studio (.gcode.3mf / .gcode) & Xuất .3MF kèm Profile',
         description:
-          'Tích hợp toàn bộ thông số tinh chỉnh của bản in vào cấu trúc tệp dự án .3MF chuẩn, giúp kỹ thuật viên mở trực tiếp trên Bambu Studio là có sẵn đầy đủ cấu hình để in luôn.',
+          'Hỗ trợ nạp trực tiếp tệp đã cắt lớp (.gcode.3mf hoặc .gcode) từ Bambu Studio / OrcaSlicer ngay trên trình duyệt (cả trên Cloud/Vercel và Local) để trích xuất 100% cấu trúc Tree Support chính gốc áp vào mô hình, kết hợp thuật toán dựng nhánh cành thẳng đứng bám bậc nền và xuất tệp .3MF kèm đầy đủ Profile in ngay.',
         status: 'completed',
-        deliverable: 'Trình xuất tệp .3MF chuẩn Bambu Studio',
+        deliverable: 'Bộ nạp Support gốc Bambu Studio & Xuất .3MF chuẩn',
       },
       {
         code: 'Bước 3.3',

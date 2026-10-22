@@ -18,7 +18,7 @@ import {
   X,
   Tag,
   FileCheck,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { use3DGenerator } from '@/hooks/use3DGenerator';
 import { useModelViewer } from '@/hooks/useModelViewer';
 import { usePrintSlicer } from '@/hooks/usePrintSlicer';

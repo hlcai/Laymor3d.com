@@ -13,7 +13,7 @@ import {
   RefreshCw,
   Box,
   Compass,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   AI3DEngineType,
   AI_3D_SHOWCASE_PRESETS,

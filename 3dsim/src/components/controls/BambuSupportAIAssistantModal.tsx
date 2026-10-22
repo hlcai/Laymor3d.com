@@ -22,7 +22,7 @@ import {
   Upload,
   Check,
   Database,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import * as THREE from 'three';
 import {
   ISimulationProfile,
@@ -1094,7 +1094,7 @@ export function BambuSupportAIAssistantModal({
                           </div>
                           <p className="text-xs text-slate-300">{spot.description}</p>
                           <p className="text-xs text-emerald-400 font-medium">
-                            💡 Khắc phục: {spot.fixSuggestion}
+                            Khắc phục: {spot.fixSuggestion}
                           </p>
                         </div>
                       </div>

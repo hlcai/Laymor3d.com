@@ -22,7 +22,7 @@ import {
   ChevronRight,
   Flame,
   Check,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { ThreeCanvasViewer } from '@/modules/studio/ui/ThreeCanvasViewer';
 import { useModelViewer } from '@/modules/studio/hooks/useModelViewer';
 import { SAMPLE_PRINT_MODELS, SampleModelId, ISamplePrintModel } from '@/backend/domain/sample-models';

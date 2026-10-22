@@ -14,7 +14,7 @@ import {
   ExternalLink,
   ChevronRight,
   Info,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { ISampleModel } from '@/types/simulator';
 import { SAMPLE_MODELS, parseCADFile } from '@/services/sampleModels';
 import { fetchUserModels, IUserModelInfo } from '@/services/localSlicerService';

@@ -23,7 +23,7 @@ import {
   LogOut,
   ShieldCheck,
   BookOpen,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useUserWallet } from '@/hooks/useUserWallet';
 import { useUserSession } from '@/hooks/useUserSession';
 import { useModulePermissions } from '@/hooks/useModulePermissions';

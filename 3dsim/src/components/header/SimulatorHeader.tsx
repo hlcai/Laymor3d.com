@@ -216,14 +216,14 @@ export function SimulatorHeader({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".3mf,.stl,.obj"
+            accept=".3mf,.gcode,.gco,.stl,.obj"
             onChange={handleFileChange}
             className="hidden"
           />
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg studio-gold-badge text-[11px] font-medium transition-all cursor-pointer ml-0.5 hover:opacity-85"
-            title="Nạp file CAD (.3MF, .STL, .OBJ)"
+            title="Nạp file CAD hoặc G-Code Bambu Studio (.3MF, .GCODE.3MF, .GCODE, .STL, .OBJ)"
           >
             <IconImport size={12} />
             <span className="hidden 2xl:inline">Nạp File</span>

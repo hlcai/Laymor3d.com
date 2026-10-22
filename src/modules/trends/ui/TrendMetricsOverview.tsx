@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { TrendingUp, Download, Printer, Flame, Layers } from 'lucide-react';
+import { TrendingUp, Download, Printer, Flame, Layers } from '@/components/icons/MinimalIcons';
 import { ITrendMetric } from '@/backend/domain/models';
 import { IFilamentDistribution } from '@/backend/services/analytics/TagAnalytics';
 import { ITrendSummary } from '@/hooks/useTrendAnalytics';

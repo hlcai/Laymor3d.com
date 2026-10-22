@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Tag, TrendingUp } from 'lucide-react';
+import { Tag, TrendingUp } from '@/components/icons/MinimalIcons';
 import { ITagFrequency } from '@/backend/services/analytics/TagAnalytics';
 
 interface HotTagsCloudProps {

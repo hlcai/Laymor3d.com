@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Printer, Box } from 'lucide-react';
+import { Printer, Box } from '@/components/icons/MinimalIcons';
 import { IPrinterProfile } from '@/backend/domain/slicing';
 
 interface PrinterSelectorProps {

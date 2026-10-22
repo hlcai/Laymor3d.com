@@ -14,7 +14,7 @@ import {
   Activity,
   Layers,
   FileText,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IAuditLog } from '@/backend/repositories/AuditLogRepository';
 
 export function AdminAuditLogManager() {

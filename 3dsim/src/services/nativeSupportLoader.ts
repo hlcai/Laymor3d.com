@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { unzipSync } from 'three/examples/jsm/libs/fflate.module.js';
 
 export interface INativeSupportSegment {
   isInterface: boolean;
@@ -16,19 +17,30 @@ export interface INativeSupportData {
 const modelSupportCache = new Map<string, INativeSupportData>();
 
 export function setPreloadedSupport(key: string, data: INativeSupportData): void {
+  if (!key) return;
   modelSupportCache.set(key, data);
+  modelSupportCache.set('__latest_active__', data);
 }
 
 /**
- * Nạp dữ liệu đường chạy dao Support native chính thức từ Bambu Studio CLI
+ * Nạp dữ liệu đường chạy dao Support native chính thức từ Bambu Studio CLI hoặc file .gcode.3mf / .gcode
  */
 export async function loadNativeBambuSupport(
   modelIdentifier?: string,
   modelPath?: string
 ): Promise<INativeSupportData | null> {
+  if (modelPath && modelSupportCache.has(modelPath)) {
+    return modelSupportCache.get(modelPath)!;
+  }
+  if (modelIdentifier && modelSupportCache.has(modelIdentifier)) {
+    return modelSupportCache.get(modelIdentifier)!;
+  }
   const cacheKey = modelPath || modelIdentifier || 'default';
   if (modelSupportCache.has(cacheKey)) {
     return modelSupportCache.get(cacheKey)!;
+  }
+  if (modelSupportCache.has('__latest_active__')) {
+    return modelSupportCache.get('__latest_active__')!;
   }
 
   // 1. Thử lấy support thực tế từ Bambu Studio Local Slicer Bridge API
@@ -88,8 +100,10 @@ export function getCachedNativeSupport(
   modelIdentifier?: string,
   modelPath?: string
 ): INativeSupportData | null {
+  if (modelPath && modelSupportCache.has(modelPath)) return modelSupportCache.get(modelPath)!;
+  if (modelIdentifier && modelSupportCache.has(modelIdentifier)) return modelSupportCache.get(modelIdentifier)!;
   const cacheKey = modelPath || modelIdentifier || 'default';
-  return modelSupportCache.get(cacheKey) || null;
+  return modelSupportCache.get(cacheKey) || modelSupportCache.get('__latest_active__') || null;
 }
 
 /**
@@ -380,7 +394,9 @@ export interface IFullToolpathData {
 const toolpathsCache = new Map<string, IFullToolpathData>();
 
 export function setPreloadedToolpaths(key: string, data: IFullToolpathData): void {
+  if (!key) return;
   toolpathsCache.set(key, data);
+  toolpathsCache.set('__latest_active__', data);
 }
 
 /**
@@ -390,9 +406,18 @@ export async function loadFullBambuToolpaths(
   modelIdentifier?: string,
   modelPath?: string
 ): Promise<IFullToolpathData | null> {
+  if (modelPath && toolpathsCache.has(modelPath)) {
+    return toolpathsCache.get(modelPath)!;
+  }
+  if (modelIdentifier && toolpathsCache.has(modelIdentifier)) {
+    return toolpathsCache.get(modelIdentifier)!;
+  }
   const cacheKey = modelPath || modelIdentifier || 'default';
   if (toolpathsCache.has(cacheKey)) {
     return toolpathsCache.get(cacheKey)!;
+  }
+  if (toolpathsCache.has('__latest_active__')) {
+    return toolpathsCache.get('__latest_active__')!;
   }
 
   // 1. Thử lấy từ Slicer API
@@ -596,4 +621,590 @@ export function clearAllSupportCaches(): void {
   modelSupportCache.clear();
   toolpathsCache.clear();
 }
+
+export interface IParsedBambuGcodeBundle {
+  supportData: INativeSupportData;
+  toolpathData: IFullToolpathData;
+  totalLayers: number;
+  estimatedTimeSec: number;
+  filamentWeightGrams: number;
+  supportLinesCount: number;
+}
+
+/**
+ * Kiểm tra và giải nén nội dung G-Code thực tế từ file .gcode, .gcode.3mf hoặc .3mf xuất từ Bambu Studio / OrcaSlicer / PrusaSlicer
+ */
+export function extractBambuGcodeFromBuffer(buffer: ArrayBuffer, fileName: string): string | null {
+  const lower = fileName.toLowerCase();
+  try {
+    if (lower.endsWith('.gcode') || lower.endsWith('.gco') || lower.endsWith('.g')) {
+      const text = new TextDecoder().decode(buffer);
+      if (text.includes('G1 ') || text.includes('; FEATURE:') || text.includes(';TYPE:')) {
+        return text;
+      }
+      return null;
+    }
+
+    if (lower.endsWith('.3mf')) {
+      const unzipped = unzipSync(new Uint8Array(buffer));
+      const gcodeKeys = Object.keys(unzipped).filter(
+        (k) => k.toLowerCase().endsWith('.gcode') && unzipped[k] && unzipped[k].length > 120
+      );
+      if (gcodeKeys.length > 0) {
+        gcodeKeys.sort((a, b) => unzipped[b].length - unzipped[a].length);
+        const gcodeText = new TextDecoder().decode(unzipped[gcodeKeys[0]]);
+        if (gcodeText.includes('G1 ') || gcodeText.includes('; FEATURE:') || gcodeText.includes(';TYPE:')) {
+          return gcodeText;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[extractBambuGcodeFromBuffer] Không thể giải nén G-code:', err);
+  }
+  return null;
+}
+
+/**
+ * Trích xuất trực tiếp 100% cấu trúc Tree Support (; FEATURE: Support / Support interface) và toàn bộ sợi in
+ * từ G-Code của Bambu Studio / OrcaSlicer / PrusaSlicer ngay trên trình duyệt (Client-Side).
+ * Tự động căn tâm XZ của G-Code khớp tuyệt đối với tâm (0, 0) của mô hình 3D trên bàn in.
+ */
+export function parseBambuGcodeNative(
+  gcodeText: string,
+  modelName = 'Bambu Studio Native Model'
+): IParsedBambuGcodeBundle {
+  const lines = gcodeText.split(/\r?\n/);
+
+  // Pass 1: Tìm tâm Bounding Box thực tế của phôi in (Outer/Inner walls) và đọc thông số Telemetry
+  let minModelX = Infinity,
+    maxModelX = -Infinity,
+    minModelY = Infinity,
+    maxModelY = -Infinity;
+  let minAllX = Infinity,
+    maxAllX = -Infinity,
+    minAllY = Infinity,
+    maxAllY = -Infinity;
+
+  let p1X = 128,
+    p1Y = 128,
+    p1LayerZ = 0.2;
+  let p1Feature = 'none';
+  let p1Wipe = false;
+  let headerTotalLayers = 0;
+  let estimatedTimeSec = 0;
+  let filamentWeightGrams = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    if (line.startsWith(';')) {
+      if (line.startsWith('; WIPE_START')) {
+        p1Wipe = true;
+        continue;
+      }
+      if (line.startsWith('; WIPE_END')) {
+        p1Wipe = false;
+        continue;
+      }
+      if (line.startsWith('; Z_HEIGHT:') || line.startsWith(';Z:')) {
+        const zv = parseFloat(line.slice(line.indexOf(':') + 1));
+        if (!isNaN(zv) && zv > 0) p1LayerZ = zv;
+        continue;
+      }
+      if (line.startsWith('; FEATURE:') || line.startsWith(';TYPE:')) {
+        p1Feature = line.slice(line.indexOf(':') + 1).trim();
+        continue;
+      }
+      if (line.includes('total layer number:')) {
+        const m = /total layer number:\s*(\d+)/i.exec(line);
+        if (m) headerTotalLayers = parseInt(m[1], 10);
+      } else if (line.includes('model printing time:') || line.includes('estimated printing time')) {
+        const hM = /(\d+)\s*h/i.exec(line);
+        const mM = /(\d+)\s*m/i.exec(line);
+        const sM = /(\d+)\s*s/i.exec(line);
+        const sec =
+          (hM ? parseInt(hM[1], 10) * 3600 : 0) +
+          (mM ? parseInt(mM[1], 10) * 60 : 0) +
+          (sM ? parseInt(sM[1], 10) : 0);
+        if (sec > 0) estimatedTimeSec = sec;
+      } else if (line.includes('total filament weight [g]') || line.includes('filament used [g]')) {
+        const wM = /:\s*([\d.]+)/.exec(line);
+        if (wM) {
+          const w = parseFloat(wM[1]);
+          if (!isNaN(w) && w > 0) filamentWeightGrams = Number(w.toFixed(1));
+        }
+      }
+      continue;
+    }
+
+    if (
+      line.startsWith('G0 ') ||
+      line.startsWith('G1 ') ||
+      line.startsWith('G2 ') ||
+      line.startsWith('G3 ')
+    ) {
+      const mX = /X([-\d.]+)/.exec(line);
+      const mY = /Y([-\d.]+)/.exec(line);
+      const mE = /E([-\d.]+)/.exec(line);
+      const nx = mX ? parseFloat(mX[1]) : p1X;
+      const ny = mY ? parseFloat(mY[1]) : p1Y;
+      const ev = mE ? parseFloat(mE[1]) : 0;
+
+      if (!p1Wipe && ev > 0 && p1LayerZ > 0.25 && nx > 8 && nx < 248 && ny > 12 && ny < 248) {
+        if (nx < minAllX) minAllX = nx;
+        if (nx > maxAllX) maxAllX = nx;
+        if (ny < minAllY) minAllY = ny;
+        if (ny > maxAllY) maxAllY = ny;
+
+        const isModelFeat =
+          p1Feature.includes('Outer wall') ||
+          p1Feature.includes('Inner wall') ||
+          p1Feature.includes('Overhang wall') ||
+          p1Feature.includes('Top surface') ||
+          p1Feature.includes('Bottom surface') ||
+          p1Feature.includes('Sparse infill') ||
+          p1Feature.includes('Internal solid infill') ||
+          p1Feature.includes('Bridge') ||
+          p1Feature.includes('Perimeter');
+
+        if (isModelFeat) {
+          if (nx < minModelX) minModelX = nx;
+          if (nx > maxModelX) maxModelX = nx;
+          if (ny < minModelY) minModelY = ny;
+          if (ny > maxModelY) maxModelY = ny;
+        }
+      }
+      p1X = nx;
+      p1Y = ny;
+    }
+  }
+
+  const centerX =
+    minModelX < maxModelX
+      ? (minModelX + maxModelX) / 2
+      : minAllX < maxAllX
+      ? (minAllX + maxAllX) / 2
+      : 128;
+  const centerY =
+    minModelY < maxModelY
+      ? (minModelY + maxModelY) / 2
+      : minAllY < maxAllY
+      ? (minAllY + maxAllY) / 2
+      : 128;
+
+  // Pass 2: Trích xuất chuẩn xác các segment Support, Interface, Brim và Full Toolpaths
+  let curX = centerX,
+    curY = centerY,
+    curZ = 0.2,
+    layerZ = 0.2;
+  let curFeature = 'none';
+  let inSupport = false;
+  let isInterface = false;
+  let inWipe = false;
+  let curLayer = 0;
+  let isNewOuterLoop = true;
+
+  const segments: INativeSupportSegment[] = [];
+  let curLoopPts: number[] = [];
+
+  const outerWalls: number[] = [];
+  const innerWalls: number[] = [];
+  const infills: number[] = [];
+  const supports: number[] = [];
+  const interfaces: number[] = [];
+  const brims: number[] = [];
+  const seams: number[] = [];
+  const layerIndexTable: number[][] = [[0, 0, 0, 0, 0, 0]];
+
+  const flushSupportLoop = () => {
+    const n = curLoopPts.length / 3;
+    if (n >= 2) {
+      if (n >= 4) {
+        const sx = curLoopPts[0],
+          sy = curLoopPts[1],
+          sz = curLoopPts[2];
+        const ex = curLoopPts[(n - 1) * 3],
+          ey = curLoopPts[(n - 1) * 3 + 1],
+          ez = curLoopPts[(n - 1) * 3 + 2];
+        const closeDist = Math.hypot(ex - sx, ez - sz);
+        if (closeDist > 0.05 && closeDist <= 2.8 && Math.abs(ey - sy) < 0.08) {
+          curLoopPts.push(sx, sy, sz);
+        }
+      }
+      const pairPts: number[] = [];
+      for (let k = 0; k < curLoopPts.length - 3; k += 3) {
+        pairPts.push(
+          curLoopPts[k],
+          curLoopPts[k + 1],
+          curLoopPts[k + 2],
+          curLoopPts[k + 3],
+          curLoopPts[k + 4],
+          curLoopPts[k + 5]
+        );
+      }
+      if (pairPts.length >= 6) {
+        segments.push({ isInterface, points: pairPts });
+      }
+    }
+    curLoopPts = [];
+  };
+
+  const addSupportLoopPoint = (bx: number, by: number, bz: number, force = false) => {
+    const tx = Number((bx - centerX).toFixed(2));
+    const ty = Number(bz.toFixed(2));
+    const tz = Number((by - centerY).toFixed(2));
+    if (curLoopPts.length === 0) {
+      curLoopPts.push(tx, ty, tz);
+      return;
+    }
+    const lx = curLoopPts[curLoopPts.length - 3];
+    const ly = curLoopPts[curLoopPts.length - 2];
+    const lz = curLoopPts[curLoopPts.length - 1];
+    const dist = Math.hypot(tx - lx, ty - ly, tz - lz);
+    if ((force && dist > 0.02) || dist >= 0.65) {
+      curLoopPts.push(tx, ty, tz);
+    }
+  };
+
+  const pushMoveToFeature = (x1: number, y1: number, x2: number, y2: number, z: number) => {
+    const tX1 = Number((x1 - centerX).toFixed(2));
+    const tY1 = Number(z.toFixed(2));
+    const tZ1 = Number((y1 - centerY).toFixed(2));
+
+    const tX2 = Number((x2 - centerX).toFixed(2));
+    const tY2 = Number(z.toFixed(2));
+    const tZ2 = Number((y2 - centerY).toFixed(2));
+
+    const dist = Math.hypot(tX2 - tX1, tZ2 - tZ1);
+    if (dist < 0.03 || dist > 65) return;
+
+    const fl = curFeature.toLowerCase();
+    if (
+      fl.includes('outer wall') ||
+      fl.includes('overhang wall') ||
+      fl.includes('top surface') ||
+      fl.includes('external perimeter')
+    ) {
+      outerWalls.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+      if (isNewOuterLoop) {
+        seams.push(tX1, tY1, tZ1);
+        isNewOuterLoop = false;
+      }
+    } else if (
+      fl.includes('inner wall') ||
+      fl.includes('floating vertical shell') ||
+      fl.includes('bridge') ||
+      fl.includes('perimeter') ||
+      fl.includes('bottom surface')
+    ) {
+      innerWalls.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+    } else if (fl.includes('infill')) {
+      infills.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+    } else if (fl.includes('support interface') || fl.includes('support_interface') || fl.includes('support transition')) {
+      interfaces.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+    } else if (fl.includes('support') || fl.includes('tree')) {
+      if (z <= 0.32) {
+        brims.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+      } else {
+        supports.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+      }
+    } else if (fl.includes('skirt') || fl.includes('brim')) {
+      brims.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    if (line.startsWith('; WIPE_START')) {
+      inWipe = true;
+      flushSupportLoop();
+      continue;
+    }
+    if (line.startsWith('; WIPE_END')) {
+      inWipe = false;
+      continue;
+    }
+
+    if (line.startsWith('; CHANGE_LAYER') || line.startsWith(';LAYER_CHANGE')) {
+      flushSupportLoop();
+      curLayer++;
+      layerIndexTable[curLayer] = [
+        outerWalls.length / 3,
+        innerWalls.length / 3,
+        infills.length / 3,
+        supports.length / 3,
+        interfaces.length / 3,
+        seams.length / 3,
+      ];
+      isNewOuterLoop = true;
+      continue;
+    }
+
+    if (line.startsWith('; Z_HEIGHT:') || line.startsWith(';Z:')) {
+      const zVal = parseFloat(line.slice(line.indexOf(':') + 1));
+      if (!isNaN(zVal) && zVal > 0) {
+        layerZ = zVal;
+        curZ = zVal;
+      }
+      continue;
+    }
+
+    if (line.startsWith('; FEATURE:') || line.startsWith(';TYPE:')) {
+      flushSupportLoop();
+      const feat = line.slice(line.indexOf(':') + 1).trim();
+      const fl = feat.toLowerCase();
+      if (feat !== curFeature) {
+        if (fl.includes('outer wall') || fl.includes('overhang wall')) isNewOuterLoop = true;
+        curFeature = feat;
+      }
+
+      if (fl.includes('support interface') || fl.includes('support_interface') || fl.includes('support transition')) {
+        inSupport = true;
+        isInterface = true;
+      } else if (
+        fl.includes('support') ||
+        fl.includes('tree') ||
+        (layerZ <= 0.32 && (fl.includes('skirt') || fl.includes('brim')))
+      ) {
+        inSupport = true;
+        isInterface = false;
+      } else {
+        inSupport = false;
+      }
+      continue;
+    }
+
+    const isG0 = line.startsWith('G0 ');
+    const isG1 = line.startsWith('G1 ');
+    const isG2 = line.startsWith('G2 ');
+    const isG3 = line.startsWith('G3 ');
+
+    if (isG0 || isG1 || isG2 || isG3) {
+      const matchX = /X([-\d.]+)/.exec(line);
+      const matchY = /Y([-\d.]+)/.exec(line);
+      const matchZ = /Z([-\d.]+)/.exec(line);
+      const matchE = /E([-\d.]+)/.exec(line);
+
+      const nextX = matchX ? parseFloat(matchX[1]) : curX;
+      const nextY = matchY ? parseFloat(matchY[1]) : curY;
+      const nextZ = matchZ ? parseFloat(matchZ[1]) : curZ;
+      const eVal = matchE ? parseFloat(matchE[1]) : 0;
+      const moveXY = Math.hypot(nextX - curX, nextY - curY);
+
+      if (!inWipe && eVal > 0 && moveXY > 0.005) {
+        const effZ = layerZ > 0 ? layerZ : nextZ;
+
+        if (inSupport) {
+          if (curLoopPts.length === 0) {
+            addSupportLoopPoint(curX, curY, effZ, true);
+          }
+          if (isG2 || isG3) {
+            const matchI = /I([-\d.]+)/.exec(line);
+            const matchJ = /J([-\d.]+)/.exec(line);
+            const I = matchI ? parseFloat(matchI[1]) : 0;
+            const J = matchJ ? parseFloat(matchJ[1]) : 0;
+            const cx = curX + I;
+            const cy = curY + J;
+            const r = Math.hypot(I, J);
+
+            if (r > 0.05 && r < 220) {
+              const a1 = Math.atan2(curY - cy, curX - cx);
+              const a2 = Math.atan2(nextY - cy, nextX - cx);
+              let da = a2 - a1;
+              if (isG3 && da <= 1e-6) da += Math.PI * 2;
+              if (isG2 && da >= -1e-6) da -= Math.PI * 2;
+
+              if (Math.abs(da) > Math.PI * 1.8 && moveXY < 0.5 && eVal < r * 0.04) {
+                addSupportLoopPoint(nextX, nextY, effZ, true);
+              } else {
+                const arcLen = r * Math.abs(da);
+                const steps = Math.max(1, Math.min(28, Math.ceil(arcLen / 0.8)));
+                for (let s = 1; s <= steps; s++) {
+                  if (s === steps) {
+                    addSupportLoopPoint(nextX, nextY, effZ, true);
+                  } else {
+                    const a = a1 + da * (s / steps);
+                    addSupportLoopPoint(cx + Math.cos(a) * r, cy + Math.sin(a) * r, effZ, false);
+                  }
+                }
+              }
+            } else if (moveXY < 55) {
+              addSupportLoopPoint(nextX, nextY, effZ, true);
+            }
+          } else if (moveXY < 55) {
+            addSupportLoopPoint(nextX, nextY, effZ, false);
+          }
+        }
+
+        // Ghi nhận đồng thời vào Full Toolpaths
+        if (isG2 || isG3) {
+          const matchI = /I([-\d.]+)/.exec(line);
+          const matchJ = /J([-\d.]+)/.exec(line);
+          const I = matchI ? parseFloat(matchI[1]) : 0;
+          const J = matchJ ? parseFloat(matchJ[1]) : 0;
+          const cx = curX + I;
+          const cy = curY + J;
+          const r = Math.hypot(I, J);
+          if (r > 0.05 && r < 220) {
+            const a1 = Math.atan2(curY - cy, curX - cx);
+            const a2 = Math.atan2(nextY - cy, nextX - cx);
+            let da = a2 - a1;
+            if (isG3 && da <= 1e-6) da += Math.PI * 2;
+            if (isG2 && da >= -1e-6) da -= Math.PI * 2;
+            if (Math.abs(da) > Math.PI * 1.8 && moveXY < 0.5 && eVal < r * 0.04) {
+              pushMoveToFeature(curX, curY, nextX, nextY, effZ);
+            } else {
+              const arcLen = r * Math.abs(da);
+              const steps = Math.max(1, Math.min(20, Math.ceil(arcLen / 1.2)));
+              let px = curX;
+              let py = curY;
+              for (let s = 1; s <= steps; s++) {
+                const nx = s === steps ? nextX : cx + Math.cos(a1 + da * (s / steps)) * r;
+                const ny = s === steps ? nextY : cy + Math.sin(a1 + da * (s / steps)) * r;
+                pushMoveToFeature(px, py, nx, ny, effZ);
+                px = nx;
+                py = ny;
+              }
+            }
+          } else {
+            pushMoveToFeature(curX, curY, nextX, nextY, effZ);
+          }
+        } else {
+          pushMoveToFeature(curX, curY, nextX, nextY, effZ);
+        }
+      } else if ((eVal <= 0 || isG0) && moveXY > 0.05) {
+        if (inSupport) flushSupportLoop();
+        if (curFeature.toLowerCase().includes('outer wall')) isNewOuterLoop = true;
+      }
+
+      curX = nextX;
+      curY = nextY;
+      curZ = nextZ;
+    }
+  }
+
+  flushSupportLoop();
+
+  const finalLayers = Math.max(curLayer, headerTotalLayers, 1);
+  layerIndexTable[finalLayers] = [
+    outerWalls.length / 3,
+    innerWalls.length / 3,
+    infills.length / 3,
+    supports.length / 3,
+    interfaces.length / 3,
+    seams.length / 3,
+  ];
+
+  const totalSupportMoves = segments.reduce((sum, s) => sum + s.points.length / 6, 0);
+
+  const supportData: INativeSupportData = {
+    model: modelName,
+    engine: 'bambu_studio_gcode',
+    totalMoves: totalSupportMoves,
+    totalSegments: segments.length,
+    segments,
+  };
+
+  const toolpathData: IFullToolpathData = {
+    model: modelName,
+    engine: 'bambu_studio_gcode',
+    totalLayers: finalLayers,
+    layerHeightMm: 0.2,
+    totalMoves:
+      (outerWalls.length +
+        innerWalls.length +
+        infills.length +
+        supports.length +
+        interfaces.length +
+        brims.length) /
+      6,
+    outerWalls,
+    innerWalls,
+    infills,
+    supports,
+    interfaces,
+    brims,
+    seams,
+    layerIndexTable,
+  };
+
+  return {
+    supportData,
+    toolpathData,
+    totalLayers: finalLayers,
+    estimatedTimeSec: estimatedTimeSec || Math.max(600, finalLayers * 18),
+    filamentWeightGrams: filamentWeightGrams || Math.max(5.0, Number((finalLayers * 0.14).toFixed(1))),
+    supportLinesCount: totalSupportMoves,
+  };
+}
+
+/**
+ * Tái tạo lưới BufferGeometry 3D từ đường chạy dao Outer/Inner Walls của G-code
+ * Dùng trong trường hợp người dùng tải trực tiếp file .gcode.3mf hoặc .gcode không đính kèm thẻ <mesh>
+ */
+export function reconstructGeometryFromToolpaths(toolpathData: IFullToolpathData): THREE.BufferGeometry {
+  const sourceLines =
+    toolpathData.outerWalls.length >= 18
+      ? toolpathData.outerWalls
+      : toolpathData.innerWalls.length >= 18
+      ? toolpathData.innerWalls
+      : toolpathData.supports;
+
+  const positions: number[] = [];
+  const totalPairs = Math.floor(sourceLines.length / 6);
+  const stride = Math.max(1, Math.floor(totalPairs / 28000));
+  const halfW = 0.24;
+  const halfH = 0.12;
+
+  for (let p = 0; p < totalPairs; p += stride) {
+    const idx = p * 6;
+    const x1 = sourceLines[idx],
+      y1 = sourceLines[idx + 1],
+      z1 = sourceLines[idx + 2];
+    const x2 = sourceLines[idx + 3],
+      y2 = sourceLines[idx + 4],
+      z2 = sourceLines[idx + 5];
+
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.05 || len > 50) continue;
+
+    const nx = (-dz / len) * halfW;
+    const nz = (dx / len) * halfW;
+
+    // Mặt đứng bên ngoài
+    positions.push(
+      x1 + nx, y1 - halfH, z1 + nz,
+      x2 + nx, y2 - halfH, z2 + nz,
+      x2 + nx, y2 + halfH, z2 + nz,
+      x1 + nx, y1 - halfH, z1 + nz,
+      x2 + nx, y2 + halfH, z2 + nz,
+      x1 + nx, y1 + halfH, z1 + nz
+    );
+    // Mặt nắp trên
+    positions.push(
+      x1 - nx, y1 + halfH, z1 - nz,
+      x1 + nx, y1 + halfH, z1 + nz,
+      x2 + nx, y2 + halfH, z2 + nz,
+      x1 - nx, y1 + halfH, z1 - nz,
+      x2 + nx, y2 + halfH, z2 + nz,
+      x2 - nx, y2 + halfH, z2 - nz
+    );
+  }
+
+  if (positions.length === 0) {
+    return new THREE.BoxGeometry(24, 24, 24).toNonIndexed();
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.computeBoundingBox();
+  geom.computeVertexNormals();
+  return geom;
+}
+
 

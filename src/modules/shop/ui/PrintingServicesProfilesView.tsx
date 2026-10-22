@@ -14,7 +14,7 @@ import {
   Printer,
   Send,
   Coins,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   IPrintingServicePackage,
   IPrintProfileItem,

@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Trash2,
   ChevronDown,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   getSavedGeminiApiKey,
   saveGeminiApiKey,

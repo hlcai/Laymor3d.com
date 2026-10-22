@@ -17,7 +17,7 @@ import {
   Edit2,
   UserCheck,
   Sparkles,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IKnowledgeEntry, KnowledgeCategory, ISlicerParameterOverride } from '@/backend/domain/knowledge';
 
 export function AdminKnowledgeManager() {

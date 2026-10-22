@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { X, CheckCircle, Sparkles, Shield, ArrowRight, UserCheck, Mail, LogIn } from 'lucide-react';
+import { X, CheckCircle, Sparkles, Shield, ArrowRight, UserCheck, Mail, LogIn } from '@/components/icons/MinimalIcons';
 import { useUserSession } from '@/hooks/useUserSession';
 import { useUserWallet } from '@/hooks/useUserWallet';
 

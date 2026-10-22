@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { RotateCw, Grid, Eye, Palette, Layers, Compass, Ruler } from 'lucide-react';
+import { RotateCw, Grid, Eye, Palette, Layers, Compass, Ruler } from '@/components/icons/MinimalIcons';
 import { ViewerOptions, OrientationDeg } from '@/hooks/useModelViewer';
 
 interface ViewerToolbarProps {

@@ -25,7 +25,7 @@ import {
   PackageCheck,
   ShieldAlert,
   Sliders,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IGeminiTrendAnalysisResult } from '@/backend/services/analytics/GeminiAnalyticsService';
 
 interface GeminiTrendAnalysisViewProps {

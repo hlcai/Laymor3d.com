@@ -830,8 +830,8 @@ function safeMergeGeometries(geoms: (THREE.BufferGeometry | null)[]): THREE.Buff
 }
 
 /**
- * Đẩy một điểm 3D ra ngoài lớp vỏ (Hull Envelope) của vật thể tại đúng độ cao Y tương ứng
- * để đảm bảo thân chính, chạc cây và nhánh phụ KHÔNG BAO GIỜ đâm xuyên vào bên trong ruột mẫu in.
+ * Đẩy nhẹ một điểm 3D ra ngoài lớp vỏ cục bộ tại đúng độ cao Y tương ứng (giới hạn dịch chuyển tối đa <= 2.5mm)
+ * để tránh cắt vào vách đứng mà tuyệt đối không bao giờ đẩy văng nhánh cây ra ngoài không trung.
  */
 function pushOutsideHull(
   x: number,
@@ -856,20 +856,22 @@ function pushOutsideHull(
   let angIdx = Math.floor(((Math.atan2(dirZ, dirX) + Math.PI) / (Math.PI * 2)) * radialBins);
   angIdx = ((angIdx % radialBins) + radialBins) % radialBins;
 
-  const hIdx = Math.max(0, Math.min(heightBins - 1, Math.floor((y / Math.max(1, maxY)) * heightBins)));
+  const hIdx = Math.max(0, Math.min(heightBins - 1, Math.floor((y / Math.max(1, maxY)) * (heightBins - 1))));
 
   let localHullR = 0;
-  for (let dh = -1; dh <= 1; dh++) {
-    const ch = Math.max(0, Math.min(heightBins - 1, hIdx + dh));
-    for (let da = -1; da <= 1; da++) {
-      const ca = (angIdx + da + radialBins) % radialBins;
-      const r = hullEnvelope[ch * radialBins + ca];
+  for (let da = -1; da <= 1; da++) {
+    const ca = (angIdx + da + radialBins) % radialBins;
+    for (let dh = -1; dh <= 1; dh++) {
+      const ch = Math.max(0, Math.min(heightBins - 1, hIdx + dh));
+      // Chú ý: hullEnvelope được lưu theo chỉ số [angIdx * heightBins + hIdx]
+      const r = hullEnvelope[ca * heightBins + ch];
       if (r > localHullR) localHullR = r;
     }
   }
 
-  if (localHullR > 0.5 && dist < localHullR + clearance) {
-    const safeR = localHullR + clearance;
+  // Chỉ đẩy nhẹ khi điểm nằm sát mặt vỏ ngoài (không đẩy nếu điểm nằm bên dưới khay/vòm nội bộ)
+  if (localHullR > 0.5 && dist >= localHullR - 2.0 && dist < localHullR + clearance) {
+    const safeR = Math.min(dist + 2.2, localHullR + clearance);
     return new THREE.Vector3(centerX + dirX * safeR, y, centerZ + dirZ * safeR);
   }
 
@@ -877,8 +879,10 @@ function pushOutsideHull(
 }
 
 /**
- * Tìm vị trí đặt gốc cây trên bàn in (Y = 0) nằm bên ngoài chân đế mô hình
- * và có hành lang vươn lên thông thoáng quanh lớp vỏ 3D (Hull Envelope).
+ * Tìm vị trí đặt gốc cây (Root Position) chuẩn vật lý in 3D Bambu Studio:
+ * - Tìm điểm trống gần nhất quanh hình chiếu (avgX, avgZ) theo 8 hướng cục bộ trong phạm vi nghiêng cho phép (<= 35°).
+ * - Nếu vùng Overhang nằm phía trên một mặt sàn/khay phẳng rộng (maxClusterFloorY > 0.5) và khoảng cách ra mép bàn in quá xa,
+ *   tự động hạ gốc cây bám trực tiếp lên mặt sàn phẳng bên dưới (rootY = maxClusterFloorY + 0.12) để thân cây mọc thẳng đứng tự nhiên.
  */
 function findOptimalRootPosition(
   avgX: number,
@@ -887,80 +891,114 @@ function findOptimalRootPosition(
   maxClusterFloorY: number,
   centerX: number,
   centerZ: number,
-  maxY: number,
+  _maxY: number,
   baseFootprintGrid: Set<string>,
-  hullRadialProfile: Float32Array,
-  hullEnvelope: Float32Array,
-  radialBins: number,
-  heightBins: number
-): { rootX: number; rootZ: number; normX: number; normZ: number; routesAroundHull: boolean } {
+  _hullRadialProfile: Float32Array,
+  _hullEnvelope: Float32Array,
+  _radialBins: number,
+  _heightBins: number
+): { rootX: number; rootY: number; rootZ: number; normX: number; normZ: number; isGroundedOnBed: boolean } {
   const dx = avgX - centerX;
   const dz = avgZ - centerZ;
   const dist = Math.hypot(dx, dz);
   const normX = dist > 0.05 ? dx / dist : 0;
   const normZ = dist > 0.05 ? dz / dist : 1;
 
-  let angIdx = Math.floor(((Math.atan2(normZ, normX) + Math.PI) / (Math.PI * 2)) * radialBins);
-  angIdx = Math.max(0, Math.min(radialBins - 1, angIdx));
+  // Độ lệch ngang tối đa cho phép để thân cây không bao giờ nghiêng quá 32 độ hoặc vòng ra xa
+  const maxHorizontalOffset = Math.min(9.5, Math.max(2.5, minClusterY * 0.26));
 
-  const maxTopH = Math.max(
-    1,
-    Math.min(heightBins - 1, Math.floor(((minClusterY * 0.82) / Math.max(1, maxY)) * heightBins))
-  );
+  const gx0 = Math.floor(avgX / 2.0);
+  const gz0 = Math.floor(avgZ / 2.0);
+  const directlyBlockedOnBed = baseFootprintGrid.has(`${gx0}_${gz0}`);
 
-  // Bán kính vỏ mô hình ở tầng chân đế (0..15% chiều cao) và hành lang đi lên (0..82% chiều cao cụm)
-  let baseHullR = 0;
-  let corridorHullR = 0;
-  for (let h = 0; h <= maxTopH; h++) {
-    for (let da = -2; da <= 2; da++) {
-      const ca = (angIdx + da + radialBins) % radialBins;
-      const r = hullEnvelope[h * radialBins + ca];
-      if (r > corridorHullR) corridorHullR = r;
-      if (h <= Math.max(2, Math.floor(heightBins * 0.15)) && r > baseHullR) {
-        baseHullR = r;
+  // Trường hợp 1: Ngay bên dưới cụm Overhang trên bàn in hoàn toàn trống trải (không vướng đế mô hình)
+  if (!directlyBlockedOnBed && maxClusterFloorY <= 0.5) {
+    const slightOut = Math.min(1.6, minClusterY * 0.04);
+    return {
+      rootX: avgX + normX * slightOut,
+      rootY: 0.14,
+      rootZ: avgZ + normZ * slightOut,
+      normX,
+      normZ,
+      isGroundedOnBed: true,
+    };
+  }
+
+  // Trường hợp 2: Quét 8 hướng cục bộ quanh (avgX, avgZ) để tìm vị trí trống gần nhất trên bàn in (trong bán kính maxHorizontalOffset)
+  const dirs: [number, number][] = [
+    [normX, normZ],
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [0.707, 0.707],
+    [-0.707, 0.707],
+    [0.707, -0.707],
+    [-0.707, -0.707],
+  ];
+
+  let bestBedX = avgX;
+  let bestBedZ = avgZ;
+  let bestBedDist = Infinity;
+  let bestDirX = normX;
+  let bestDirZ = normZ;
+
+  for (const [vx, vz] of dirs) {
+    const len = Math.hypot(vx, vz) || 1;
+    const ux = vx / len;
+    const uz = vz / len;
+    for (let r = 2.0; r <= maxHorizontalOffset; r += 1.6) {
+      const tx = avgX + ux * r;
+      const tz = avgZ + uz * r;
+      const gx = Math.floor(tx / 2.0);
+      const gz = Math.floor(tz / 2.0);
+      if (!baseFootprintGrid.has(`${gx}_${gz}`)) {
+        // Cộng điểm ưu tiên nhẹ cho hướng đi ra phía ngoài tâm mô hình
+        const outwardDot = ux * normX + uz * normZ;
+        const effectiveCost = r - outwardDot * 0.8;
+        if (effectiveCost < bestBedDist) {
+          bestBedDist = effectiveCost;
+          bestBedX = tx + ux * 0.9;
+          bestBedZ = tz + uz * 0.9;
+          bestDirX = ux;
+          bestDirZ = uz;
+        }
+        break;
       }
     }
   }
 
-  const globalHullR = hullRadialProfile[angIdx] || dist;
-  const gx0 = Math.floor(avgX / 2.0);
-  const gz0 = Math.floor(avgZ / 2.0);
-  const footprintBlocked = baseFootprintGrid.has(`${gx0}_${gz0}`);
-  const corridorBlocked =
-    maxClusterFloorY > 0.5 || footprintBlocked || dist < corridorHullR * 0.96 || dist < baseHullR + 1.5;
-
-  const clearance = Math.max(1.8, Math.min(4.2, maxY * 0.022));
-  let rootRDist = dist + Math.min(2.2, minClusterY * 0.05);
-
-  if (corridorBlocked) {
-    rootRDist = Math.max(
-      dist + 1.6,
-      baseHullR + clearance,
-      corridorHullR * 0.88 + clearance,
-      Math.min(globalHullR + clearance, corridorHullR + clearance)
-    );
+  if (bestBedDist < Infinity && (maxClusterFloorY <= 0.5 || bestBedDist <= 7.5)) {
+    return {
+      rootX: bestBedX,
+      rootY: 0.14,
+      rootZ: bestBedZ,
+      normX: bestDirX,
+      normZ: bestDirZ,
+      isGroundedOnBed: true,
+    };
   }
 
-  let rootX = centerX + normX * rootRDist;
-  let rootZ = centerZ + normZ * rootRDist;
-
-  // Bước trượt ra ngoài cho tới khi hoàn toàn thoát khỏi lưới chân đế
-  for (let step = 0; step < 24; step++) {
-    const gx = Math.floor(rootX / 2.0);
-    const gz = Math.floor(rootZ / 2.0);
-    if (!baseFootprintGrid.has(`${gx}_${gz}`)) {
-      break;
-    }
-    rootX += normX * 1.8;
-    rootZ += normZ * 1.8;
+  // Trường hợp 3: Cụm Overhang nằm bên trên một tấm đế/khay rộng của mô hình (maxClusterFloorY > 0.5)
+  // Đặt chân trụ Tree Support bám trực tiếp lên mặt sàn bên dưới và mọc thẳng đứng lên đỡ Overhang
+  if (maxClusterFloorY > 0.5 && minClusterY - maxClusterFloorY >= 2.2) {
+    return {
+      rootX: avgX + normX * 0.8,
+      rootY: maxClusterFloorY + 0.12,
+      rootZ: avgZ + normZ * 0.8,
+      normX,
+      normZ,
+      isGroundedOnBed: false,
+    };
   }
 
   return {
-    rootX,
-    rootZ,
+    rootX: avgX + normX * Math.min(3.5, maxHorizontalOffset),
+    rootY: 0.14,
+    rootZ: avgZ + normZ * Math.min(3.5, maxHorizontalOffset),
     normX,
     normZ,
-    routesAroundHull: corridorBlocked,
+    isGroundedOnBed: true,
   };
 }
 
@@ -1129,22 +1167,22 @@ export function generateBambuSupportStructures(
   const branchAngleScale = (profile.supportBranchAngle || 45) / 45;
   const sizeScale = Math.max(1.0, Math.min(2.15, maxY / 68.0));
 
-  let dMerge = Math.max(15.0, maxY * 0.18) * branchAngleScale;
+  let dMerge = Math.min(11.5, Math.max(6.5, maxY * 0.095)) * branchAngleScale;
   let tipRadius = 0.82 * branchDiameterScale * Math.pow(sizeScale, 0.35);
-  let maxTrunkRadius = 2.45 * branchDiameterScale * Math.pow(sizeScale, 0.55);
+  let maxTrunkRadius = 2.25 * branchDiameterScale * Math.pow(sizeScale, 0.5);
 
   if (style === 'slim') {
-    dMerge = Math.max(12.0, maxY * 0.14) * branchAngleScale;
+    dMerge = Math.min(9.5, Math.max(5.5, maxY * 0.08)) * branchAngleScale;
     tipRadius = 0.65 * branchDiameterScale * Math.pow(sizeScale, 0.32);
-    maxTrunkRadius = 1.95 * branchDiameterScale * Math.pow(sizeScale, 0.5);
+    maxTrunkRadius = 1.85 * branchDiameterScale * Math.pow(sizeScale, 0.45);
   } else if (style === 'strong') {
-    dMerge = Math.max(18.0, maxY * 0.22) * branchAngleScale;
+    dMerge = Math.min(13.5, Math.max(7.5, maxY * 0.11)) * branchAngleScale;
     tipRadius = 1.02 * branchDiameterScale * Math.pow(sizeScale, 0.38);
-    maxTrunkRadius = 3.05 * branchDiameterScale * Math.pow(sizeScale, 0.58);
+    maxTrunkRadius = 2.85 * branchDiameterScale * Math.pow(sizeScale, 0.52);
   } else if (style === 'hybrid') {
-    dMerge = Math.max(16.0, maxY * 0.19) * branchAngleScale;
+    dMerge = Math.min(12.0, Math.max(7.0, maxY * 0.10)) * branchAngleScale;
     tipRadius = 0.88 * branchDiameterScale * Math.pow(sizeScale, 0.35);
-    maxTrunkRadius = 2.65 * branchDiameterScale * Math.pow(sizeScale, 0.55);
+    maxTrunkRadius = 2.45 * branchDiameterScale * Math.pow(sizeScale, 0.5);
   }
 
   const branchGeoms: THREE.BufferGeometry[] = [];
@@ -1155,7 +1193,7 @@ export function generateBambuSupportStructures(
   if (profile.supportMode === 'tree') {
     const visited = new Set<number>();
     const clusters: IConformalOverhangPatch[][] = [];
-    const maxYMerge = Math.max(16.0, maxY * 0.28);
+    const maxYMerge = Math.min(12.0, Math.max(6.5, maxY * 0.14));
 
     for (let i = 0; i < patches.length; i++) {
       if (visited.has(i)) continue;
@@ -1163,17 +1201,17 @@ export function generateBambuSupportStructures(
       visited.add(i);
 
       const p1 = patches[i].center;
-      const a1 = Math.atan2(p1[2] - centerZ, p1[0] - centerX);
+      const f1 = patches[i].floorY;
 
       for (let j = i + 1; j < patches.length; j++) {
-        if (visited.has(j) || cluster.length >= 6) continue;
+        if (visited.has(j) || cluster.length >= 4) continue;
         const p2 = patches[j].center;
+        const f2 = patches[j].floorY;
         const distXZ = Math.hypot(p1[0] - p2[0], p1[2] - p2[2]);
         const distY = Math.abs(p1[1] - p2[1]);
-        const a2 = Math.atan2(p2[2] - centerZ, p2[0] - centerX);
-        const cosAng = Math.cos(a1 - a2);
+        const floorDiff = Math.abs(f1 - f2);
 
-        if ((distXZ <= dMerge || (cosAng >= 0.68 && distXZ <= dMerge * 1.45)) && distY <= maxYMerge) {
+        if (distXZ <= dMerge && distY <= maxYMerge && floorDiff <= 5.0) {
           cluster.push(patches[j]);
           visited.add(j);
         }
@@ -1192,7 +1230,7 @@ export function generateBambuSupportStructures(
 
       if (minClusterY < 1.8) continue;
 
-      const { rootX, rootZ, normX, normZ, routesAroundHull } = findOptimalRootPosition(
+      const { rootX, rootY, rootZ, isGroundedOnBed } = findOptimalRootPosition(
         avgX,
         avgZ,
         minClusterY,
@@ -1207,83 +1245,53 @@ export function generateBambuSupportStructures(
         heightBins
       );
 
+      const verticalSpan = minClusterY - rootY;
+      if (verticalSpan < 1.4) continue;
+
       // Tạo lớp đệm tiếp xúc Conformal cho toàn bộ các patch trong cụm
       const targetTips: IBranchTargetTip[] = [];
       for (const patch of cluster) {
         const capGeom = buildPatchConformalCapGeometry(patch, tipRadius * 1.65);
         if (capGeom) interfaceGeoms.push(capGeom);
 
-        // Nếu cụm chỉ có 1–2 patch, tách mỗi patch thành 2–3 nhánh con để tạo chạc cây hữu cơ rõ nét
         const tips = extractTargetTipsFromPatch(
           patch,
-          cluster.length <= 2 || patch.triangles.length >= 5
+          cluster.length <= 2 && patch.triangles.length >= 4
         );
         targetTips.push(...tips);
       }
 
       const rootR = Math.min(
         maxTrunkRadius,
-        Math.max(1.45 * Math.pow(sizeScale, 0.4), Math.sqrt(totalArea) * 0.2 + 1.15 * Math.pow(sizeScale, 0.35))
+        Math.max(1.35 * Math.pow(sizeScale, 0.35), Math.sqrt(totalArea) * 0.18 + 1.05 * Math.pow(sizeScale, 0.3))
       );
-      rootPoints.push({ x: rootX, z: rootZ, r: rootR });
+      if (isGroundedOnBed) {
+        rootPoints.push({ x: rootX, z: rootZ, r: rootR });
+      }
 
-      // Điểm chạc cây chính (Primary Bifurcation Node)
-      const rawSplitY = routesAroundHull
-        ? Math.max(Math.min(maxClusterFloorY + 1.2, minClusterY - 1.5), minClusterY * 0.58)
-        : Math.max(2.2, minClusterY * 0.54);
-      const splitY = Math.max(1.5, Math.min(minClusterY - 1.0, rawSplitY));
-
-      const rawSplitX = routesAroundHull ? rootX * 0.68 + avgX * 0.32 : rootX * 0.45 + avgX * 0.55;
-      const rawSplitZ = routesAroundHull ? rootZ * 0.68 + avgZ * 0.32 : rootZ * 0.45 + avgZ * 0.55;
-
-      const splitPoint = pushOutsideHull(
-        rawSplitX,
+      // Điểm chạc cây chính (Primary Bifurcation Node): Mọc thẳng đứng từ gốc rồi nghiêng nhẹ vào tâm cụm
+      const splitY = rootY + Math.max(1.0, Math.min(verticalSpan - 0.9, verticalSpan * 0.65));
+      const splitPoint = new THREE.Vector3(
+        rootX * 0.35 + avgX * 0.65,
         splitY,
-        rawSplitZ,
-        rootR + 0.85,
-        centerX,
-        centerZ,
-        maxY,
-        hullEnvelope,
-        radialBins,
-        heightBins,
-        normX,
-        normZ
+        rootZ * 0.35 + avgZ * 0.65
       );
 
-      const trunkMid1 = pushOutsideHull(
-        rootX * 0.85 + splitPoint.x * 0.15,
-        splitY * 0.34,
-        rootZ * 0.85 + splitPoint.z * 0.15,
-        rootR + 0.9,
-        centerX,
-        centerZ,
-        maxY,
-        hullEnvelope,
-        radialBins,
-        heightBins,
-        normX,
-        normZ
+      const trunkMid1 = new THREE.Vector3(
+        rootX * 0.88 + splitPoint.x * 0.12,
+        rootY + (splitY - rootY) * 0.36,
+        rootZ * 0.88 + splitPoint.z * 0.12
       );
 
-      const trunkMid2 = pushOutsideHull(
-        rootX * 0.45 + splitPoint.x * 0.55,
-        splitY * 0.7,
-        rootZ * 0.45 + splitPoint.z * 0.55,
-        rootR + 0.85,
-        centerX,
-        centerZ,
-        maxY,
-        hullEnvelope,
-        radialBins,
-        heightBins,
-        normX,
-        normZ
+      const trunkMid2 = new THREE.Vector3(
+        rootX * 0.42 + splitPoint.x * 0.58,
+        rootY + (splitY - rootY) * 0.72,
+        rootZ * 0.42 + splitPoint.z * 0.58
       );
 
       const splitR = rootR * 0.78;
       const trunkPoints = [
-        new THREE.Vector3(rootX, 0.14, rootZ),
+        new THREE.Vector3(rootX, rootY, rootZ),
         trunkMid1,
         trunkMid2,
         splitPoint.clone(),
@@ -1293,18 +1301,18 @@ export function generateBambuSupportStructures(
         trunkPoints,
         rootR,
         splitR,
-        20,
+        18,
         14,
         undefined,
-        true
+        isGroundedOnBed
       );
       if (trunkGeom) branchGeoms.push(trunkGeom);
 
-      const jointGeom = new THREE.SphereGeometry(splitR * 0.92, 12, 10);
+      const jointGeom = new THREE.SphereGeometry(splitR * 0.9, 10, 8);
       jointGeom.translate(splitPoint.x, splitPoint.y, splitPoint.z);
       junctionGeoms.push(jointGeom.toNonIndexed());
 
-      // Hàm dựng nhánh con từ một nút chạc (Fork Node) tới điểm đầu cành (Target Tip)
+      // Hàm dựng nhánh con đơn điệu (Monotonic Upward Twig) không bao giờ văng khuỷu ra ngoài không trung
       const buildTwigFromNode = (
         startNode: THREE.Vector3,
         startRadius: number,
@@ -1316,49 +1324,31 @@ export function generateBambuSupportStructures(
         const tz = tipPoint.z;
 
         const endPt = new THREE.Vector3(
-          tx + tipNormal.x * 0.08,
-          ty + tipNormal.y * 0.08,
-          tz + tipNormal.z * 0.08
+          tx + tipNormal.x * 0.06,
+          ty + tipNormal.y * 0.06,
+          tz + tipNormal.z * 0.06
         );
-        const branchSpanY = Math.max(0.6, ty - startNode.y);
-        const neckDist = Math.min(1.6 * Math.pow(sizeScale, 0.3), Math.max(0.45, branchSpanY * 0.24));
+        const branchSpanY = Math.max(0.5, ty - startNode.y);
+        const neckDist = Math.min(1.2, Math.max(0.35, branchSpanY * 0.2));
         const neckPt = new THREE.Vector3(
-          tx + tipNormal.x * neckDist,
-          Math.max(startNode.y + 0.25, ty + tipNormal.y * neckDist),
-          tz + tipNormal.z * neckDist
+          tx + tipNormal.x * neckDist * 0.5,
+          Math.min(ty - 0.2, Math.max(startNode.y + 0.2, ty - neckDist)),
+          tz + tipNormal.z * neckDist * 0.5
         );
 
-        const rawMid = new THREE.Vector3(
-          startNode.x * 0.54 + neckPt.x * 0.46,
-          startNode.y + (neckPt.y - startNode.y) * 0.5,
-          startNode.z * 0.54 + neckPt.z * 0.46
+        const midPt = new THREE.Vector3(
+          startNode.x * 0.46 + neckPt.x * 0.54,
+          startNode.y + (neckPt.y - startNode.y) * 0.55,
+          startNode.z * 0.46 + neckPt.z * 0.54
         );
-        // Nếu điểm giữa nằm thấp hơn đầu cành đủ xa, đẩy nhẹ ra khỏi lớp vỏ để không cắt qua thịt mẫu in
-        const safeMid =
-          ty - rawMid.y > 2.2
-            ? pushOutsideHull(
-                rawMid.x,
-                rawMid.y,
-                rawMid.z,
-                tipRadius + 0.4,
-                centerX,
-                centerZ,
-                maxY,
-                hullEnvelope,
-                radialBins,
-                heightBins,
-                normX,
-                normZ
-              )
-            : rawMid;
 
-        const subBranchPoints = [startNode.clone(), safeMid, neckPt, endPt];
+        const subBranchPoints = [startNode.clone(), midPt, neckPt, endPt];
 
         const subTubeGeom = createSmoothOrganicBranchGeom(
           subBranchPoints,
           startRadius,
           tipRadius,
-          16,
+          14,
           12,
           { point: tipPoint, normal: tipNormal },
           false
@@ -1370,7 +1360,8 @@ export function generateBambuSupportStructures(
       if (targetTips.length >= 4) {
         const sortedTips = [...targetTips].sort(
           (a, b) =>
-            a.tipPoint.x - b.tipPoint.x + (a.tipPoint.z - b.tipPoint.z) * 0.8 + (a.tipPoint.y - b.tipPoint.y) * 0.3
+            Math.atan2(a.tipPoint.z - splitPoint.z, a.tipPoint.x - splitPoint.x) -
+            Math.atan2(b.tipPoint.z - splitPoint.z, b.tipPoint.x - splitPoint.x)
         );
         const midIdx = Math.ceil(sortedTips.length / 2);
         const subGroups = [sortedTips.slice(0, midIdx), sortedTips.slice(midIdx)];
@@ -1386,22 +1377,13 @@ export function generateBambuSupportStructures(
           const gAvgZ = group.reduce((s, t) => s + t.tipPoint.z, 0) / group.length;
 
           const secY = Math.max(
-            splitPoint.y + 0.8,
-            Math.min(gAvgY - 0.8, splitPoint.y + (gAvgY - splitPoint.y) * 0.48)
+            splitPoint.y + 0.5,
+            Math.min(gAvgY - 0.5, splitPoint.y + (gAvgY - splitPoint.y) * 0.48)
           );
-          const secPoint = pushOutsideHull(
-            splitPoint.x * 0.48 + gAvgX * 0.52,
+          const secPoint = new THREE.Vector3(
+            splitPoint.x * 0.45 + gAvgX * 0.55,
             secY,
-            splitPoint.z * 0.48 + gAvgZ * 0.52,
-            splitR * 0.7 + 0.55,
-            centerX,
-            centerZ,
-            maxY,
-            hullEnvelope,
-            radialBins,
-            heightBins,
-            normX,
-            normZ
+            splitPoint.z * 0.45 + gAvgZ * 0.55
           );
 
           const secR = splitR * 0.72;
@@ -1409,7 +1391,7 @@ export function generateBambuSupportStructures(
             splitPoint.clone(),
             new THREE.Vector3(
               (splitPoint.x + secPoint.x) * 0.5,
-              (splitPoint.y + secPoint.y) * 0.5,
+              (splitPoint.y + secPoint.y) * 0.52,
               (splitPoint.z + secPoint.z) * 0.5
             ),
             secPoint.clone(),
@@ -1419,14 +1401,14 @@ export function generateBambuSupportStructures(
             secBranchPts,
             splitR * 0.88,
             secR,
-            14,
+            12,
             12,
             undefined,
             false
           );
           if (secGeom) branchGeoms.push(secGeom);
 
-          const secJoint = new THREE.SphereGeometry(secR * 0.9, 10, 8);
+          const secJoint = new THREE.SphereGeometry(secR * 0.88, 10, 8);
           secJoint.translate(secPoint.x, secPoint.y, secPoint.z);
           junctionGeoms.push(secJoint.toNonIndexed());
 

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { ExternalLink, Download, Printer, Clock, Weight, Layers, Zap } from 'lucide-react';
+import { ExternalLink, Download, Printer, Clock, Weight, Layers, Zap } from '@/components/icons/MinimalIcons';
 import { IModel3D } from '@/backend/domain/models';
 import { getMatchingSampleModelId } from '@/backend/domain/sample-models';
 import { SlicingProfileModal } from '@/components/slicing/SlicingProfileModal';

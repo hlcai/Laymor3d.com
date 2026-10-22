@@ -14,7 +14,7 @@ import {
   Check,
   Smartphone,
   Building,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   PaymentMethod,
   OFFICIAL_BANK_INFO,

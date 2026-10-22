@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Flame,
   Radio,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { SimulatorEngineType } from '@/types/simulator';
 import { ENGINE_SPECS } from '@/services/proSlicerLocalEngine';
 

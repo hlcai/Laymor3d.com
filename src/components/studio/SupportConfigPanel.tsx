@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { GitBranch, Shield, Sparkles, Check, AlertCircle, Info } from 'lucide-react';
+import { GitBranch, Shield, Sparkles, Check, AlertCircle, Info } from '@/components/icons/MinimalIcons';
 import { ISupportConfig, SupportType, IPrintEstimation } from '@/backend/domain/slicing';
 import { SampleModelId } from '@/backend/domain/sample-models';
 

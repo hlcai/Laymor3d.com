@@ -6,7 +6,7 @@ import { SAMPLE_PRINT_MODELS, SampleModelId } from '@/backend/domain/sample-mode
 import { ModelBuilder } from './ModelBuilder';
 import { SupportBuilder } from './SupportBuilder';
 import { ILoadedCustomModel } from './CustomModelLoader';
-import { UploadCloud, Layers, FileCode, CheckCircle2, RotateCcw, Box, Ruler } from 'lucide-react';
+import { UploadCloud, Layers, FileCode, CheckCircle2, RotateCcw, Box, Ruler } from '@/components/icons/MinimalIcons';
 
 interface ThreeCanvasViewerProps {
   options: ViewerOptions;

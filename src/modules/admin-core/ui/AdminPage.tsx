@@ -39,7 +39,7 @@ import {
   Sliders,
   Compass,
   BookOpen,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useUserSession } from '@/hooks/useUserSession';
 import { useOrders } from '@/hooks/useOrders';
 import { UserRole, IUser } from '@/backend/domain/user';
