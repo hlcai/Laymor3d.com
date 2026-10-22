@@ -473,13 +473,18 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
   const rootModelKey = Object.keys(unzipped).find((k) => k.toLowerCase() === '3d/3dmodel.model');
   if (rootModelKey && unzipped[rootModelKey]) {
     const rootText = new TextDecoder().decode(unzipped[rootModelKey]);
-    const itemMatch = rootText.match(/<item\s+[^>]*transform="([^"]+)"/);
+    const itemMatch = rootText.match(/<item\s+[^>]*transform="([^"]+)"/i);
     if (itemMatch) itemTransform = parseTransform12(itemMatch[1]);
 
-    for (const cMatch of rootText.matchAll(/<component\s+[^>]*p:path="([^"]+)"[^>]*transform="([^"]+)"/g)) {
-      const p = cMatch[1].replace(/^\//, '');
-      const t = parseTransform12(cMatch[2]);
-      if (t) componentMap.set(p, t);
+    for (const cTagMatch of rootText.matchAll(/<component\s+([^>]+)>/gi)) {
+      const attrs = cTagMatch[1];
+      const pathMatch = attrs.match(/(?:p:)?path="([^"]+)"/i);
+      const transMatch = attrs.match(/transform="([^"]+)"/i);
+      if (pathMatch && transMatch) {
+        const p = pathMatch[1].replace(/^\//, '');
+        const t = parseTransform12(transMatch[1]);
+        if (t) componentMap.set(p, t);
+      }
     }
   }
 
@@ -489,42 +494,66 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
     const text = new TextDecoder().decode(unzipped[k]);
     if (!text.includes('<mesh>')) continue;
 
-    const compTransform = componentMap.get(k) || null;
-
-    // Parse vertices
-    const vertices: number[] = [];
-    const vRegex = /<vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"/g;
-    let match: RegExpExecArray | null;
-    while ((match = vRegex.exec(text)) !== null) {
-      let x = parseFloat(match[1]);
-      let y = parseFloat(match[2]);
-      let z = parseFloat(match[3]);
-
-      if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
-      if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
-
-      if (itemTransform) {
-        // Tọa độ máy in Bambu Lab (X: 0..256, Y: 0..256, Z: cao độ đứng)
-        // Ánh xạ chuẩn xác sang Three.js (X - 128, Z, Y - 128) trùng khớp 1:1 với G-code Bambu Studio
-        vertices.push(x - 128, z, y - 128);
-      } else {
-        vertices.push(x, y, z);
+    let compTransform = componentMap.get(k) || null;
+    if (!compTransform) {
+      for (const [ck, ct] of componentMap.entries()) {
+        if (ck.toLowerCase() === k.toLowerCase()) {
+          compTransform = ct;
+          break;
+        }
       }
     }
-    if (vertices.length === 0) continue;
 
-    // Parse triangles
-    const tRegex = /<triangle\s+v1="([^"]+)"\s+v2="([^"]+)"\s+v3="([^"]+)"/g;
-    while ((match = tRegex.exec(text)) !== null) {
-      const v1 = parseInt(match[1], 10);
-      const v2 = parseInt(match[2], 10);
-      const v3 = parseInt(match[3], 10);
+    const meshRegex = /<mesh>([\s\S]*?)<\/mesh>/gi;
+    let meshMatch: RegExpExecArray | null;
+    while ((meshMatch = meshRegex.exec(text)) !== null) {
+      const meshText = meshMatch[1];
 
-      allPositions.push(
-        vertices[v1 * 3], vertices[v1 * 3 + 1], vertices[v1 * 3 + 2],
-        vertices[v2 * 3], vertices[v2 * 3 + 1], vertices[v2 * 3 + 2],
-        vertices[v3 * 3], vertices[v3 * 3 + 1], vertices[v3 * 3 + 2]
-      );
+      // Parse vertices cho từng khối <mesh> độc lập (tránh lệch chỉ số đỉnh khi file 3MF có nhiều part/object)
+      const vertices: number[] = [];
+      const vRegex = /<vertex\s+[^>]*x="([^"]+)"[^>]*y="([^"]+)"[^>]*z="([^"]+)"/gi;
+      let match: RegExpExecArray | null;
+      while ((match = vRegex.exec(meshText)) !== null) {
+        let x = parseFloat(match[1]);
+        let y = parseFloat(match[2]);
+        let z = parseFloat(match[3]);
+
+        if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
+        if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
+
+        if (itemTransform) {
+          // Tọa độ máy in Bambu Lab (X: 0..256, Y: 0..256, Z: cao độ đứng)
+          // Ánh xạ chuẩn xác sang Three.js (X - 128, Z, Y - 128) trùng khớp 1:1 với G-code Bambu Studio
+          vertices.push(x - 128, z, y - 128);
+        } else {
+          vertices.push(x, y, z);
+        }
+      }
+      if (vertices.length === 0) continue;
+
+      // Parse triangles
+      // LƯU Ý QUAN TRỌNG: Phép ánh xạ (x, y, z) -> (x - 128, z, y - 128) hoán vị trục Y và Z (định thức = -1),
+      // nên cần đảo thứ tự đỉnh (v1, v3, v2) khi có itemTransform để vector pháp tuyến (Normals) luôn hướng ra ngoài!
+      const tRegex = /<triangle\s+[^>]*v1="([^"]+)"[^>]*v2="([^"]+)"[^>]*v3="([^"]+)"/gi;
+      while ((match = tRegex.exec(meshText)) !== null) {
+        const v1 = parseInt(match[1], 10);
+        const v2 = parseInt(match[2], 10);
+        const v3 = parseInt(match[3], 10);
+
+        if (itemTransform) {
+          allPositions.push(
+            vertices[v1 * 3], vertices[v1 * 3 + 1], vertices[v1 * 3 + 2],
+            vertices[v3 * 3], vertices[v3 * 3 + 1], vertices[v3 * 3 + 2],
+            vertices[v2 * 3], vertices[v2 * 3 + 1], vertices[v2 * 3 + 2]
+          );
+        } else {
+          allPositions.push(
+            vertices[v1 * 3], vertices[v1 * 3 + 1], vertices[v1 * 3 + 2],
+            vertices[v2 * 3], vertices[v2 * 3 + 1], vertices[v2 * 3 + 2],
+            vertices[v3 * 3], vertices[v3 * 3 + 1], vertices[v3 * 3 + 2]
+          );
+        }
+      }
     }
   }
 
@@ -534,22 +563,28 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
 
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
-  geom.computeVertexNormals();
 
   if (itemTransform) {
     geom.userData = { hasItemTransform: true };
-    // Đảm bảo đáy mô hình tiếp xúc bàn in Y = 0 nếu có sai số dấu phẩy động
     geom.computeBoundingBox();
     const bbox = geom.boundingBox;
-    if (bbox && bbox.min.y < 0) {
-      geom.translate(0, -bbox.min.y, 0);
+    if (bbox) {
+      const cx = (bbox.min.x + bbox.max.x) / 2;
+      const cz = (bbox.min.z + bbox.max.z) / 2;
+      const shiftX = Math.abs(cx) > 75 ? -cx : 0;
+      const shiftZ = Math.abs(cz) > 75 ? -cz : 0;
+      geom.translate(shiftX, -bbox.min.y, shiftZ);
     }
+    geom.computeVertexNormals();
   } else {
     geom.userData = { hasItemTransform: false };
-    // File 3MF thô (chưa có plate transform): Hệ tọa độ chuẩn 3MF là Z-up.
-    // Xoay đúng 1 lần -90° quanh trục X để chuyển Z-up sang Y-up chuẩn Three.js.
     geom.rotateX(-Math.PI / 2);
     geom.center();
+    geom.computeBoundingBox();
+    if (geom.boundingBox) {
+      geom.translate(0, -geom.boundingBox.min.y, 0);
+    }
+    geom.computeVertexNormals();
   }
 
   return geom;

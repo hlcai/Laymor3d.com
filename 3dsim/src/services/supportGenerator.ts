@@ -288,7 +288,7 @@ function extractExteriorOverhangData(
         const key = `${gx}_${gz}`;
         const bucket = spatialGrid.get(key);
         if (bucket) {
-          if (bucket.length < 48) bucket.push(triIdx);
+          if (bucket.length < 256) bucket.push(triIdx);
         } else {
           spatialGrid.set(key, [triIdx]);
         }
@@ -296,19 +296,35 @@ function extractExteriorOverhangData(
     }
   }
 
-  // Lọc ra các tam giác Overhang thực sự nằm ở mặt ngoài và có thể tiếp cận từ bàn in (Build Plate Only)
+  // Tự động kiểm tra và hiệu chỉnh nếu Mesh có pháp tuyến bị ngược (Inside-Out)
+  const centerY = (minY + maxY) * 0.5;
+  let normalOrientationCheck = 0;
+  for (let i = 0; i < allTris.length; i++) {
+    const t = allTris[i];
+    normalOrientationCheck +=
+      ((t.mx - centerX) * t.nx + (t.my - centerY) * t.ny + (t.mz - centerZ) * t.nz) * t.area;
+  }
+  if (normalOrientationCheck < 0) {
+    for (let i = 0; i < allTris.length; i++) {
+      const t = allTris[i];
+      t.nx = -t.nx;
+      t.ny = -t.ny;
+      t.nz = -t.nz;
+    }
+  }
+
+  // Lọc ra các tam giác Overhang thực sự nằm ở mặt ngoài và cần chống đỡ
   const validOverhangs: IOverhangTriangle[] = [];
 
   for (let idx = 0; idx < allTris.length; idx++) {
     const t = allTris[idx];
     if (t.ny >= normalThresholdY) continue;
-    if (t.my <= minY + 1.4 || t.my >= maxY * 0.985) continue;
+    if (t.my <= minY + 1.2) continue;
 
     const key = `${Math.floor(t.mx / xzGridCell)}_${Math.floor(t.mz / xzGridCell)}`;
     const candidates = spatialGrid.get(key) || [];
 
     let highestHitBelowY = -Infinity;
-    let highestHitBelowNy = 0;
     let lowestHitAboveY = Infinity;
     let lowestHitAboveNy = 0;
 
@@ -332,7 +348,6 @@ function extractExteriorOverhangData(
 
       if (hitY < t.my - 0.08 && hitY > highestHitBelowY) {
         highestHitBelowY = hitY;
-        highestHitBelowNy = other.ny;
       }
       if (hitY > t.my + 0.08 && hitY < lowestHitAboveY) {
         lowestHitAboveY = hitY;
@@ -340,26 +355,15 @@ function extractExteriorOverhangData(
       }
     }
 
-    // Loại bỏ các mặt bị chặn phía dưới hoặc chìm trong lòng khối đặc (như cabin/vòm cửa nằm trên mặt boong tàu)
+    // Loại bỏ các mặt có khoảng hở thẳng đứng quá hẹp (< 1.8mm) không đủ chỗ luồn nhánh Tree Support
     if (highestHitBelowY > -Infinity) {
       const verticalClearance = t.my - highestHitBelowY;
-      if (verticalClearance < 3.5 || highestHitBelowNy < -0.15) {
-        continue;
-      }
-      // Kiểm tra khoảng cách tới mép ngoài: nếu điểm Overhang nằm sâu bên trong mặt boong tàu (> 2.5mm tính từ rìa ngoài),
-      // nhánh cây từ bàn in sẽ phải đâm ngang qua mặt boong hoặc cabin -> Bỏ qua theo đúng chuẩn "Build Plate Only"
-      const dx = t.mx - centerX;
-      const dz = t.mz - centerZ;
-      const distR = Math.hypot(dx, dz);
-      let angIdx = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * radialBins);
-      angIdx = Math.max(0, Math.min(radialBins - 1, angIdx));
-      const outerR = hullRadialProfile[angIdx] || distR;
-      if (outerR - distR > 2.2) {
+      if (verticalClearance < 1.8) {
         continue;
       }
     }
 
-    if (lowestHitAboveY < Infinity && lowestHitAboveY - t.my < 0.6 && lowestHitAboveNy > 0.2) {
+    if (lowestHitAboveY < Infinity && lowestHitAboveY - t.my < 0.45 && lowestHitAboveNy > 0.2) {
       continue;
     }
 
@@ -460,7 +464,7 @@ function extractExteriorOverhangData(
   patches.sort((a, b) => b.areaMm2 - a.areaMm2);
 
   return {
-    patches: patches.slice(0, 75),
+    patches: patches.slice(0, 160),
     baseFootprintGrid,
     hullRadialProfile,
     centerX,
@@ -768,8 +772,11 @@ export function generateBambuSupportStructures(
   }
 
   const effectiveThreshold = profile.supportAngleThreshold || overhangThreshold || 45;
-  const { patches, baseFootprintGrid, hullRadialProfile, centerX, centerZ } =
-    extractExteriorOverhangData(geometry, effectiveThreshold);
+  let overhangData = extractExteriorOverhangData(geometry, effectiveThreshold);
+  if (overhangData.patches.length === 0 && effectiveThreshold < 68) {
+    overhangData = extractExteriorOverhangData(geometry, 68);
+  }
+  const { patches, baseFootprintGrid, hullRadialProfile, centerX, centerZ } = overhangData;
 
   if (patches.length === 0) {
     return supportGroup;
@@ -900,18 +907,19 @@ export function generateBambuSupportStructures(
         );
 
         const midX = routesAroundHull
-          ? rootX
+          ? rootX * 0.72 + neckPt.x * 0.28
           : (rootX + neckPt.x) * 0.5 + normX * 0.25;
         const midZ = routesAroundHull
-          ? rootZ
+          ? rootZ * 0.72 + neckPt.z * 0.28
           : (rootZ + neckPt.z) * 0.5 + normZ * 0.25;
+        const clearanceY = Math.min(ty - 0.85, Math.max(patch.floorY + 0.8, ty * 0.55));
         const midY = routesAroundHull
-          ? Math.max(maxClusterFloorY + 2.5, ty - 2.0)
-          : ty * 0.52;
+          ? Math.max(0.9, clearanceY)
+          : Math.max(0.9, ty * 0.52);
 
         const curvePoints = [
           new THREE.Vector3(rootX, 0.14, rootZ),
-          new THREE.Vector3(rootX, Math.max(0.8, ty * 0.25), rootZ),
+          new THREE.Vector3(rootX, Math.max(0.6, midY * 0.45), rootZ),
           new THREE.Vector3(midX, midY, midZ),
           neckPt,
           endPt,
@@ -928,14 +936,15 @@ export function generateBambuSupportStructures(
         );
         if (tubeGeom) branchGeoms.push(tubeGeom);
       } else {
-        const splitY = routesAroundHull
-          ? Math.max(maxClusterFloorY + 2.2, minClusterY - 2.5)
-          : Math.max(2.2, minClusterY * 0.52);
+        const targetSplitY = routesAroundHull
+          ? Math.max(Math.min(maxClusterFloorY + 0.8, minClusterY - 1.1), minClusterY * 0.6)
+          : Math.max(1.8, minClusterY * 0.55);
+        const splitY = Math.max(0.9, Math.min(minClusterY - 0.85, targetSplitY));
 
         const splitPoint = new THREE.Vector3(
-          routesAroundHull ? rootX * 0.85 + avgX * 0.15 : rootX * 0.45 + avgX * 0.55,
+          routesAroundHull ? rootX * 0.78 + avgX * 0.22 : rootX * 0.45 + avgX * 0.55,
           splitY,
-          routesAroundHull ? rootZ * 0.85 + avgZ * 0.15 : rootZ * 0.45 + avgZ * 0.55
+          routesAroundHull ? rootZ * 0.78 + avgZ * 0.22 : rootZ * 0.45 + avgZ * 0.55
         );
 
         const splitR = rootR * 0.78;
@@ -968,7 +977,6 @@ export function generateBambuSupportStructures(
         for (const patch of cluster) {
           const [tx, ty, tz] = patch.center;
           const [nx, ny, nz] = patch.normal;
-          if (ty <= splitY + 0.4) continue;
 
           const capGeom = buildPatchConformalCapGeometry(patch, tipRadius * 1.65);
           if (capGeom) interfaceGeoms.push(capGeom);
@@ -981,10 +989,11 @@ export function generateBambuSupportStructures(
             ty + tipNormal.y * 0.08,
             tz + tipNormal.z * 0.08
           );
-          const neckDist = Math.min(1.2, Math.max(0.45, (ty - splitY) * 0.25));
+          const branchSpanY = Math.max(0.5, ty - splitY);
+          const neckDist = Math.min(1.2, Math.max(0.4, branchSpanY * 0.25));
           const neckPt = new THREE.Vector3(
             tx + tipNormal.x * neckDist,
-            Math.max(splitY + 0.25, ty + tipNormal.y * neckDist),
+            Math.max(splitY + 0.2, ty + tipNormal.y * neckDist),
             tz + tipNormal.z * neckDist
           );
 
@@ -1025,7 +1034,10 @@ export function generateBambuSupportStructures(
     patches.forEach((patch) => {
       const [targetX, targetY, targetZ] = patch.center;
       const [nx, ny, nz] = patch.normal;
-      if (targetY < 2.0 || patch.floorY > 0.5) return;
+      if (targetY < 1.8) return;
+
+      const baseStartY = patch.floorY > 0.5 ? patch.floorY + 0.14 : 0.14;
+      if (targetY - baseStartY < 1.2) return;
 
       const colRadius = Math.max(1.0, Math.min(2.1, Math.sqrt(patch.areaMm2) * 0.28));
       const capGeom = buildPatchConformalCapGeometry(patch, colRadius * 1.35);
@@ -1035,8 +1047,8 @@ export function generateBambuSupportStructures(
       const tipNormal = new THREE.Vector3(nx, ny, nz).normalize();
 
       const colPoints = [
-        new THREE.Vector3(targetX, 0.14, targetZ),
-        new THREE.Vector3(targetX, targetY * 0.5, targetZ),
+        new THREE.Vector3(targetX, baseStartY, targetZ),
+        new THREE.Vector3(targetX, (baseStartY + targetY) * 0.5, targetZ),
         new THREE.Vector3(
           targetX + tipNormal.x * 0.08,
           targetY + tipNormal.y * 0.08,
@@ -1051,13 +1063,15 @@ export function generateBambuSupportStructures(
         12,
         12,
         { point: tipPoint, normal: tipNormal },
-        true
+        patch.floorY <= 0.5
       );
       if (colGeom) branchGeoms.push(colGeom);
 
-      const footPad = new THREE.CylinderGeometry(colRadius + 1.0, colRadius + 1.1, 0.14, 16);
-      footPad.translate(targetX, 0.07, targetZ);
-      brimGeoms.push(footPad.toNonIndexed());
+      if (patch.floorY <= 0.5) {
+        const footPad = new THREE.CylinderGeometry(colRadius + 1.0, colRadius + 1.1, 0.14, 16);
+        footPad.translate(targetX, 0.07, targetZ);
+        brimGeoms.push(footPad.toNonIndexed());
+      }
     });
   }
 

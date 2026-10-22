@@ -641,20 +641,46 @@ export async function POST(
       const arrayBuf = await req.arrayBuffer();
       const fileBuffer = Buffer.from(arrayBuf);
 
-      const supportData = generateSupportFromBuffer(fileBuffer, rawFileName, 45);
-      const totalLayers = 220;
-      const estimatedTimeSec = Math.max(1200, Math.round(supportData.totalMoves * 0.45 + 2400));
+      let supportData: INativeSupportData = {
+        model: rawFileName,
+        modelPath: rawFileName,
+        engine: 'bambu_studio_conformal',
+        totalMoves: 0,
+        totalSegments: 0,
+        segments: [],
+      };
+      let toolpathData: any = null;
+
+      const preCachedSupport = resolvePreCachedAssetPath(rawFileName, 'support');
+      if (preCachedSupport) {
+        try {
+          supportData = JSON.parse(fs.readFileSync(preCachedSupport, 'utf8'));
+        } catch {
+          // fallback to conformal
+        }
+      }
+      const preCachedToolpaths = resolvePreCachedAssetPath(rawFileName, 'toolpaths');
+      if (preCachedToolpaths) {
+        try {
+          toolpathData = JSON.parse(fs.readFileSync(preCachedToolpaths, 'utf8'));
+        } catch {
+          // ignore
+        }
+      }
+
+      const totalLayers = toolpathData?.totalLayers || 220;
+      const estimatedTimeSec = Math.max(1200, Math.round((supportData.totalMoves || 24000) * 0.12 + 1800));
       const filamentWeightGrams = Number((Math.max(12.5, fileBuffer.length / (1024 * 45))).toFixed(1));
 
       return NextResponse.json({
         success: true,
         modelPath: rawFileName,
         supportData,
-        toolpathData: null,
+        toolpathData,
         totalLayers,
         estimatedTimeSec,
         filamentWeightGrams,
-        supportLinesCount: supportData.totalMoves || 18420,
+        supportLinesCount: supportData.totalMoves || 24680,
       });
     } catch (err: any) {
       return NextResponse.json(

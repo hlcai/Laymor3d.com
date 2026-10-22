@@ -334,6 +334,7 @@ export default function App() {
   // Áp dụng kết quả Slicing từ Local Slicer CLI vào Simulation State
   const handleApplySliceResult = (res: ISliceResponse) => {
     if (!res || !res.success) return;
+    setShowSupport(true);
     if (res.supportData) {
       setPreloadedSupport(currentModel.name, res.supportData);
       setPreloadedSupport(currentModel.id, res.supportData);
@@ -365,6 +366,12 @@ export default function App() {
       try {
         clearAllSupportCaches();
         setViewMode('cad');
+        setShowSupport(true);
+        setProfile((prev) => ({
+          ...prev,
+          supportMode: prev.supportMode === 'none' ? 'tree' : prev.supportMode,
+          treeStyle: prev.treeStyle || 'organic',
+        }));
         setModelTransform(DEFAULT_TRANSFORM);
         const customGeom = parseCADFile(buffer, file.name);
         setBaseGeometry(customGeom);
@@ -941,7 +948,10 @@ export default function App() {
         geometry={geometry}
         profile={profile}
         modelTransform={modelTransform}
-        onChangeProfile={(updated) => setProfile((prev) => ({ ...prev, ...updated }))}
+        onChangeProfile={(updated) => {
+          setShowSupport(true);
+          setProfile((prev) => ({ ...prev, ...updated }));
+        }}
         onChangeTransform={setModelTransform}
       />
 
@@ -958,7 +968,10 @@ export default function App() {
         onClose={() => setIsLocalSlicerModalOpen(false)}
         currentModel={currentModel}
         profile={profile}
-        onApplyProfilePatch={(patch) => setProfile((prev) => ({ ...prev, ...patch }))}
+        onApplyProfilePatch={(patch) => {
+          setShowSupport(true);
+          setProfile((prev) => ({ ...prev, ...patch }));
+        }}
         onApplySliceResult={handleApplySliceResult}
       />
 

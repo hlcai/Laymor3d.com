@@ -1,8 +1,103 @@
 import * as THREE from 'three';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { ISimulationProfile, IModelTransform } from '@/types/simulator';
 import { ISlicingMetrics } from './slicingEngine';
 import { applyTransformToGeometry } from './sampleModels';
+import { generateBambuSupportStructures } from './supportGenerator';
+
+/**
+ * Chuẩn hóa hình học phôi 3D về tâm bàn in (0, 0) và đặt sát đáy Y = 0
+ */
+function prepareNormalizedExportGeometry(
+  geometry: THREE.BufferGeometry,
+  transform?: IModelTransform
+): THREE.BufferGeometry {
+  let exportGeom = transform
+    ? applyTransformToGeometry(geometry, transform)
+    : geometry.clone();
+
+  if (exportGeom.index) {
+    exportGeom = exportGeom.toNonIndexed();
+  }
+
+  exportGeom.computeBoundingBox();
+  const bbox = exportGeom.boundingBox || new THREE.Box3();
+  const sizeX = bbox.max.x - bbox.min.x;
+  const sizeY = bbox.max.y - bbox.min.y;
+  const sizeZ = bbox.max.z - bbox.min.z;
+  const maxDim = Math.max(sizeX, sizeY, sizeZ, 0.0001);
+
+  if (maxDim < 5) {
+    const scaleTo80Mm = 80 / maxDim;
+    exportGeom.scale(scaleTo80Mm, scaleTo80Mm, scaleTo80Mm);
+  }
+
+  exportGeom.computeBoundingBox();
+  const finalBox = exportGeom.boundingBox!;
+  const centerX = (finalBox.min.x + finalBox.max.x) / 2;
+  const centerZ = (finalBox.min.z + finalBox.max.z) / 2;
+  const minY = finalBox.min.y;
+  exportGeom.translate(-centerX, -minY, -centerZ);
+  exportGeom.computeBoundingBox();
+
+  return exportGeom;
+}
+
+/**
+ * Trích xuất và hợp nhất toàn bộ lưới 3D Tree Support (Branches + Conformal Interfaces + Brim)
+ * để nhúng trực tiếp vào file .3MF / .STL xuất ra
+ */
+export function buildExportSupportGeometry(
+  normalizedModelGeom: THREE.BufferGeometry,
+  profile: ISimulationProfile
+): THREE.BufferGeometry | null {
+  if (profile.supportMode === 'none') return null;
+
+  const supportGroup = generateBambuSupportStructures(normalizedModelGeom, profile);
+  const supportGeoms: THREE.BufferGeometry[] = [];
+
+  supportGroup.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      if (mesh.geometry) {
+        const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+        const pos = g.getAttribute('position');
+        if (pos && pos.count >= 3) {
+          const clean = new THREE.BufferGeometry();
+          clean.setAttribute('position', pos.clone());
+          supportGeoms.push(clean);
+        }
+      }
+    }
+  });
+
+  if (supportGeoms.length === 0) return null;
+  const merged = BufferGeometryUtils.mergeGeometries(supportGeoms, false);
+  if (merged) {
+    merged.computeVertexNormals();
+  }
+  return merged;
+}
+
+/**
+ * Đếm số tam giác 3D Tree Support được sinh ra cho mô hình hiện tại
+ */
+export function countGeneratedSupportTriangles(
+  geometry: THREE.BufferGeometry,
+  profile: ISimulationProfile,
+  transform?: IModelTransform
+): number {
+  if (profile.supportMode === 'none') return 0;
+  try {
+    const normGeom = prepareNormalizedExportGeometry(geometry, transform);
+    const supGeom = buildExportSupportGeometry(normGeom, profile);
+    const pos = supGeom?.getAttribute('position');
+    return pos ? Math.floor(pos.count / 3) : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Xuất cấu hình chuẩn Bambu Studio / OrcaSlicer (.json / project_settings.config)
@@ -146,62 +241,60 @@ export function download3MFProject(
   profile: ISimulationProfile,
   metrics: ISlicingMetrics,
   modelName: string = 'Model',
-  transform?: IModelTransform
+  transform?: IModelTransform,
+  includeSupportMesh: boolean = true
 ): string {
   const safeName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'AI_3D_Model';
   const filename = `${safeName}_BambuProject.3mf`;
 
-  // 1. Áp dụng biến đổi (Scale, Rotation, Position) và đảm bảo kích thước chuẩn mm
-  let exportGeom = transform
-    ? applyTransformToGeometry(geometry, transform)
-    : geometry.clone();
+  // 1. Áp dụng biến đổi (Scale, Rotation, Position) và đưa về tâm bàn in (0, 0), đáy Y = 0
+  const exportGeom = prepareNormalizedExportGeometry(geometry, transform);
 
-  if (exportGeom.index) {
-    exportGeom = exportGeom.toNonIndexed();
-  }
+  const serializeMeshTo3MF = (geom: THREE.BufferGeometry) => {
+    const posAttr = geom.getAttribute('position');
+    const vertexCount = posAttr ? posAttr.count : 0;
+    const vLines: string[] = new Array(vertexCount);
+    for (let i = 0; i < vertexCount; i++) {
+      const vx = posAttr.getX(i) + 128;
+      const vy = -posAttr.getZ(i) + 128;
+      const vz = Math.max(0, posAttr.getY(i));
+      vLines[i] = `          <vertex x="${vx.toFixed(4)}" y="${vy.toFixed(4)}" z="${vz.toFixed(4)}" />`;
+    }
+    const tCount = Math.floor(vertexCount / 3);
+    const tLines: string[] = new Array(tCount);
+    for (let t = 0; t < tCount; t++) {
+      const v1 = t * 3;
+      const v2 = t * 3 + 1;
+      const v3 = t * 3 + 2;
+      tLines[t] = `          <triangle v1="${v1}" v2="${v2}" v3="${v3}" />`;
+    }
+    return { vLines, tLines, tCount };
+  };
 
-  exportGeom.computeBoundingBox();
-  const bbox = exportGeom.boundingBox || new THREE.Box3();
-  const sizeX = bbox.max.x - bbox.min.x;
-  const sizeY = bbox.max.y - bbox.min.y;
-  const sizeZ = bbox.max.z - bbox.min.z;
-  const maxDim = Math.max(sizeX, sizeY, sizeZ, 0.0001);
+  const mainMeshData = serializeMeshTo3MF(exportGeom);
+  const supportGeom =
+    includeSupportMesh && profile.supportMode !== 'none'
+      ? buildExportSupportGeometry(exportGeom, profile)
+      : null;
+  const supportMeshData = supportGeom ? serializeMeshTo3MF(supportGeom) : null;
 
-  if (maxDim < 5) {
-    const scaleTo80Mm = 80 / maxDim;
-    exportGeom.scale(scaleTo80Mm, scaleTo80Mm, scaleTo80Mm);
-    exportGeom.center();
-    exportGeom.computeBoundingBox();
-    const sb = exportGeom.boundingBox!;
-    exportGeom.translate(0, -sb.min.y, 0);
-  }
+  const supportObjectXml = supportMeshData
+    ? `
+    <object id="2" name="${safeName}_TreeSupport" type="model">
+      <mesh>
+        <vertices>
+${supportMeshData.vLines.join('\n')}
+        </vertices>
+        <triangles>
+${supportMeshData.tLines.join('\n')}
+        </triangles>
+      </mesh>
+    </object>`
+    : '';
 
-  exportGeom.computeBoundingBox();
-  const finalBox = exportGeom.boundingBox!;
-  const centerX = (finalBox.min.x + finalBox.max.x) / 2;
-  const centerZ = (finalBox.min.z + finalBox.max.z) / 2;
-  const minY = finalBox.min.y;
-
-  const posAttr = exportGeom.getAttribute('position');
-  const vertexCount = posAttr ? posAttr.count : 0;
-
-  // Chuyển từ hệ tọa độ Three.js (Y-up) sang chuẩn máy in 3MF (Z-up, đơn vị millimeter, tâm bàn in 128,128)
-  const vertexLines: string[] = new Array(vertexCount);
-  for (let i = 0; i < vertexCount; i++) {
-    const vx = posAttr.getX(i) - centerX + 128;
-    const vy = -(posAttr.getZ(i) - centerZ) + 128;
-    const vz = Math.max(0, posAttr.getY(i) - minY);
-    vertexLines[i] = `          <vertex x="${vx.toFixed(4)}" y="${vy.toFixed(4)}" z="${vz.toFixed(4)}" />`;
-  }
-
-  const triCount = Math.floor(vertexCount / 3);
-  const triangleLines: string[] = new Array(triCount);
-  for (let t = 0; t < triCount; t++) {
-    const v1 = t * 3;
-    const v2 = t * 3 + 1;
-    const v3 = t * 3 + 2;
-    triangleLines[t] = `          <triangle v1="${v1}" v2="${v2}" v3="${v3}" />`;
-  }
+  const supportBuildItemXml = supportMeshData
+    ? `\n    <item objectid="2" printable="1" />`
+    : '';
 
   const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
@@ -212,18 +305,41 @@ export function download3MFProject(
     <object id="1" name="${safeName}" type="model">
       <mesh>
         <vertices>
-${vertexLines.join('\n')}
+${mainMeshData.vLines.join('\n')}
         </vertices>
         <triangles>
-${triangleLines.join('\n')}
+${mainMeshData.tLines.join('\n')}
         </triangles>
       </mesh>
-    </object>
+    </object>${supportObjectXml}
   </resources>
   <build>
-    <item objectid="1" printable="1" />
+    <item objectid="1" printable="1" />${supportBuildItemXml}
   </build>
 </model>`;
+
+  const supportObjectSettingsXml = supportMeshData
+    ? `
+  <object id="2">
+    <metadata key="name" value="${safeName}_TreeSupport"/>
+    <metadata key="extruder" value="1"/>
+    <metadata key="support_type" value="${profile.supportMode === 'tree' ? 'tree(auto)' : 'normal(auto)'}"/>
+    <metadata key="support_style" value="${profile.supportMode === 'tree' ? `tree_${profile.treeStyle || 'organic'}` : 'default'}"/>
+    <part id="1" subtype="normal_part">
+      <metadata key="name" value="${safeName}_TreeSupport"/>
+      <metadata key="face_count" value="${supportMeshData.tCount}"/>
+    </part>
+  </object>`
+    : '';
+
+  const supportInstanceXml = supportMeshData
+    ? `
+    <model_instance>
+      <metadata key="object_id" value="2"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="2"/>
+    </model_instance>`
+    : '';
 
   const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
 <config>
@@ -235,11 +351,20 @@ ${triangleLines.join('\n')}
     <metadata key="sparse_infill_density" value="${profile.infillDensity}%"/>
     <metadata key="sparse_infill_pattern" value="${profile.infillType}"/>
     <metadata key="enable_support" value="${profile.supportMode !== 'none' ? '1' : '0'}"/>
+    <metadata key="support_type" value="${profile.supportMode === 'tree' ? 'tree(auto)' : 'normal(auto)'}"/>
+    <metadata key="support_style" value="${profile.supportMode === 'tree' ? `tree_${profile.treeStyle || 'organic'}` : 'default'}"/>
+    <metadata key="support_threshold_angle" value="${profile.supportAngleThreshold ?? 45}"/>
+    <metadata key="tree_support_branch_diameter" value="${profile.supportBranchDiameter ?? 2.2}"/>
+    <metadata key="tree_support_branch_angle" value="${profile.supportBranchAngle ?? 45}"/>
+    <metadata key="support_top_z_distance" value="${profile.supportTopZDistance ?? 0.2}"/>
+    <metadata key="support_bottom_z_distance" value="${profile.supportBottomZDistance ?? 0.2}"/>
+    <metadata key="support_interface_top_layers" value="${profile.supportInterfaceLayers ?? 2}"/>
+    <metadata key="support_on_build_plate_only" value="${profile.supportOnBuildPlateOnly !== false ? '1' : '0'}"/>
     <part id="1" subtype="normal_part">
       <metadata key="name" value="${safeName}"/>
-      <metadata key="face_count" value="${triCount}"/>
+      <metadata key="face_count" value="${mainMeshData.tCount}"/>
     </part>
-  </object>
+  </object>${supportObjectSettingsXml}
   <plate>
     <metadata key="plater_id" value="1"/>
     <metadata key="plater_name" value="Laymor3D_Plate_1"/>
@@ -248,7 +373,7 @@ ${triangleLines.join('\n')}
       <metadata key="object_id" value="1"/>
       <metadata key="instance_id" value="0"/>
       <metadata key="identify_id" value="1"/>
-    </model_instance>
+    </model_instance>${supportInstanceXml}
   </plate>
 </config>`;
 
@@ -312,34 +437,25 @@ ${triangleLines.join('\n')}
 export function downloadBinarySTL(
   geometry: THREE.BufferGeometry,
   modelName: string = 'Model',
-  transform?: IModelTransform
+  transform?: IModelTransform,
+  profile?: ISimulationProfile,
+  includeSupportMesh: boolean = true
 ): string {
   const safeName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'AI_3D_Model';
   const filename = `${safeName}.stl`;
 
-  let exportGeom = transform
-    ? applyTransformToGeometry(geometry, transform)
-    : geometry.clone();
+  let exportGeom = prepareNormalizedExportGeometry(geometry, transform);
 
-  if (exportGeom.index) {
-    exportGeom = exportGeom.toNonIndexed();
-  }
-
-  exportGeom.computeBoundingBox();
-  const bbox = exportGeom.boundingBox || new THREE.Box3();
-  const maxDim = Math.max(
-    bbox.max.x - bbox.min.x,
-    bbox.max.y - bbox.min.y,
-    bbox.max.z - bbox.min.z,
-    0.0001
-  );
-
-  if (maxDim < 5) {
-    const scaleTo80Mm = 80 / maxDim;
-    exportGeom.scale(scaleTo80Mm, scaleTo80Mm, scaleTo80Mm);
-    exportGeom.center();
-    exportGeom.computeBoundingBox();
-    exportGeom.translate(0, -exportGeom.boundingBox!.min.y, 0);
+  if (includeSupportMesh && profile && profile.supportMode !== 'none') {
+    const supGeom = buildExportSupportGeometry(exportGeom, profile);
+    if (supGeom) {
+      const cleanMain = new THREE.BufferGeometry();
+      cleanMain.setAttribute('position', exportGeom.getAttribute('position').clone());
+      const merged = BufferGeometryUtils.mergeGeometries([cleanMain, supGeom], false);
+      if (merged) {
+        exportGeom = merged;
+      }
+    }
   }
 
   const posAttr = exportGeom.getAttribute('position');
