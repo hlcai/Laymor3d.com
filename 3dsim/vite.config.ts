@@ -8,6 +8,11 @@ import { slicerBridgePlugin } from './server/slicerPlugin.ts';
 export default defineConfig({
   base: '/3dsim/',
   plugins: [react(), tailwindcss(), slicerBridgePlugin()],
+  css: {
+    postcss: {
+      plugins: [],
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
