@@ -134,9 +134,62 @@ export interface ITimelapseConfig {
   resolution: '720p' | '1080p';
 }
 
+export type PrintConsultIntent =
+  | 'balanced'
+  | 'aesthetic_statue'
+  | 'mechanical_strength'
+  | 'print_in_place'
+  | 'rapid_prototype'
+  | 'cantilever_overhang'
+  | 'outdoor_thermal';
+
+export interface IProfileParameterDiff {
+  category: 'quality' | 'strength' | 'speed' | 'support' | 'cooling' | 'adhesion';
+  label: string;
+  paramKey: keyof ISimulationProfile;
+  currentValue: string | number | boolean;
+  recommendedValue: string | number | boolean;
+  unit?: string;
+  reason: string;
+}
+
+export interface IMatchedKnowledgeRuleSummary {
+  id: string;
+  title: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  content: string;
+  tags: string[];
+  isVerified: boolean;
+  autoFixPatch?: Partial<ISimulationProfile>;
+}
+
+export interface IConsultChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  source?: string;
+  suggestedPatch?: Partial<ISimulationProfile>;
+  patchSummary?: string;
+  matchedRules?: string[];
+}
+
+export interface IPhotoDiagnosisResult {
+  defectTitle: string;
+  defectCategory: DefectCategoryType;
+  severity: DefectSeverity;
+  confidencePercent: number;
+  visualSymptoms: string[];
+  rootCauseAnalysis: string;
+  engineeringFixSteps: string[];
+  recommendedPatch: Partial<ISimulationProfile>;
+  source: string;
+}
+
 export interface ISupportAnalysisResult {
   modelName: string;
   source: 'gemini_flash' | 'bambu_expert_rules';
+  intent?: PrintConsultIntent;
   timestamp: string;
   totalTriangles: number;
   totalSurfaceAreaMm2: number;
@@ -161,6 +214,17 @@ export interface ISupportAnalysisResult {
     interfaceLayers: number;
     summary: string;
   };
+  fullProfilePatch?: Partial<ISimulationProfile>;
+  parameterChanges?: IProfileParameterDiff[];
+  predictedImpact?: {
+    successScoreBefore: number;
+    successScoreAfter: number;
+    surfaceQualityScore: number;
+    structuralStrengthScore: number;
+    estimatedTimeDeltaPercent: number;
+    estimatedFilamentDeltaPercent: number;
+  };
+  matchedKnowledgeRules?: IMatchedKnowledgeRuleSummary[];
   riskHotspots: {
     id: string;
     title: string;

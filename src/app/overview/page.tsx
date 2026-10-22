@@ -171,11 +171,11 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 3.3',
-        title: 'Mở rộng hơn 17 nhóm lỗi thực tế & Cổng thu thập dữ liệu lỗi từ người dùng',
+        title: 'Triển khai Chuyên gia AI Tư vấn In 3D Toàn diện, Chẩn đoán Ảnh lỗi & Kho Tri thức Thực tế',
         description:
-          'Bổ sung chẩn đoán chi tiết các lỗi thực tế tại xưởng (sập gãy góc nghiêng, võng cầu, cong vênh góc, phình chân voi, hụt dòng nhựa, tắc kim sợi carbon, tách lớp, tơ nhện, gợn sóng vách...) kèm tính năng cho người dùng nhập lỗi và giải thích chi tiết gửi về cơ sở dữ liệu để hệ thống học thêm kiến thức.',
-        status: 'in_progress',
-        deliverable: 'Hệ thống chẩn đoán & Học dữ liệu lỗi thực tế',
+          'Xây dựng trợ lý AI chuyên gia tư vấn đồng bộ 6 nhóm thông số chuẩn Bambu Studio theo mục đích sử dụng (Tượng mỹ thuật, Cơ khí chịu lực, Khớp động, In nhanh...), hỗ trợ hỏi-đáp kỹ thuật đa lượt, chẩn đoán lỗi qua ảnh chụp thực tế và tự động học kinh nghiệm từ Kho Tri thức Lỗi của Quản trị viên.',
+        status: 'completed',
+        deliverable: 'Chuyên gia AI Tư vấn In 3D & Học dữ liệu lỗi thực tế',
       },
       {
         code: 'Bước 3.4',
