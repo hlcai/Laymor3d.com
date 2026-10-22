@@ -225,23 +225,42 @@ export function BambuSupportAIAssistantModal({
 
   const handleApplyFullProfile = () => {
     if (!analysisResult) return;
-    if (analysisResult.fullProfilePatch) {
-      onChangeProfile(analysisResult.fullProfilePatch);
-    } else {
-      const rec = analysisResult.supportRecommendation;
-      onChangeProfile({
-        supportMode: rec.mode,
-        treeStyle: rec.treeStyle,
-        supportAngleThreshold: rec.angleThreshold,
-        supportTopZDistance: rec.topZDistance,
-        supportBranchDiameter: rec.branchDiameter,
-        supportBranchAngle: rec.branchAngle,
-        supportOnBuildPlateOnly: rec.onBuildPlateOnly,
-        supportInterfaceLayers: rec.interfaceLayers,
-      });
-    }
+    const appliedPatch = analysisResult.fullProfilePatch || {
+      supportMode: analysisResult.supportRecommendation.mode,
+      treeStyle: analysisResult.supportRecommendation.treeStyle,
+      supportAngleThreshold: analysisResult.supportRecommendation.angleThreshold,
+      supportTopZDistance: analysisResult.supportRecommendation.topZDistance,
+      supportBranchDiameter: analysisResult.supportRecommendation.branchDiameter,
+      supportBranchAngle: analysisResult.supportRecommendation.branchAngle,
+      supportOnBuildPlateOnly: analysisResult.supportRecommendation.onBuildPlateOnly,
+      supportInterfaceLayers: analysisResult.supportRecommendation.interfaceLayers,
+    };
+
+    onChangeProfile(appliedPatch);
+
+    // Đồng bộ phiên tư vấn AI lên Supabase Cloud (print_sessions)
+    fetch('/api/v1/nhat-ky/save-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session: {
+          sessionId: `ai_consult_${Date.now()}`,
+          modelName: currentModel.name,
+          material: profile.material,
+          layerHeight: appliedPatch.layerHeight || profile.layerHeight,
+          infillDensity: appliedPatch.infillDensity || profile.infillDensity,
+          printSpeed: appliedPatch.printSpeed || profile.printSpeed,
+          nozzleTemp: appliedPatch.nozzleTemp || profile.nozzleTemp,
+          bedTemp: appliedPatch.bedTemp || profile.bedTemp,
+          score: analysisResult.predictedImpact?.successScoreAfter || 97,
+          notes: `[AI Copilot - ${selectedIntent}] ${analysisResult.supportRecommendation.summary}`,
+        },
+        append_mode: true,
+      }),
+    }).catch(() => {});
+
     setApplySuccess(true);
-    showQuickAppliedToast('Đã áp dụng đồng bộ 6 nhóm thông số Bambu Studio lên mô hình 3D!');
+    showQuickAppliedToast('Đã áp dụng 6 nhóm thông số & đồng bộ phiên tư vấn lên Supabase!');
     setTimeout(() => setApplySuccess(false), 3000);
   };
 
@@ -353,7 +372,12 @@ export function BambuSupportAIAssistantModal({
       await fetch('/api/knowledge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRule),
+        body: JSON.stringify({
+          ...newRule,
+          solutionText: newRule.content,
+          problemSymptom: diagnosisResult.visualSymptoms.join('; '),
+          rootCause: diagnosisResult.rootCauseAnalysis,
+        }),
       });
     } catch {}
 

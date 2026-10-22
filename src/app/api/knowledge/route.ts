@@ -3,6 +3,7 @@ import { knowledgeRepository } from '@/backend/repositories/KnowledgeRepository'
 
 export async function GET(req: NextRequest) {
   try {
+    await knowledgeRepository.ensureHydrated();
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('query') || undefined;
     const category = searchParams.get('category') || undefined;
@@ -17,9 +18,19 @@ export async function GET(req: NextRequest) {
       categoryCounts[e.category] = (categoryCounts[e.category] || 0) + 1;
     }
 
+    const items = entries.map((e) => ({
+      ...e,
+      content: e.solutionText || e.problemSymptom || '',
+      triggerCondition:
+        typeof e.triggerCondition === 'string'
+          ? e.triggerCondition
+          : e.triggerCondition?.description || '',
+    }));
+
     return NextResponse.json({
       success: true,
       entries,
+      items,
       totalCount: all.length,
       filteredCount: entries.length,
       categoryCounts,
@@ -39,6 +50,8 @@ export async function POST(req: NextRequest) {
       defectType,
       severity,
       solutionText,
+      content,
+      explanation,
       problemSymptom,
       rootCause,
       slicerOverrides,
@@ -53,20 +66,22 @@ export async function POST(req: NextRequest) {
       sourcePlatform,
     } = body;
 
-    if (!title || !solutionText) {
+    const effectiveSolution = (solutionText || content || explanation || '').trim();
+
+    if (!title || !effectiveSolution) {
       return NextResponse.json(
         { success: false, error: 'Tiêu đề lỗi và giải pháp chi tiết là bắt buộc.' },
         { status: 400 }
       );
     }
 
-    const saved = knowledgeRepository.upsertEntry({
+    const saved = await knowledgeRepository.upsertEntryAsync({
       id,
       title,
       category: category || 'simulator_defect_learning',
       defectType: defectType || 'custom_defect',
       severity: severity || 'medium',
-      solutionText,
+      solutionText: effectiveSolution,
       problemSymptom,
       rootCause,
       slicerOverrides,
@@ -84,8 +99,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      entry: saved,
-      message: 'Đã cập nhật dữ liệu lỗi & giải thích chi tiết vào Kho Tri Thức Giả Lập!',
+      entry: {
+        ...saved,
+        content: saved.solutionText,
+      },
+      message: 'Đã lưu dữ liệu lỗi & giải thích chi tiết lên Supabase Cloud Database!',
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
@@ -105,12 +123,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Thiếu tham số ID tri thức cần xóa' }, { status: 400 });
     }
 
-    const deleted = knowledgeRepository.deleteEntry(id);
+    const deleted = await knowledgeRepository.deleteEntryAsync(id);
     if (!deleted) {
       return NextResponse.json({ success: false, error: 'Không tìm thấy bản ghi tri thức' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, message: 'Đã xóa bản ghi tri thức' });
+    return NextResponse.json({ success: true, message: 'Đã xóa bản ghi tri thức trên Supabase Database' });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

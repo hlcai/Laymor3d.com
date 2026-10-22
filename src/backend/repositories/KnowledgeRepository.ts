@@ -322,29 +322,40 @@ class KnowledgeRepository {
   }
 
   private hydrateFromSupabase(): void {
+    this.ensureHydrated().catch(() => {});
+  }
+
+  async ensureHydrated(): Promise<void> {
     if (this.hydratedFromCloud) return;
     this.hydratedFromCloud = true;
-    supabaseCloudService
-      .loadKvState<{ entries?: IKnowledgeEntry[] }>('laymor_knowledge_state')
-      .then((saved) => {
-        if (saved?.entries && Array.isArray(saved.entries) && saved.entries.length > 0) {
-          // Merge seed entries with cloud entries so no seed rule is lost
-          const map = new Map<string, IKnowledgeEntry>();
-          for (const s of SEED_KNOWLEDGE_ENTRIES) map.set(s.id, s);
-          for (const c of saved.entries) map.set(c.id, c);
-          this.entries = Array.from(map.values());
-        }
-      })
-      .catch(() => {});
+    try {
+      const saved = await supabaseCloudService.loadKvState<{ entries?: IKnowledgeEntry[] }>(
+        'laymor_knowledge_state'
+      );
+      if (saved?.entries && Array.isArray(saved.entries) && saved.entries.length > 0) {
+        const map = new Map<string, IKnowledgeEntry>();
+        for (const s of SEED_KNOWLEDGE_ENTRIES) map.set(s.id, s);
+        for (const c of saved.entries) map.set(c.id, c);
+        this.entries = Array.from(map.values());
+      }
+    } catch {
+      // Fallback to in-memory / local seed entries
+    }
   }
 
   private persistToSupabase(): void {
-    supabaseCloudService
-      .saveKvState('laymor_knowledge_state', {
+    this.persistToSupabaseAsync().catch(() => {});
+  }
+
+  async persistToSupabaseAsync(): Promise<boolean> {
+    try {
+      return await supabaseCloudService.saveKvState('laymor_knowledge_state', {
         entries: this.entries,
         updatedAt: new Date().toISOString(),
-      })
-      .catch(() => {});
+      });
+    } catch {
+      return false;
+    }
   }
 
   private loadFromDisk(): void {
@@ -538,6 +549,15 @@ class KnowledgeRepository {
     return newEntry;
   }
 
+  async upsertEntryAsync(
+    entry: Partial<IKnowledgeEntry> & { title: string; solutionText: string }
+  ): Promise<IKnowledgeEntry> {
+    await this.ensureHydrated();
+    const saved = this.upsertEntry(entry);
+    await this.persistToSupabaseAsync();
+    return saved;
+  }
+
   deleteEntry(id: string): boolean {
     const initialLen = this.entries.length;
     this.entries = this.entries.filter((k) => k.id !== id);
@@ -546,6 +566,15 @@ class KnowledgeRepository {
       return true;
     }
     return false;
+  }
+
+  async deleteEntryAsync(id: string): Promise<boolean> {
+    await this.ensureHydrated();
+    const deleted = this.deleteEntry(id);
+    if (deleted) {
+      await this.persistToSupabaseAsync();
+    }
+    return deleted;
   }
 }
 

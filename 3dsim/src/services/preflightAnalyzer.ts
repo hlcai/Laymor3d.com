@@ -38,8 +38,25 @@ export async function fetchLearnedDefectRulesFromDB(): Promise<ICustomDefectKnow
     const res = await fetch('/api/knowledge?category=simulator_defect_learning');
     if (!res.ok) return cachedLearnedRules;
     const data = await res.json();
-    if (data && Array.isArray(data.items)) {
-      cachedLearnedRules = data.items;
+    const rawList = data?.items || data?.entries;
+    if (Array.isArray(rawList)) {
+      cachedLearnedRules = rawList.map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        category: r.category || 'simulator_defect_learning',
+        defectType: r.defectType || 'custom_defect',
+        severity: r.severity || 'high',
+        triggerCondition:
+          typeof r.triggerCondition === 'string'
+            ? r.triggerCondition
+            : r.triggerCondition?.description || '',
+        content: r.content || r.solutionText || r.problemSymptom || '',
+        tags: Array.isArray(r.tags) ? r.tags : [],
+        autoFixPatch: r.autoFixPatch,
+        submittedBy: r.submittedBy || 'hlcai_admin',
+        isVerified: r.isVerified ?? true,
+        updatedAt: r.updatedAt || new Date().toISOString(),
+      }));
     }
     return cachedLearnedRules;
   } catch {
