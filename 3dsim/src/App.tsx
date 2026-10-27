@@ -678,52 +678,73 @@ export default function App() {
           isCompleted: true,
         }));
 
-        // Gửi trực tiếp file nhị phân lên Bambu Studio CLI (nếu chạy Localhost) để dựng Organic Tree Support & Sợi In
-        setUploadSlicingStatus('Đang phân tích cấu trúc Overhang & đồng bộ Bambu Studio Tree Support...');
-        fetch(`/api/slicer/upload-and-slice?name=${encodeURIComponent(file.name)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: file,
-        })
-          .then((res) => res.json())
-          .then((resData) => {
-            if (resData.success && resData.supportData?.segments?.length > 0) {
-              setPreloadedSupport(resData.modelPath || file.name, resData.supportData);
-              setPreloadedSupport(customModelObj.name, resData.supportData);
-              setPreloadedSupport(customModelObj.id, resData.supportData);
-              if (resData.toolpathData) {
-                setPreloadedToolpaths(resData.modelPath || file.name, resData.toolpathData);
-                setPreloadedToolpaths(customModelObj.name, resData.toolpathData);
-                setPreloadedToolpaths(customModelObj.id, resData.toolpathData);
-              }
+        // Chỉ gửi file lên Local Slicer Bridge nếu đang chạy Localhost hoặc tên file thuộc bộ mẫu Pre-baked
+        const lowerName = file.name.toLowerCase();
+        const isPrebakedSample =
+          lowerName.includes('cow') ||
+          lowerName.includes('bò') ||
+          lowerName.includes('highland') ||
+          lowerName.includes('ogen') ||
+          lowerName.includes('eule') ||
+          lowerName.includes('owl') ||
+          lowerName.includes('benchy') ||
+          lowerName.includes('ghost');
+        const isLocalhost =
+          typeof window !== 'undefined' &&
+          (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-              setCurrentModel((prev) => ({
-                ...prev,
-                path: resData.modelPath,
-              }));
-
-              if (resData.totalLayers) {
-                setSimulationState((prev) => ({
-                  ...prev,
-                  totalLayers: resData.totalLayers,
-                  currentLayer: resData.totalLayers,
-                  totalTimeSec: resData.estimatedTimeSec || prev.totalTimeSec,
-                  totalFilamentGrams: resData.filamentWeightGrams || prev.totalFilamentGrams,
-                  filamentUsedGrams: resData.filamentWeightGrams || prev.filamentUsedGrams,
-                }));
-              }
-
-              setUploadSlicingStatus(
-                `Hoàn tất Bambu Studio Native (${resData.totalLayers || 180} lớp in, ${resData.supportLinesCount || 0} đoạn Tree Support)`
-              );
-              setTimeout(() => setUploadSlicingStatus(null), 5000);
-            } else {
-              setUploadSlicingStatus(null);
-            }
+        if (isLocalhost || (isPrebakedSample && file.size <= 4 * 1024 * 1024)) {
+          setUploadSlicingStatus('Đang phân tích cấu trúc Overhang & đồng bộ Bambu Studio Tree Support...');
+          fetch(`/api/slicer/upload-and-slice?name=${encodeURIComponent(file.name)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file,
           })
-          .catch(() => {
-            setUploadSlicingStatus(null);
-          });
+            .then((res) => res.json())
+            .then((resData) => {
+              if (resData.success && resData.supportData?.segments?.length > 0) {
+                setPreloadedSupport(resData.modelPath || file.name, resData.supportData);
+                setPreloadedSupport(customModelObj.name, resData.supportData);
+                setPreloadedSupport(customModelObj.id, resData.supportData);
+                if (resData.toolpathData) {
+                  setPreloadedToolpaths(resData.modelPath || file.name, resData.toolpathData);
+                  setPreloadedToolpaths(customModelObj.name, resData.toolpathData);
+                  setPreloadedToolpaths(customModelObj.id, resData.toolpathData);
+                }
+
+                setCurrentModel((prev) => ({
+                  ...prev,
+                  path: resData.modelPath,
+                }));
+
+                if (resData.totalLayers) {
+                  setSimulationState((prev) => ({
+                    ...prev,
+                    totalLayers: resData.totalLayers,
+                    currentLayer: resData.totalLayers,
+                    totalTimeSec: resData.estimatedTimeSec || prev.totalTimeSec,
+                    totalFilamentGrams: resData.filamentWeightGrams || prev.totalFilamentGrams,
+                    filamentUsedGrams: resData.filamentWeightGrams || prev.filamentUsedGrams,
+                  }));
+                }
+
+                setUploadSlicingStatus(
+                  `Hoàn tất Bambu Studio Native (${resData.totalLayers || 180} lớp in, ${resData.supportLinesCount || 0} đoạn Tree Support)`
+                );
+                setTimeout(() => setUploadSlicingStatus(null), 4000);
+              } else {
+                setUploadSlicingStatus(null);
+              }
+            })
+            .catch(() => {
+              setUploadSlicingStatus(null);
+            });
+        } else {
+          setUploadSlicingStatus(
+            `✓ Đã nạp ${cleanName} (${dimX}×${dimZ}×${dimY} mm) & dựng Tree Support định tuyến ngoài thân mẫu`
+          );
+          setTimeout(() => setUploadSlicingStatus(null), 3200);
+        }
       } catch (err: any) {
         alert('Không thể đọc file: ' + err.message);
       }
@@ -1041,9 +1062,9 @@ export default function App() {
         onSyncToStudio={handleSyncBackToStudio}
       />
 
-      {/* Notification Toast khi Bambu Studio CLI đang cắt lát */}
+      {/* Notification Toast khi nạp mô hình / Bambu Studio CLI đang cắt lát (Đặt ở bottom-24 tránh đè lên HUD Điểm Khả Thi) */}
       {uploadSlicingStatus && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-5 py-2.5 glass-panel studio-gold-badge rounded-xl shadow-2xl text-xs font-semibold animate-pulse">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-2.5 px-5 py-2.5 glass-panel studio-gold-badge rounded-xl shadow-2xl text-xs font-semibold">
           <span className="w-2 h-2 rounded-full bg-[var(--accent-gold)] animate-ping" />
           <span>{uploadSlicingStatus}</span>
         </div>

@@ -19,7 +19,42 @@ const modelSupportCache = new Map<string, INativeSupportData>();
 export function setPreloadedSupport(key: string, data: INativeSupportData): void {
   if (!key) return;
   modelSupportCache.set(key, data);
-  modelSupportCache.set('__latest_active__', data);
+}
+
+/**
+ * Kiểm tra xem tên/đường dẫn mô hình có thuộc nhóm mẫu Bambu Native có sẵn hay không
+ */
+function MatchPrebakedNativeModel(modelIdentifier?: string, modelPath?: string): {
+  supportJson: string;
+  toolpathsJson: string;
+} | null {
+  const lower = ((modelIdentifier || '') + ' ' + (modelPath || '')).toLowerCase();
+  // Không áp dụng fallback có sẵn cho các mô hình người dùng tự tải lên (trừ khi tên file đúng là mẫu)
+  if (lower.includes('cow') || lower.includes('bò') || lower.includes('highland') || lower.includes('ogen')) {
+    return {
+      supportJson: '/models/highland_cow_support.json',
+      toolpathsJson: '/models/highland_cow_toolpaths.json',
+    };
+  }
+  if (lower.includes('eule') || lower.includes('owl') || lower.includes('cú')) {
+    return {
+      supportJson: '/models/eule_support.json',
+      toolpathsJson: '/models/eule_toolpaths.json',
+    };
+  }
+  if (lower.includes('benchy')) {
+    return {
+      supportJson: '/models/benchy_support.json',
+      toolpathsJson: '/models/benchy_toolpaths.json',
+    };
+  }
+  if (lower.includes('ghost')) {
+    return {
+      supportJson: '/models/ghost_support.json',
+      toolpathsJson: '/models/ghost_toolpaths.json',
+    };
+  }
+  return null;
 }
 
 /**
@@ -39,41 +74,36 @@ export async function loadNativeBambuSupport(
   if (modelSupportCache.has(cacheKey)) {
     return modelSupportCache.get(cacheKey)!;
   }
-  if (modelSupportCache.has('__latest_active__')) {
-    return modelSupportCache.get('__latest_active__')!;
+
+  const prebaked = MatchPrebakedNativeModel(modelIdentifier, modelPath);
+
+  // Chỉ gọi API / fallback nếu có modelPath từ Local Slicer hoặc thuộc nhóm mẫu Pre-baked
+  if (!modelPath && !prebaked) {
+    return null;
   }
 
-  // 1. Thử lấy support thực tế từ Bambu Studio Local Slicer Bridge API
-  try {
-    const params = new URLSearchParams();
-    if (modelPath) params.set('path', modelPath);
-    if (modelIdentifier) params.set('name', modelIdentifier);
-    const url = `/api/slicer/active-support?${params.toString()}`;
+  // 1. Thử lấy support thực tế từ Bambu Studio Local Slicer Bridge API (khi có modelPath)
+  if (modelPath) {
+    try {
+      const params = new URLSearchParams();
+      params.set('path', modelPath);
+      if (modelIdentifier) params.set('name', modelIdentifier);
+      const url = `/api/slicer/active-support?${params.toString()}`;
 
-    const res = await fetch(url);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.supportData) {
-        modelSupportCache.set(cacheKey, json.supportData);
-        return json.supportData;
+      const res = await fetch(url);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.supportData && json.supportData.segments?.length > 0) {
+          modelSupportCache.set(cacheKey, json.supportData);
+          return json.supportData;
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   // 2. Pre-cache fallbacks cho các mô hình chuẩn bị sẵn
-  const lower = ((modelIdentifier || '') + ' ' + (modelPath || '')).toLowerCase();
-  let fallbackFile = '';
-  if (lower.includes('cow') || lower.includes('bò') || lower.includes('highland') || lower.includes('ogen')) {
-    fallbackFile = '/models/highland_cow_support.json';
-  } else if (lower.includes('eule') || lower.includes('owl') || lower.includes('cú')) {
-    fallbackFile = '/models/eule_support.json';
-  } else if (lower.includes('benchy')) {
-    fallbackFile = '/models/benchy_support.json';
-  } else if (lower.includes('ghost')) {
-    fallbackFile = '/models/ghost_support.json';
-  }
-
-  if (fallbackFile) {
+  if (prebaked?.supportJson) {
+    const fallbackFile = prebaked.supportJson;
     const baseUrl = (import.meta as any).env?.BASE_URL || '/';
     const cleanRel = fallbackFile.replace(/^\//, '');
     const candidateUrls = [
@@ -110,7 +140,7 @@ export function getCachedNativeSupport(
   if (modelPath && modelSupportCache.has(modelPath)) return modelSupportCache.get(modelPath)!;
   if (modelIdentifier && modelSupportCache.has(modelIdentifier)) return modelSupportCache.get(modelIdentifier)!;
   const cacheKey = modelPath || modelIdentifier || 'default';
-  return modelSupportCache.get(cacheKey) || modelSupportCache.get('__latest_active__') || null;
+  return modelSupportCache.get(cacheKey) || null;
 }
 
 /**
@@ -403,7 +433,6 @@ const toolpathsCache = new Map<string, IFullToolpathData>();
 export function setPreloadedToolpaths(key: string, data: IFullToolpathData): void {
   if (!key) return;
   toolpathsCache.set(key, data);
-  toolpathsCache.set('__latest_active__', data);
 }
 
 /**
@@ -423,39 +452,32 @@ export async function loadFullBambuToolpaths(
   if (toolpathsCache.has(cacheKey)) {
     return toolpathsCache.get(cacheKey)!;
   }
-  if (toolpathsCache.has('__latest_active__')) {
-    return toolpathsCache.get('__latest_active__')!;
+
+  const prebaked = MatchPrebakedNativeModel(modelIdentifier, modelPath);
+  if (!modelPath && !prebaked) {
+    return null;
   }
 
-  // 1. Thử lấy từ Slicer API
-  try {
-    const params = new URLSearchParams();
-    if (modelPath) params.set('path', modelPath);
-    if (modelIdentifier) params.set('name', modelIdentifier);
-    const res = await fetch(`/api/slicer/full-toolpaths?${params.toString()}`);
-    if (res.ok) {
-      const data: IFullToolpathData = await res.json();
-      if (data && data.outerWalls && data.outerWalls.length > 0) {
-        toolpathsCache.set(cacheKey, data);
-        return data;
+  // 1. Thử lấy từ Slicer API khi có modelPath
+  if (modelPath) {
+    try {
+      const params = new URLSearchParams();
+      params.set('path', modelPath);
+      if (modelIdentifier) params.set('name', modelIdentifier);
+      const res = await fetch(`/api/slicer/full-toolpaths?${params.toString()}`);
+      if (res.ok) {
+        const data: IFullToolpathData = await res.json();
+        if (data && data.outerWalls && data.outerWalls.length > 0) {
+          toolpathsCache.set(cacheKey, data);
+          return data;
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   // 2. Pre-cache fallbacks cho các mô hình chuẩn bị sẵn
-  const lower = ((modelIdentifier || '') + ' ' + (modelPath || '')).toLowerCase();
-  let fallbackFile = '';
-  if (lower.includes('cow') || lower.includes('bò') || lower.includes('highland') || lower.includes('ogen')) {
-    fallbackFile = '/models/highland_cow_toolpaths.json';
-  } else if (lower.includes('eule') || lower.includes('owl') || lower.includes('cú')) {
-    fallbackFile = '/models/eule_toolpaths.json';
-  } else if (lower.includes('benchy')) {
-    fallbackFile = '/models/benchy_toolpaths.json';
-  } else if (lower.includes('ghost')) {
-    fallbackFile = '/models/ghost_toolpaths.json';
-  }
-
-  if (fallbackFile) {
+  if (prebaked?.toolpathsJson) {
+    const fallbackFile = prebaked.toolpathsJson;
     const baseUrl = (import.meta as any).env?.BASE_URL || '/';
     const cleanRel = fallbackFile.replace(/^\//, '');
     const candidateUrls = [
@@ -546,26 +568,9 @@ export function buildFullFilamentPreviewMesh(data: IFullToolpathData): THREE.Gro
   ifLines.name = 'preview_interfaces';
   group.add(ifLines);
 
-  // 5. Vành Brim bám bàn in (Nếu G-code có brim hoặc sinh brim đồng tâm)
+  // 5. Vành Brim bám bàn in (bám đúng chu vi thực tế Layer 0 của mô hình)
   const brimGeom = new THREE.BufferGeometry();
-  let brimPositions = data.brims;
-  if (!brimPositions || brimPositions.length === 0) {
-    // Tự động sinh vành Brim tròn đồng tâm màu tím tại chân bàn in
-    const generatedBrim: number[] = [];
-    const radius = 48.0;
-    const segCount = 48;
-    for (let r = 38.0; r <= radius; r += 1.2) {
-      for (let s = 0; s < segCount; s++) {
-        const a1 = (s / segCount) * Math.PI * 2;
-        const a2 = ((s + 1) / segCount) * Math.PI * 2;
-        generatedBrim.push(
-          Math.cos(a1) * r, 0.20, Math.sin(a1) * r,
-          Math.cos(a2) * r, 0.20, Math.sin(a2) * r
-        );
-      }
-    }
-    brimPositions = generatedBrim;
-  }
+  const brimPositions = data.brims && data.brims.length > 0 ? data.brims : [];
   brimGeom.setAttribute('position', new THREE.Float32BufferAttribute(brimPositions, 3));
   const brimMat = new THREE.LineBasicMaterial({
     color: 0xc026d3, // Màu tím chân đế Brim đặc trưng Bambu Studio
@@ -593,28 +598,34 @@ export function buildFullFilamentPreviewMesh(data: IFullToolpathData): THREE.Gro
     totalLayers: data.totalLayers,
     layerIndexTable: data.layerIndexTable,
     updateLayer: (currentLayer: number, progressRatio?: number, clippingPlane?: THREE.Plane) => {
-      let idx = currentLayer;
-      if (progressRatio !== undefined) {
-        idx = Math.round(progressRatio * data.totalLayers);
-      }
-      idx = Math.max(0, Math.min(data.totalLayers, idx));
-      const entry = data.layerIndexTable ? data.layerIndexTable[idx] : null;
-      if (entry) {
-        outerGeom.setDrawRange(0, entry[0]);
-        innerGeom.setDrawRange(0, entry[1]);
-        if (entry.length >= 6) {
-          infillGeom.setDrawRange(0, entry[2]);
-          supGeom.setDrawRange(0, entry[3]);
-          ifGeom.setDrawRange(0, entry[4]);
-          seamGeom.setDrawRange(0, entry[5]);
-        } else {
-          supGeom.setDrawRange(0, entry[2]);
-          ifGeom.setDrawRange(0, entry[3]);
-          seamGeom.setDrawRange(0, entry[4]);
+      const tableLen = data.layerIndexTable ? data.layerIndexTable.length : 0;
+      if (tableLen > 0) {
+        const maxTableIdx = tableLen - 1;
+        let idx = currentLayer;
+        if (progressRatio !== undefined) {
+          idx = progressRatio >= 0.999 ? maxTableIdx : Math.round(progressRatio * maxTableIdx);
+        } else if (data.totalLayers > 0) {
+          idx = Math.round((currentLayer / data.totalLayers) * maxTableIdx);
+        }
+        idx = Math.max(0, Math.min(maxTableIdx, idx));
+        const entry = data.layerIndexTable[idx];
+        if (entry) {
+          outerGeom.setDrawRange(0, entry[0]);
+          innerGeom.setDrawRange(0, entry[1]);
+          if (entry.length >= 6) {
+            infillGeom.setDrawRange(0, entry[2]);
+            supGeom.setDrawRange(0, entry[3]);
+            ifGeom.setDrawRange(0, entry[4]);
+            seamGeom.setDrawRange(0, entry[5]);
+          } else {
+            supGeom.setDrawRange(0, entry[2]);
+            ifGeom.setDrawRange(0, entry[3]);
+            seamGeom.setDrawRange(0, entry[4]);
+          }
         }
       }
       if (clippingPlane) {
-        const planes = [clippingPlane];
+        const planes = progressRatio !== undefined && progressRatio >= 0.999 ? [] : [clippingPlane];
         outerMat.clippingPlanes = planes;
         innerMat.clippingPlanes = planes;
         infillMat.clippingPlanes = planes;
@@ -626,7 +637,7 @@ export function buildFullFilamentPreviewMesh(data: IFullToolpathData): THREE.Gro
     updateVisibility: (opts: { showSupport: boolean; brimEnabled: boolean; infillDensity: number }) => {
       supLines.visible = opts.showSupport;
       ifLines.visible = opts.showSupport;
-      brimLines.visible = opts.brimEnabled;
+      brimLines.visible = opts.brimEnabled && brimPositions.length > 0;
       infillLines.visible = opts.infillDensity > 0;
     },
   };

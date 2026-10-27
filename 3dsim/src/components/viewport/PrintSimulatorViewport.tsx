@@ -641,42 +641,51 @@ export function PrintSimulatorViewport({
     };
     removeExistingFilament();
 
-    const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
-    loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
-      if (!sceneRef.current || !parentGroup) return;
-      const toolpathsData =
-        loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
-          ? loadedToolpaths
-          : sliceUniversalGeometry(clonedGeom, `${modelKey}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}`, profile).toolpathsData;
+    // Chỉ cắt toàn bộ sợi in ngay lập tức nếu đang ở chế độ 'filament_preview'
+    // (Nếu đang ở chế độ 'cad' hoặc 'prepare', việc cắt 200 lớp sẽ được thực hiện tức thì khi bấm sang tab 'Sợi In')
+    if (viewMode === 'filament_preview') {
+      const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
+      const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.seamPosition}`;
+      loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
+        if (!sceneRef.current || !parentGroup) return;
+        const toolpathsData =
+          loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
+            ? loadedToolpaths
+            : sliceUniversalGeometry(clonedGeom, sliceKey, profile, supportGroup).toolpathsData;
 
-      if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
-        removeExistingFilament();
-        const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
-        filamentGroup.visible = viewMode === 'filament_preview';
-        parentGroup.add(filamentGroup);
-        fullFilamentGroupRef.current = filamentGroup;
+        if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
+          removeExistingFilament();
+          const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
+          filamentGroup.visible = viewMode === 'filament_preview';
+          parentGroup.add(filamentGroup);
+          fullFilamentGroupRef.current = filamentGroup;
 
-        if (filamentGroup.userData?.updateVisibility) {
-          filamentGroup.userData.updateVisibility({
-            showSupport: showSupport && profile.supportMode !== 'none',
-            brimEnabled: profile.brimEnabled,
-            infillDensity: profile.infillDensity,
-          });
+          if (filamentGroup.userData?.updateVisibility) {
+            filamentGroup.userData.updateVisibility({
+              showSupport: showSupport && profile.supportMode !== 'none',
+              brimEnabled: profile.brimEnabled,
+              infillDensity: profile.infillDensity,
+            });
+          }
+
+          if (filamentGroup.userData?.updateLayer) {
+            filamentGroup.userData.updateLayer(
+              simulationState.currentLayer,
+              simulationState.currentProgress,
+              clippingPlaneRef.current || undefined
+            );
+          }
+
+          if (modelMeshRef.current) modelMeshRef.current.visible = false;
+          if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+          if (supportGroupRef.current) supportGroupRef.current.visible = false;
+          if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
+        } else {
+          removeExistingFilament();
+          if (modelMeshRef.current) modelMeshRef.current.visible = true;
         }
-
-        // Cập nhật drawRange ngay cho layer hiện tại
-        if (filamentGroup.userData?.updateLayer) {
-          filamentGroup.userData.updateLayer(
-            simulationState.currentLayer,
-            simulationState.currentProgress,
-            clippingPlaneRef.current || undefined
-          );
-        }
-      } else {
-        removeExistingFilament();
-        if (modelMeshRef.current) modelMeshRef.current.visible = true;
-      }
-    });
+      });
+    }
 
     // 2.5 Vòng định vị chân đế mô hình trên bàn in (Bed Footprint Highlight)
     if (footprintMeshRef.current) {
@@ -1039,6 +1048,7 @@ export function PrintSimulatorViewport({
 
     if (isFilament && (!fullFilamentGroupRef.current || fullFilamentGroupRef.current.children.length === 0)) {
       const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
+      const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.seamPosition}`;
       loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
         if (!modelRootGroupRef.current) return;
         const clonedGeom = geometry.clone();
@@ -1049,9 +1059,26 @@ export function PrintSimulatorViewport({
         const toolpathsData =
           loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
             ? loadedToolpaths
-            : sliceUniversalGeometry(clonedGeom, `${modelKey}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}`, profile).toolpathsData;
+            : sliceUniversalGeometry(
+                clonedGeom,
+                sliceKey,
+                profile,
+                supportGroupRef.current
+              ).toolpathsData;
 
         if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
+          let old: THREE.Object3D | undefined;
+          while ((old = modelRootGroupRef.current.getObjectByName('full_filament_preview_group')) !== undefined) {
+            modelRootGroupRef.current.remove(old);
+            old.traverse((c) => {
+              if (c instanceof THREE.LineSegments || c instanceof THREE.Points || c instanceof THREE.Mesh) {
+                c.geometry.dispose();
+                if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+                else c.material.dispose();
+              }
+            });
+          }
+
           const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
           filamentGroup.visible = true;
           modelRootGroupRef.current.add(filamentGroup);
@@ -1073,6 +1100,7 @@ export function PrintSimulatorViewport({
           if (modelMeshRef.current) modelMeshRef.current.visible = false;
           if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
           if (supportGroupRef.current) supportGroupRef.current.visible = false;
+          if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
         }
       });
     }

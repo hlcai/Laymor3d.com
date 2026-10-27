@@ -214,7 +214,6 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
       const geoms: THREE.BufferGeometry[] = [];
 
       // 1. Vành ngoài (Outer Ring)
-      const ringGeom = new THREE.CylinderGeometry(26, 26, 12, 36, 1, true);
       const ringOuter = new THREE.CylinderGeometry(27, 27, 12, 36);
       geoms.push(ringOuter);
 
@@ -457,7 +456,7 @@ function applyAffineTransform(x: number, y: number, z: number, m: number[]): [nu
 }
 
 /**
- * Bộ giải mã file 3MF chuyên dụng chuẩn Bambu Studio & OrcaSlicer
+ * Bộ giải mã file 3MF chuyên dụng chuẩn Bambu Studio & OrcaSlicer (Tối ưu hóa O(N) chống treo trình duyệt)
  * Trích xuất trực tiếp lưới tam giác từ 3D/Objects/*.model và 3D/3dmodel.model
  * Áp dụng đầy đủ ma trận biến đổi affine (Transform Matrix) từ thẻ <item> và <component>
  * và tự động hiệu chỉnh hướng pháp tuyến ngoài (Signed Volume) cho từng khối <mesh>
@@ -495,7 +494,7 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
 
   for (const k of modelKeys) {
     const text = new TextDecoder().decode(unzipped[k]);
-    if (!/<(?:\w+:)?mesh[\s>]/i.test(text)) continue;
+    if (!text.includes('mesh')) continue;
 
     let compTransform = componentMap.get(k) || null;
     if (!compTransform) {
@@ -507,53 +506,90 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
       }
     }
 
-    const meshRegex = /<(?:\w+:)?mesh(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?mesh>/gi;
-    let meshMatch: RegExpExecArray | null;
-    while ((meshMatch = meshRegex.exec(text)) !== null) {
-      const meshText = meshMatch[1];
+    // Tìm các khối <mesh>...</mesh> bằng indexOf thay vì regex [\s\S]*? tránh treo trình duyệt trên file XML lớn
+    let searchPos = 0;
+    while (searchPos < text.length) {
+      const openIdx = text.indexOf('mesh', searchPos);
+      if (openIdx === -1) break;
+      const beforeChar = openIdx > 0 ? text.charCodeAt(openIdx - 1) : 0;
+      if (beforeChar !== 60 /* '<' */ && beforeChar !== 58 /* ':' */) {
+        searchPos = openIdx + 4;
+        continue;
+      }
+      const tagStartEnd = text.indexOf('>', openIdx);
+      if (tagStartEnd === -1) break;
+      const closeIdx = text.indexOf('mesh>', tagStartEnd);
+      if (closeIdx === -1) break;
 
-      // Parse vertices cho từng khối <mesh> độc lập (không phụ thuộc thứ tự thuộc tính x, y, z)
+      const meshText = text.slice(tagStartEnd + 1, closeIdx);
+      searchPos = closeIdx + 5;
+
+      // Parse vertices nhanh bằng regex 1-pass (x=".." y=".." z="..")
       const vertices: number[] = [];
-      const vTagRegex = /<(?:\w+:)?vertex\s+([^>]+)>/gi;
+      const vFastRegex = /<(?:\w+:)?vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"/gi;
       let vMatch: RegExpExecArray | null;
-      while ((vMatch = vTagRegex.exec(meshText)) !== null) {
-        const attrs = vMatch[1];
-        const xm = attrs.match(/\bx="([^"]+)"/i);
-        const ym = attrs.match(/\by="([^"]+)"/i);
-        const zm = attrs.match(/\bz="([^"]+)"/i);
-        if (!xm || !ym || !zm) continue;
-
-        let x = parseFloat(xm[1]);
-        let y = parseFloat(ym[1]);
-        let z = parseFloat(zm[1]);
+      while ((vMatch = vFastRegex.exec(meshText)) !== null) {
+        let x = parseFloat(vMatch[1]);
+        let y = parseFloat(vMatch[2]);
+        let z = parseFloat(vMatch[3]);
 
         if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
         if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
 
-        // Chuyển hệ trục Z-up của 3MF (X, Y, Z) sang hệ trục Y-up của Three.js (X, Z, -Y)
-        // Phép quay chuẩn quanh trục X (-90 độ) bảo toàn định thức = +1
         if (itemTransform) {
           vertices.push(x - 128, z, y - 128);
         } else {
           vertices.push(x, z, -y);
         }
       }
+
+      // Fallback nếu thứ tự thuộc tính x, y, z không theo chuẩn thông thường
+      if (vertices.length === 0) {
+        const vTagRegex = /<(?:\w+:)?vertex\s+([^>]+)>/gi;
+        while ((vMatch = vTagRegex.exec(meshText)) !== null) {
+          const attrs = vMatch[1];
+          const xm = attrs.match(/\bx="([^"]+)"/i);
+          const ym = attrs.match(/\by="([^"]+)"/i);
+          const zm = attrs.match(/\bz="([^"]+)"/i);
+          if (!xm || !ym || !zm) continue;
+          let x = parseFloat(xm[1]);
+          let y = parseFloat(ym[1]);
+          let z = parseFloat(zm[1]);
+          if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
+          if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
+          if (itemTransform) vertices.push(x - 128, z, y - 128);
+          else vertices.push(x, z, -y);
+        }
+      }
       if (vertices.length < 9) continue;
 
-      const rawTris: [number, number, number][] = [];
-      const tTagRegex = /<(?:\w+:)?triangle\s+([^>]+)>/gi;
+      const rawTris: number[] = [];
+      const tFastRegex = /<(?:\w+:)?triangle\s+v1="(\d+)"\s+v2="(\d+)"\s+v3="(\d+)"/gi;
       let tMatch: RegExpExecArray | null;
-      while ((tMatch = tTagRegex.exec(meshText)) !== null) {
-        const attrs = tMatch[1];
-        const m1 = attrs.match(/\bv1="([^"]+)"/i);
-        const m2 = attrs.match(/\bv2="([^"]+)"/i);
-        const m3 = attrs.match(/\bv3="([^"]+)"/i);
-        if (!m1 || !m2 || !m3) continue;
-        const v1 = parseInt(m1[1], 10);
-        const v2 = parseInt(m2[1], 10);
-        const v3 = parseInt(m3[1], 10);
-        if (v1 * 3 + 2 < vertices.length && v2 * 3 + 2 < vertices.length && v3 * 3 + 2 < vertices.length) {
-          rawTris.push([v1, v2, v3]);
+      const vertCount = vertices.length / 3;
+      while ((tMatch = tFastRegex.exec(meshText)) !== null) {
+        const v1 = parseInt(tMatch[1], 10);
+        const v2 = parseInt(tMatch[2], 10);
+        const v3 = parseInt(tMatch[3], 10);
+        if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
+          rawTris.push(v1, v2, v3);
+        }
+      }
+
+      if (rawTris.length === 0) {
+        const tTagRegex = /<(?:\w+:)?triangle\s+([^>]+)>/gi;
+        while ((tMatch = tTagRegex.exec(meshText)) !== null) {
+          const attrs = tMatch[1];
+          const m1 = attrs.match(/\bv1="(\d+)"/i);
+          const m2 = attrs.match(/\bv2="(\d+)"/i);
+          const m3 = attrs.match(/\bv3="(\d+)"/i);
+          if (!m1 || !m2 || !m3) continue;
+          const v1 = parseInt(m1[1], 10);
+          const v2 = parseInt(m2[1], 10);
+          const v3 = parseInt(m3[1], 10);
+          if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
+            rawTris.push(v1, v2, v3);
+          }
         }
       }
       if (rawTris.length === 0) continue;
@@ -563,17 +599,19 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
       const refY = vertices[1];
       const refZ = vertices[2];
       let signedVolume6 = 0;
-      for (let i = 0; i < rawTris.length; i++) {
-        const [i1, i2, i3] = rawTris[i];
-        const ax = vertices[i1 * 3] - refX;
-        const ay = vertices[i1 * 3 + 1] - refY;
-        const az = vertices[i1 * 3 + 2] - refZ;
-        const bx = vertices[i2 * 3] - refX;
-        const by = vertices[i2 * 3 + 1] - refY;
-        const bz = vertices[i2 * 3 + 2] - refZ;
-        const cx = vertices[i3 * 3] - refX;
-        const cy = vertices[i3 * 3 + 1] - refY;
-        const cz = vertices[i3 * 3 + 2] - refZ;
+      for (let i = 0; i < rawTris.length; i += 3) {
+        const i1 = rawTris[i] * 3;
+        const i2 = rawTris[i + 1] * 3;
+        const i3 = rawTris[i + 2] * 3;
+        const ax = vertices[i1] - refX;
+        const ay = vertices[i1 + 1] - refY;
+        const az = vertices[i1 + 2] - refZ;
+        const bx = vertices[i2] - refX;
+        const by = vertices[i2 + 1] - refY;
+        const bz = vertices[i2 + 2] - refZ;
+        const cx = vertices[i3] - refX;
+        const cy = vertices[i3 + 1] - refY;
+        const cz = vertices[i3 + 2] - refZ;
         signedVolume6 +=
           ax * (by * cz - bz * cy) +
           ay * (bz * cx - bx * cz) +
@@ -581,19 +619,21 @@ export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
       }
 
       const flipWinding = signedVolume6 < 0;
-      for (let i = 0; i < rawTris.length; i++) {
-        const [v1, v2, v3] = rawTris[i];
+      for (let i = 0; i < rawTris.length; i += 3) {
+        const v1 = rawTris[i] * 3;
+        const v2 = rawTris[i + 1] * 3;
+        const v3 = rawTris[i + 2] * 3;
         if (flipWinding) {
           allPositions.push(
-            vertices[v1 * 3], vertices[v1 * 3 + 1], vertices[v1 * 3 + 2],
-            vertices[v3 * 3], vertices[v3 * 3 + 1], vertices[v3 * 3 + 2],
-            vertices[v2 * 3], vertices[v2 * 3 + 1], vertices[v2 * 3 + 2]
+            vertices[v1], vertices[v1 + 1], vertices[v1 + 2],
+            vertices[v3], vertices[v3 + 1], vertices[v3 + 2],
+            vertices[v2], vertices[v2 + 1], vertices[v2 + 2]
           );
         } else {
           allPositions.push(
-            vertices[v1 * 3], vertices[v1 * 3 + 1], vertices[v1 * 3 + 2],
-            vertices[v2 * 3], vertices[v2 * 3 + 1], vertices[v2 * 3 + 2],
-            vertices[v3 * 3], vertices[v3 * 3 + 1], vertices[v3 * 3 + 2]
+            vertices[v1], vertices[v1 + 1], vertices[v1 + 2],
+            vertices[v2], vertices[v2 + 1], vertices[v2 + 2],
+            vertices[v3], vertices[v3 + 1], vertices[v3 + 2]
           );
         }
       }
@@ -747,4 +787,3 @@ export function applyTransformToGeometry(
   geom.computeVertexNormals();
   return geom;
 }
-

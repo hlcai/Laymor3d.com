@@ -33,6 +33,21 @@ export interface IConformalOverhangPatch extends ISupportOverhangPatch {
   triangles: IOverhangTriangle[];
 }
 
+const VOXEL_GRID_RES = 100;
+const VOXEL_CELL_MM = 3.0;
+const VOXEL_HALF_SPAN = (VOXEL_GRID_RES * VOXEL_CELL_MM) / 2; // 150mm (-150..+150)
+const VOXEL_HEIGHT_BITS = 30;
+
+function worldToVoxelXZ(x: number, z: number): [number, number] {
+  const gx = Math.max(0, Math.min(VOXEL_GRID_RES - 1, Math.floor((x + VOXEL_HALF_SPAN) / VOXEL_CELL_MM)));
+  const gz = Math.max(0, Math.min(VOXEL_GRID_RES - 1, Math.floor((z + VOXEL_HALF_SPAN) / VOXEL_CELL_MM)));
+  return [gx, gz];
+}
+
+function heightToBit(y: number, maxY: number): number {
+  return Math.max(0, Math.min(VOXEL_HEIGHT_BITS - 1, Math.floor((Math.max(0, y) / Math.max(1, maxY)) * (VOXEL_HEIGHT_BITS - 1))));
+}
+
 /**
  * Kiểm tra điểm 2D (px, pz) có nằm trong tam giác 2D (ax, az)-(bx, bz)-(cx, cz) trên mặt phẳng XZ không,
  * nếu có trả về cao độ Y nội suy trên mặt phẳng tam giác đó.
@@ -104,13 +119,11 @@ function clipTriangleToContactRadius(
   const distY = Math.abs(tri.my - contactY);
   if (distM > maxR * 1.45 || distY > 2.2) return null;
 
-  // Co các đỉnh nằm xa tâm tiếp xúc vào trong bán kính maxR (giữ nguyên trên mặt phẳng tam giác thông qua nội suy barycentric)
   const clampVertexToRadius = (vx: number, vy: number, vz: number): [number, number, number] => {
     const dx = vx - contactX;
     const dz = vz - contactZ;
     const d = Math.hypot(dx, dz);
     if (d <= maxR) return [vx, vy, vz];
-    // Kéo đỉnh về phía tâm tam giác (mx, my, mz) để luôn nằm 100% bên trong chính tam giác đó!
     const t = Math.min(0.82, (d - maxR) / Math.max(0.1, d));
     return [
       vx + (tri.mx - vx) * t,
@@ -140,16 +153,16 @@ function clipTriangleToContactRadius(
 }
 
 /**
- * 1. Quét chính xác các tam giác Overhang lộ ra bên ngoài mô hình 3D (loại bỏ các mặt chìm bên trong khối giao nhau)
- * Tối ưu hóa tốc độ O(N) với bước nhảy thông minh cho mesh hàng triệu tam giác (< 12ms).
+ * 1. Quét chính xác các tam giác Overhang lộ ra bên ngoài mô hình 3D
+ * Đồng thời xây dựng Lưới Voxel Bitmask 3D (100x100x30) để định tuyến nhánh cây
+ * tuyệt đối KHÔNG BAO GIỜ đâm xuyên qua thân, cánh hoặc chi tiết mô hình.
  */
 function extractExteriorOverhangData(
   geometry: THREE.BufferGeometry,
-  thresholdDeg: number = 45,
-  allowPerimeterFallback: boolean = false
+  thresholdDeg: number = 45
 ): {
   patches: IConformalOverhangPatch[];
-  baseFootprintGrid: Set<string>;
+  voxelGrid: Int32Array;
   hullRadialProfile: Float32Array;
   hullEnvelope: Float32Array;
   radialBins: number;
@@ -175,12 +188,13 @@ function extractExteriorOverhangData(
   const hullRadialProfile = new Float32Array(radialBins);
   const rawHullEnvelope = new Float32Array(radialBins * heightBins);
   const hullEnvelope = new Float32Array(radialBins * heightBins);
-  const baseFootprintGrid = new Set<string>();
+  const rawVoxelGrid = new Int32Array(VOXEL_GRID_RES * VOXEL_GRID_RES);
+  const voxelGrid = new Int32Array(VOXEL_GRID_RES * VOXEL_GRID_RES);
 
   if (!positions) {
     return {
       patches: [],
-      baseFootprintGrid,
+      voxelGrid,
       hullRadialProfile,
       hullEnvelope,
       radialBins,
@@ -196,7 +210,7 @@ function extractExteriorOverhangData(
 
   const vertCount = indexAttr ? indexAttr.count : positions.count;
   const totalTriCount = Math.floor(vertCount / 3);
-  const stride = Math.max(1, Math.floor(totalTriCount / 36000));
+  const stride = Math.max(1, Math.floor(totalTriCount / 32000));
 
   interface IRawTri {
     ax: number;
@@ -225,7 +239,7 @@ function extractExteriorOverhangData(
   const pB = new THREE.Vector3();
   const pC = new THREE.Vector3();
   const edge1 = new THREE.Vector3();
-  const edge2 = new THREE.Vector3();
+  const pEdge2 = new THREE.Vector3();
   const cross = new THREE.Vector3();
 
   const recordEnvelopePoint = (px: number, py: number, pz: number) => {
@@ -245,8 +259,6 @@ function extractExteriorOverhangData(
     }
   };
 
-  const baseHeightLimit = Math.max(2.8, maxY * 0.05);
-
   for (let t = 0; t < totalTriCount; t += stride) {
     const i0 = indexAttr ? indexAttr.getX(t * 3) : t * 3;
     const i1 = indexAttr ? indexAttr.getX(t * 3 + 1) : t * 3 + 1;
@@ -260,8 +272,8 @@ function extractExteriorOverhangData(
     pC.y += yShift;
 
     edge1.subVectors(pB, pA);
-    edge2.subVectors(pC, pA);
-    cross.crossVectors(edge1, edge2);
+    pEdge2.subVectors(pC, pA);
+    cross.crossVectors(edge1, pEdge2);
     const area = cross.length() * 0.5 * stride;
     if (area < 0.0008) continue;
 
@@ -275,17 +287,25 @@ function extractExteriorOverhangData(
     recordEnvelopePoint(pC.x, pC.y, pC.z);
     recordEnvelopePoint(mx, my, mz);
 
-    // Ghi nhận phần chân đế sát bàn in kèm vùng đệm 1 ô để không bao giờ bị lọt lỗ do stride
-    const triMinY = Math.min(pA.y, pB.y, pC.y);
-    if (triMinY <= baseHeightLimit) {
-      const gx0 = Math.floor(Math.min(pA.x, pB.x, pC.x) / 2.0) - 1;
-      const gx1 = Math.floor(Math.max(pA.x, pB.x, pC.x) / 2.0) + 1;
-      const gz0 = Math.floor(Math.min(pA.z, pB.z, pC.z) / 2.0) - 1;
-      const gz1 = Math.floor(Math.max(pA.z, pB.z, pC.z) / 2.0) + 1;
-      for (let gx = gx0; gx <= gx1; gx++) {
-        for (let gz = gz0; gz <= gz1; gz++) {
-          baseFootprintGrid.add(`${gx}_${gz}`);
-        }
+    // Đánh dấu Voxel 3D cho tam giác này (rasterize AABB của tam giác vào lưới 100x100x30)
+    const [gxMin, gzMin] = worldToVoxelXZ(
+      Math.min(pA.x, pB.x, pC.x),
+      Math.min(pA.z, pB.z, pC.z)
+    );
+    const [gxMax, gzMax] = worldToVoxelXZ(
+      Math.max(pA.x, pB.x, pC.x),
+      Math.max(pA.z, pB.z, pC.z)
+    );
+    const bMin = heightToBit(Math.min(pA.y, pB.y, pC.y), maxY);
+    const bMax = heightToBit(Math.max(pA.y, pB.y, pC.y), maxY);
+    let triMask = 0;
+    for (let b = bMin; b <= bMax; b++) {
+      triMask |= 1 << b;
+    }
+    for (let gx = gxMin; gx <= gxMax; gx++) {
+      const rowOffset = gx * VOXEL_GRID_RES;
+      for (let gz = gzMin; gz <= gzMax; gz++) {
+        rawVoxelGrid[rowOffset + gz] |= triMask;
       }
     }
 
@@ -327,7 +347,25 @@ function extractExteriorOverhangData(
     }
   }
 
-  // Làm mịn vỏ bao Hull Envelope theo góc phương vị và chiều cao để nhánh cây không bao giờ xuyên qua khe tam giác
+  // Giãn nở (Dilate) lưới Voxel 1 ô (3mm) để thân cây luôn cách bề mặt mô hình >= 2.5mm
+  // và lấp kín các khoang rỗng bên trong theo từng tia từ tâm ra ngoài
+  for (let gx = 0; gx < VOXEL_GRID_RES; gx++) {
+    for (let gz = 0; gz < VOXEL_GRID_RES; gz++) {
+      let combined = rawVoxelGrid[gx * VOXEL_GRID_RES + gz];
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = gx + dx;
+        if (nx < 0 || nx >= VOXEL_GRID_RES) continue;
+        for (let dz = -1; dz <= 1; dz++) {
+          const nz = gz + dz;
+          if (nz < 0 || nz >= VOXEL_GRID_RES) continue;
+          combined |= rawVoxelGrid[nx * VOXEL_GRID_RES + nz];
+        }
+      }
+      voxelGrid[gx * VOXEL_GRID_RES + gz] = combined;
+    }
+  }
+
+  // Làm mịn vỏ bao Hull Envelope theo góc phương vị và chiều cao
   for (let a = 0; a < radialBins; a++) {
     let maxColR = hullRadialProfile[a];
     for (let da = -2; da <= 2; da++) {
@@ -350,10 +388,9 @@ function extractExteriorOverhangData(
     }
   }
 
-  // Bỏ qua các mép vát sát mặt bàn in (Y < minOverhangY) để không tạo mảng tím vụn dưới chân đế
-  const minOverhangY = Math.max(2.4, Math.min(7.5, maxY * 0.042));
+  // Bỏ qua các mép vát sát mặt bàn in (Y < minOverhangY)
+  const minOverhangY = Math.max(3.2, Math.min(8.5, maxY * 0.055));
 
-  // Lọc ra các tam giác Overhang thực sự nằm ở mặt ngoài và cần chống đỡ
   const validOverhangs: IOverhangTriangle[] = [];
 
   for (let idx = 0; idx < allTris.length; idx++) {
@@ -370,7 +407,7 @@ function extractExteriorOverhangData(
     let hIdx = Math.floor((Math.max(0, t.my) / maxY) * (heightBins - 1));
     hIdx = Math.max(0, Math.min(heightBins - 1, hIdx));
     const localHullR = hullEnvelope[angIdx * heightBins + hIdx];
-    if (localHullR > 6.0 && distR < localHullR * 0.36 && t.my < maxY * 0.85) {
+    if (localHullR > 8.0 && distR < localHullR * 0.45 && t.my < maxY * 0.88) {
       continue;
     }
 
@@ -378,11 +415,11 @@ function extractExteriorOverhangData(
     const candidates = spatialGrid.get(key) || [];
 
     let highestHitBelowY = -Infinity;
+    let lowestHitAboveY = Infinity;
 
     for (const cIdx of candidates) {
       if (cIdx === idx) continue;
       const other = allTris[cIdx];
-      if (other.ny <= 0.22) continue;
 
       const hitY = sampleTriangleHeightAtXZ(
         t.mx,
@@ -399,15 +436,18 @@ function extractExteriorOverhangData(
       );
       if (hitY === null) continue;
 
-      if (hitY < t.my - 0.8 && hitY > highestHitBelowY) {
+      if (hitY < t.my - 0.5 && hitY > highestHitBelowY) {
         highestHitBelowY = hitY;
+      }
+      if (hitY > t.my + 0.2 && hitY < lowestHitAboveY) {
+        lowestHitAboveY = hitY;
       }
     }
 
-    // Loại bỏ các mặt có khoảng hở thẳng đứng quá hẹp (< 2.2mm) so với mặt sàn đỡ ngay bên dưới
+    // Nếu mặt này nằm bên trong khối đặc (không có bề mặt trên đóng kín hoặc khoảng hở dưới quá hẹp < 4.5mm), bỏ qua!
     if (highestHitBelowY > -Infinity) {
       const verticalClearance = t.my - highestHitBelowY;
-      if (verticalClearance < 2.2) {
+      if (verticalClearance < 4.5) {
         continue;
       }
     }
@@ -423,55 +463,10 @@ function extractExteriorOverhangData(
     });
   }
 
-  // Nếu mô hình chỉ có vách đứng/nghiêng nhẹ nhưng người dùng bật chế độ Tree Support,
-  // tự động chọn các mặt biên ngoài ở độ cao 35%..75% thân mô hình để neo nhánh Conformal Tree Support
-  if (validOverhangs.length === 0 && allowPerimeterFallback && allTris.length > 0) {
-    const sectors = 8;
-    const bestPerSector: (IRawTri | null)[] = new Array(sectors).fill(null);
-    const bestScorePerSector: number[] = new Array(sectors).fill(-Infinity);
-    const lowBandY = Math.max(minOverhangY, maxY * 0.32);
-    const highBandY = Math.max(lowBandY + 1.5, maxY * 0.78);
-
-    for (let i = 0; i < allTris.length; i++) {
-      const t = allTris[i];
-      if (t.my < lowBandY || t.my > highBandY) continue;
-      if (t.ny > 0.35) continue;
-      const dx = t.mx - centerX;
-      const dz = t.mz - centerZ;
-      const distR = Math.hypot(dx, dz);
-      if (distR < 1.0) continue;
-      const outwardDot = (dx * t.nx + dz * t.nz) / distR;
-      if (outwardDot < 0.25) continue;
-
-      let sIdx = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * sectors);
-      sIdx = Math.max(0, Math.min(sectors - 1, sIdx));
-      const score = distR * 1.5 - t.ny * 8.0 + t.area * 0.2;
-      if (score > bestScorePerSector[sIdx]) {
-        bestScorePerSector[sIdx] = score;
-        bestPerSector[sIdx] = t;
-      }
-    }
-
-    for (const chosen of bestPerSector) {
-      if (!chosen) continue;
-      const adjNy = Math.min(-0.35, chosen.ny);
-      const normLen = Math.hypot(chosen.nx, adjNy, chosen.nz) || 1;
-      validOverhangs.push({
-        ...chosen,
-        nx: chosen.nx / normLen,
-        ny: adjNy / normLen,
-        nz: chosen.nz / normLen,
-        area: Math.max(chosen.area, 2.5),
-        angleDeg: 42,
-        floorY: 0,
-      });
-    }
-  }
-
   if (validOverhangs.length === 0) {
     return {
       patches: [],
-      baseFootprintGrid,
+      voxelGrid,
       hullRadialProfile,
       hullEnvelope,
       radialBins,
@@ -483,8 +478,8 @@ function extractExteriorOverhangData(
   }
 
   // Gom cụm các tam giác Overhang theo ô lưới tỉ lệ với kích thước mô hình
-  const patchCell = Math.max(4.8, Math.min(11.0, maxY * 0.062));
-  const patchHeightCell = Math.max(7.5, Math.min(16.0, maxY * 0.09));
+  const patchCell = Math.max(6.5, Math.min(16.0, maxY * 0.085));
+  const patchHeightCell = Math.max(9.0, Math.min(22.0, maxY * 0.12));
   const clusterMap = new Map<string, IOverhangTriangle[]>();
 
   for (const tri of validOverhangs) {
@@ -518,14 +513,13 @@ function extractExteriorOverhangData(
       sumAngle += t.angleDeg * t.area;
     }
 
-    if (totalArea < 0.35) return;
+    if (totalArea < 0.85) return;
 
     const avgX = sumX / totalArea;
     const avgY = sumY / totalArea;
     const avgZ = sumZ / totalArea;
     const avgAngle = sumAngle / totalArea;
 
-    // Bắt dính tâm Patch vào ĐÚNG tâm tam giác thực tế gần nhất trong cụm
     let bestTri = tris[0];
     let bestDistSq = Infinity;
     for (const t of tris) {
@@ -569,8 +563,6 @@ function extractExteriorOverhangData(
     });
   });
 
-  // Phân bổ đều các điểm đích Overhang quanh 12 góc phương vị (Round-Robin)
-  // giúp mọi vùng nhô (cằm, mũi, tai, đuôi, 2 bên sườn) đều có nhánh Tree Support vươn tới!
   const sectorBuckets: IConformalOverhangPatch[][] = Array.from({ length: numSectors }, () => []);
   candidatePatches.sort((a, b) => b.score - a.score);
   for (const item of candidatePatches) {
@@ -578,7 +570,7 @@ function extractExteriorOverhangData(
   }
 
   const balancedPatches: IConformalOverhangPatch[] = [];
-  const maxTotalPatches = 44;
+  const maxTotalPatches = 26;
   let round = 0;
   while (balancedPatches.length < maxTotalPatches) {
     let addedInRound = false;
@@ -595,7 +587,7 @@ function extractExteriorOverhangData(
 
   return {
     patches: balancedPatches,
-    baseFootprintGrid,
+    voxelGrid,
     hullRadialProfile,
     hullEnvelope,
     radialBins,
@@ -619,8 +611,6 @@ export function detectOverhangPatches(
 
 /**
  * 2. Dựng lớp đệm tiếp xúc (Support Interface Layer #d946ef) ÔM SÁT 100% TAM GIÁC MÔ HÌNH TẠI ĐẦU NHÁNH CÂY
- * Chỉ tạo lớp đệm mỏng (0.20mm) ngay tại vùng đầu nhánh cây chạm vào tam giác mô hình (bán kính ~1.5mm),
- * tuyệt đối không có mâm tròn phẳng chìa ra ngoài và không tô tràn lan lên vùng không có nhánh đỡ.
  */
 function buildPatchConformalCapGeometry(
   patch: IConformalOverhangPatch,
@@ -670,7 +660,7 @@ function buildPatchConformalCapGeometry(
     const a2x = ax + nx * botOffset,
       a2y = ay + ny * botOffset,
       a2z = az + nz * botOffset;
-    const b2x = bx + nx * topOffset + nx * thickness,
+    const b2x = bx + nx * botOffset,
       b2y = by + ny * botOffset,
       b2z = bz + nz * botOffset;
     const c2x = tx + nx * botOffset,
@@ -699,8 +689,6 @@ function buildPatchConformalCapGeometry(
 
 /**
  * 3. Tạo hình học thân/nhánh cây hữu cơ uốn lượn mượt mà (Catmull-Rom Spline Tube)
- * Cắt vát phẳng đầu cành (Flush Normal Clamping) theo đúng mặt phẳng nghiêng của tam giác mô hình
- * để đầu cành ôm khít tuyệt đối vào vách nghiêng mà không bị hở hay thò góc ống ra ngoài.
  */
 function createSmoothOrganicBranchGeom(
   points: THREE.Vector3[],
@@ -765,7 +753,6 @@ function createSmoothOrganicBranchGeom(
       let vy = center.y + currentRadius * (cosA * N.y + sinA * B.y);
       let vz = center.z + currentRadius * (cosA * N.z + sinA * B.z);
 
-      // Cắt phẳng tuyệt đối các đỉnh gần ngọn theo mặt phẳng tiếp xúc của tam giác Overhang
       if (tipContact && inwardSurfNormal && t > 0.62) {
         const dx = vx - tipContact.point.x;
         const dy = vy - tipContact.point.y;
@@ -833,59 +820,72 @@ function safeMergeGeometries(geoms: (THREE.BufferGeometry | null)[]): THREE.Buff
 }
 
 /**
- * Đẩy nhẹ một điểm 3D ra ngoài lớp vỏ cục bộ tại đúng độ cao Y tương ứng (giới hạn dịch chuyển tối đa <= 2.5mm)
- * để tránh cắt vào vách đứng mà tuyệt đối không bao giờ đẩy văng nhánh cây ra ngoài không trung.
+ * Đẩy điểm điều khiển spline ra ngoài Voxel mô hình & vỏ Hull tại độ cao Y tương ứng
+ * Đảm bảo nhánh cây uốn cong vòng qua bên ngoài mô hình thay vì đâm xuyên qua thân/cánh.
  */
-function pushOutsideHull(
-  x: number,
-  y: number,
-  z: number,
+function pushPointOutsideModelCollision(
+  pt: THREE.Vector3,
   clearance: number,
   centerX: number,
   centerZ: number,
   maxY: number,
+  voxelGrid: Int32Array,
   hullEnvelope: Float32Array,
   radialBins: number,
   heightBins: number,
-  fallbackDirX: number,
-  fallbackDirZ: number
+  outwardDirX: number,
+  outwardDirZ: number
 ): THREE.Vector3 {
+  let x = pt.x;
+  let z = pt.z;
+  const y = pt.y;
+
+  const bit = heightToBit(y, maxY);
+  const checkMask =
+    (1 << bit) |
+    (bit > 0 ? 1 << (bit - 1) : 0) |
+    (bit < VOXEL_HEIGHT_BITS - 1 ? 1 << (bit + 1) : 0);
+
+  // 1. Kiểm tra nếu điểm hiện tại chạm vào Voxel của mô hình ở độ cao Y -> đẩy tịnh tiến theo hướng ra ngoài (outwardDir)
+  for (let step = 0; step < 16; step++) {
+    const [gx, gz] = worldToVoxelXZ(x, z);
+    if ((voxelGrid[gx * VOXEL_GRID_RES + gz] & checkMask) === 0) {
+      break;
+    }
+    x += outwardDirX * 2.4;
+    z += outwardDirZ * 2.4;
+  }
+
+  // 2. Kiểm tra thêm với Hull Envelope cục bộ tại độ cao Y để đường cong mượt mà
   const dx = x - centerX;
   const dz = z - centerZ;
   const dist = Math.hypot(dx, dz);
-  const dirX = dist > 0.25 ? dx / dist : fallbackDirX;
-  const dirZ = dist > 0.25 ? dz / dist : fallbackDirZ;
+  const dirX = dist > 0.25 ? dx / dist : outwardDirX;
+  const dirZ = dist > 0.25 ? dz / dist : outwardDirZ;
 
   let angIdx = Math.floor(((Math.atan2(dirZ, dirX) + Math.PI) / (Math.PI * 2)) * radialBins);
   angIdx = ((angIdx % radialBins) + radialBins) % radialBins;
-
   const hIdx = Math.max(0, Math.min(heightBins - 1, Math.floor((y / Math.max(1, maxY)) * (heightBins - 1))));
 
-  let localHullR = 0;
-  for (let da = -1; da <= 1; da++) {
-    const ca = (angIdx + da + radialBins) % radialBins;
-    for (let dh = -1; dh <= 1; dh++) {
-      const ch = Math.max(0, Math.min(heightBins - 1, hIdx + dh));
-      // Chú ý: hullEnvelope được lưu theo chỉ số [angIdx * heightBins + hIdx]
-      const r = hullEnvelope[ca * heightBins + ch];
-      if (r > localHullR) localHullR = r;
+  const localHullR = hullEnvelope[angIdx * heightBins + hIdx];
+  if (localHullR > 1.0 && dist < localHullR + clearance) {
+    const targetR = localHullR + clearance;
+    // Chỉ đẩy ra tới biên vỏ ngoài nếu điểm vốn đang bị chìm trong vỏ
+    if (targetR - dist <= 32.0) {
+      x = centerX + dirX * targetR;
+      z = centerZ + dirZ * targetR;
     }
-  }
-
-  // Chỉ đẩy nhẹ khi điểm nằm sát mặt vỏ ngoài (không đẩy nếu điểm nằm bên dưới khay/vòm nội bộ)
-  if (localHullR > 0.5 && dist >= localHullR - 2.0 && dist < localHullR + clearance) {
-    const safeR = Math.min(dist + 2.2, localHullR + clearance);
-    return new THREE.Vector3(centerX + dirX * safeR, y, centerZ + dirZ * safeR);
   }
 
   return new THREE.Vector3(x, y, z);
 }
 
 /**
- * Tìm vị trí đặt gốc cây (Root Position) chuẩn vật lý in 3D Bambu Studio:
- * - Tìm điểm trống gần nhất quanh hình chiếu (avgX, avgZ) theo 8 hướng cục bộ trong phạm vi nghiêng cho phép (<= 35°).
- * - Nếu vùng Overhang nằm phía trên một mặt sàn/khay phẳng rộng (maxClusterFloorY > 0.5) và khoảng cách ra mép bàn in quá xa,
- *   tự động hạ gốc cây bám trực tiếp lên mặt sàn phẳng bên dưới (rootY = maxClusterFloorY + 0.12) để thân cây mọc thẳng đứng tự nhiên.
+ * Tìm vị trí đặt gốc cây (Root Position) chuẩn vật lý Bambu Studio:
+ * - Dùng lưới Voxel Bitmask 3D kiểm tra toàn bộ cột không gian thẳng đứng từ mặt bàn in (Y = 0)
+ *   lên đến độ cao tách nhánh (minClusterY - 3mm) phải HOÀN TOÀN TRỐNG (không vướng chân đế, đuôi, thân hay cánh dưới).
+ * - Gốc cây trên bàn in luôn được đặt BÊN NGOÀI hình chiếu thân mô hình (cách mép >= 3mm) để thân chính mọc ngoài mô hình
+ *   rồi mới uốn cành nghiêng vào đỡ điểm Overhang.
  */
 function findOptimalRootPosition(
   avgX: number,
@@ -894,75 +894,90 @@ function findOptimalRootPosition(
   maxClusterFloorY: number,
   centerX: number,
   centerZ: number,
-  _maxY: number,
-  baseFootprintGrid: Set<string>,
-  _hullRadialProfile: Float32Array,
-  _hullEnvelope: Float32Array,
-  _radialBins: number,
-  _heightBins: number
-): { rootX: number; rootY: number; rootZ: number; normX: number; normZ: number; isGroundedOnBed: boolean } {
+  maxY: number,
+  voxelGrid: Int32Array,
+  hullRadialProfile: Float32Array,
+  radialBins: number,
+  buildPlateOnly: boolean,
+  branchAngleDeg: number = 45
+): {
+  canReach: boolean;
+  rootX: number;
+  rootY: number;
+  rootZ: number;
+  normX: number;
+  normZ: number;
+  isGroundedOnBed: boolean;
+} {
   const dx = avgX - centerX;
   const dz = avgZ - centerZ;
   const dist = Math.hypot(dx, dz);
   const normX = dist > 0.05 ? dx / dist : 0;
   const normZ = dist > 0.05 ? dz / dist : 1;
 
-  // Độ lệch ngang tối đa cho phép để thân cây không bao giờ nghiêng quá 32 độ hoặc vòng ra xa
-  const maxHorizontalOffset = Math.min(9.5, Math.max(2.5, minClusterY * 0.26));
-
-  const gx0 = Math.floor(avgX / 2.0);
-  const gz0 = Math.floor(avgZ / 2.0);
-  const directlyBlockedOnBed = baseFootprintGrid.has(`${gx0}_${gz0}`);
-
-  // Trường hợp 1: Ngay bên dưới cụm Overhang trên bàn in hoàn toàn trống trải (không vướng đế mô hình)
-  if (!directlyBlockedOnBed && maxClusterFloorY <= 0.5) {
-    const slightOut = Math.min(1.6, minClusterY * 0.04);
-    return {
-      rootX: avgX + normX * slightOut,
-      rootY: 0.14,
-      rootZ: avgZ + normZ * slightOut,
-      normX,
-      normZ,
-      isGroundedOnBed: true,
-    };
+  // Mask kiểm tra toàn bộ cột thẳng đứng từ Y = 0 lên đến ngay dưới cụm Overhang (minClusterY - 3.0mm)
+  const topCheckBit = Math.max(1, heightToBit(Math.max(0.5, minClusterY - 3.2), maxY));
+  let columnMask = 0;
+  for (let b = 0; b <= topCheckBit; b++) {
+    columnMask |= 1 << b;
   }
 
-  // Trường hợp 2: Quét 8 hướng cục bộ quanh (avgX, avgZ) để tìm vị trí trống gần nhất trên bàn in (trong bán kính maxHorizontalOffset)
-  const dirs: [number, number][] = [
-    [normX, normZ],
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-    [0.707, 0.707],
-    [-0.707, 0.707],
-    [0.707, -0.707],
-    [-0.707, -0.707],
+  // Khoảng vươn ngang tối đa theo góc nghiêng nhánh Tree Support (mặc định ~45° -> tan <= 1.0)
+  const maxTan = Math.tan((Math.min(54, Math.max(30, branchAngleDeg)) * Math.PI) / 180);
+  const maxHorizontalReach = Math.min(56.0, Math.max(14.0, minClusterY * maxTan * 0.85));
+
+  // Quét 16 hướng ưu tiên hướng vươn ra ngoài tâm mô hình để tìm hành lang thẳng đứng hoàn toàn trống
+  const baseAngle = Math.atan2(normZ, normX);
+  const angleOffsets = [
+    0,
+    0.22,
+    -0.22,
+    0.45,
+    -0.45,
+    0.7,
+    -0.7,
+    0.95,
+    -0.95,
+    1.25,
+    -1.25,
+    1.6,
+    -1.6,
+    2.0,
+    -2.0,
+    Math.PI,
   ];
 
-  let bestBedX = avgX;
-  let bestBedZ = avgZ;
-  let bestBedDist = Infinity;
+  let bestBedX = 0;
+  let bestBedZ = 0;
+  let bestCost = Infinity;
   let bestDirX = normX;
   let bestDirZ = normZ;
 
-  for (const [vx, vz] of dirs) {
-    const len = Math.hypot(vx, vz) || 1;
-    const ux = vx / len;
-    const uz = vz / len;
-    for (let r = 2.0; r <= maxHorizontalOffset; r += 1.6) {
+  for (const dAng of angleOffsets) {
+    const ang = baseAngle + dAng;
+    const ux = Math.cos(ang);
+    const uz = Math.sin(ang);
+
+    // Tìm bán kính vỏ bao ngoài theo hướng này để ưu tiên đặt gốc cây bên ngoài chu vi mẫu
+    let angIdx = Math.floor(((ang + Math.PI) / (Math.PI * 2)) * radialBins);
+    angIdx = ((angIdx % radialBins) + radialBins) % radialBins;
+
+    for (let r = 3.5; r <= maxHorizontalReach; r += 2.5) {
       const tx = avgX + ux * r;
       const tz = avgZ + uz * r;
-      const gx = Math.floor(tx / 2.0);
-      const gz = Math.floor(tz / 2.0);
-      if (!baseFootprintGrid.has(`${gx}_${gz}`)) {
-        // Cộng điểm ưu tiên nhẹ cho hướng đi ra phía ngoài tâm mô hình
-        const outwardDot = ux * normX + uz * normZ;
-        const effectiveCost = r - outwardDot * 0.8;
-        if (effectiveCost < bestBedDist) {
-          bestBedDist = effectiveCost;
-          bestBedX = tx + ux * 0.9;
-          bestBedZ = tz + uz * 0.9;
+      if (Math.abs(tx) > 122 || Math.abs(tz) > 122) break;
+
+      const [gx, gz] = worldToVoxelXZ(tx, tz);
+      // Cột không gian từ mặt bàn (bit 0) lên tới topCheckBit phải hoàn toàn không vướng mô hình!
+      if ((voxelGrid[gx * VOXEL_GRID_RES + gz] & columnMask) === 0) {
+        const distFromCenter = Math.hypot(tx - centerX, tz - centerZ);
+        const anglePenalty = Math.abs(dAng) * 5.5;
+        const cost = r + anglePenalty - Math.min(6.0, distFromCenter * 0.08);
+        if (cost < bestCost) {
+          bestCost = cost;
+          // Dịch thêm 1.5mm ra ngoài để gốc cây thoáng đãng
+          bestBedX = tx + ux * 1.5;
+          bestBedZ = tz + uz * 1.5;
           bestDirX = ux;
           bestDirZ = uz;
         }
@@ -971,8 +986,9 @@ function findOptimalRootPosition(
     }
   }
 
-  if (bestBedDist < Infinity && (maxClusterFloorY <= 0.5 || bestBedDist <= 7.5)) {
+  if (bestCost < Infinity) {
     return {
+      canReach: true,
       rootX: bestBedX,
       rootY: 0.14,
       rootZ: bestBedZ,
@@ -982,23 +998,34 @@ function findOptimalRootPosition(
     };
   }
 
-  // Trường hợp 3: Cụm Overhang nằm bên trên một tấm đế/khay rộng của mô hình (maxClusterFloorY > 0.5)
-  // Đặt chân trụ Tree Support bám trực tiếp lên mặt sàn bên dưới và mọc thẳng đứng lên đỡ Overhang
-  if (maxClusterFloorY > 0.5 && minClusterY - maxClusterFloorY >= 2.2) {
-    return {
-      rootX: avgX + normX * 0.8,
-      rootY: maxClusterFloorY + 0.12,
-      rootZ: avgZ + normZ * 0.8,
-      normX,
-      normZ,
-      isGroundedOnBed: false,
-    };
+  // Nếu người dùng TẮT "Chỉ bám bàn in" (Support Everywhere = buildPlateOnly: false)
+  // và có bề mặt mô hình bên dưới đủ thấp, cho phép đặt chân nhánh ngắn trên bề mặt đó nếu khoảng giữa trống
+  if (!buildPlateOnly && maxClusterFloorY > 0.5 && minClusterY - maxClusterFloorY >= 6.0) {
+    const floorBit = heightToBit(maxClusterFloorY + 2.5, maxY);
+    let midMask = 0;
+    for (let b = floorBit; b <= topCheckBit; b++) {
+      midMask |= 1 << b;
+    }
+    const [gx, gz] = worldToVoxelXZ(avgX, avgZ);
+    if ((voxelGrid[gx * VOXEL_GRID_RES + gz] & midMask) === 0) {
+      return {
+        canReach: true,
+        rootX: avgX + normX * 1.0,
+        rootY: maxClusterFloorY + 0.18,
+        rootZ: avgZ + normZ * 1.0,
+        normX,
+        normZ,
+        isGroundedOnBed: false,
+      };
+    }
   }
 
+  // Nếu không thể tiếp cận từ bên ngoài mà không đâm xuyên qua mô hình -> Bỏ qua cụm này!
   return {
-    rootX: avgX + normX * Math.min(3.5, maxHorizontalOffset),
+    canReach: false,
+    rootX: avgX,
     rootY: 0.14,
-    rootZ: avgZ + normZ * Math.min(3.5, maxHorizontalOffset),
+    rootZ: avgZ,
     normX,
     normZ,
     isGroundedOnBed: true,
@@ -1013,7 +1040,6 @@ interface IBranchTargetTip {
 
 /**
  * Tách một mảng Overhang (Patch) thành 1–3 điểm đầu nhánh (Twig Tips) tùy diện tích
- * để tạo tán cây phân nhánh thực thụ thay vì chỉ 1 đầu côn đơn độc.
  */
 function extractTargetTipsFromPatch(
   patch: IConformalOverhangPatch,
@@ -1023,7 +1049,7 @@ function extractTargetTipsFromPatch(
   const [nx, ny, nz] = patch.normal;
   const baseNormal = new THREE.Vector3(nx, ny, nz).normalize();
 
-  if (!allowMultiTips || patch.triangles.length < 3) {
+  if (!allowMultiTips || patch.triangles.length < 4) {
     return [
       {
         tipPoint: new THREE.Vector3(cx, cy, cz),
@@ -1033,7 +1059,6 @@ function extractTargetTipsFromPatch(
     ];
   }
 
-  // Tìm 2 tam giác xa tâm nhất ở 2 phía đối diện trong cùng patch để rẽ nhánh chữ Y / đinh ba
   let farIdx1 = 0;
   let maxD1 = -1;
   for (let i = 0; i < patch.triangles.length; i++) {
@@ -1058,27 +1083,17 @@ function extractTargetTipsFromPatch(
   }
   const t2 = patch.triangles[farIdx2];
 
-  if (maxD2 < 1.6) {
-    // Nếu mảng nhỏ gọn, tạo 2 nhánh cách tâm một khoảng nhỏ theo phương tiếp tuyến mặt phẳng
-    const tangent = new THREE.Vector3(-baseNormal.z, 0, baseNormal.x);
-    if (tangent.lengthSq() < 0.01) tangent.set(1, 0, 0);
-    tangent.normalize();
-    const spread = Math.max(1.1, Math.min(2.6, Math.sqrt(patch.areaMm2) * 0.45));
+  if (maxD2 < 2.2) {
     return [
       {
-        tipPoint: new THREE.Vector3(cx - tangent.x * spread, cy, cz - tangent.z * spread),
-        tipNormal: baseNormal,
-        floorY: patch.floorY,
-      },
-      {
-        tipPoint: new THREE.Vector3(cx + tangent.x * spread, cy, cz + tangent.z * spread),
+        tipPoint: new THREE.Vector3(cx, cy, cz),
         tipNormal: baseNormal,
         floorY: patch.floorY,
       },
     ];
   }
 
-  const tips: IBranchTargetTip[] = [
+  return [
     {
       tipPoint: new THREE.Vector3(t1.mx, t1.my, t1.mz),
       tipNormal: new THREE.Vector3(t1.nx, t1.ny, t1.nz).normalize(),
@@ -1090,23 +1105,13 @@ function extractTargetTipsFromPatch(
       floorY: patch.floorY,
     },
   ];
-
-  if (patch.triangles.length >= 6 && maxD2 >= 3.2) {
-    tips.push({
-      tipPoint: new THREE.Vector3(cx, cy, cz),
-      tipNormal: baseNormal,
-      floorY: patch.floorY,
-    });
-  }
-
-  return tips;
 }
 
 /**
  * 4. Khởi tạo cụm cấu trúc Tree Support chuẩn kỹ thuật Bambu Studio:
- * - Lớp tiếp xúc (Support Interface) đúc trực tiếp từ tam giác Overhang ngay tại đầu cành (ôm sát 100%, không có mâm tròn chìa ra).
- * - Hệ thống phân nhánh đa tầng (Thân chính -> Chạc cấp 1 -> Chạc cấp 2 -> Nhánh con uốn cong) bao quanh vỏ mô hình 3D.
- * - Gốc cây đặt bên ngoài chân đế với vành Brim mỏng 1 lớp bám mặt bàn PEI.
+ * - Gốc cây đặt ở hành lang trống BÊN NGOÀI thân mô hình trên bàn in PEI.
+ * - Thân cây uốn cong vòng qua vỏ bao 3D (Voxel + Hull Avoidance) rồi phân nhánh chữ Y đỡ đúng các mặt nghiêng Overhang.
+ * - Tuyệt đối không tạo các cột thẳng đứng đâm xuyên qua thân hay cánh mô hình.
  */
 export function generateBambuSupportStructures(
   geometry: THREE.BufferGeometry,
@@ -1121,16 +1126,13 @@ export function generateBambuSupportStructures(
   }
 
   const effectiveThreshold = profile.supportAngleThreshold || overhangThreshold || 45;
-  let overhangData = extractExteriorOverhangData(geometry, effectiveThreshold, false);
-  if (overhangData.patches.length === 0 && effectiveThreshold < 68) {
-    overhangData = extractExteriorOverhangData(geometry, 68, false);
-  }
-  if (overhangData.patches.length === 0) {
-    overhangData = extractExteriorOverhangData(geometry, 78, true);
+  let overhangData = extractExteriorOverhangData(geometry, effectiveThreshold);
+  if (overhangData.patches.length === 0 && effectiveThreshold < 58) {
+    overhangData = extractExteriorOverhangData(geometry, 58);
   }
   const {
     patches,
-    baseFootprintGrid,
+    voxelGrid,
     hullRadialProfile,
     hullEnvelope,
     radialBins,
@@ -1166,26 +1168,26 @@ export function generateBambuSupportStructures(
   });
 
   const style: TreeSupportStyle = profile.treeStyle || 'organic';
-  const branchDiameterScale = (profile.supportBranchDiameter || 2.2) / 2.2;
-  const branchAngleScale = (profile.supportBranchAngle || 45) / 45;
-  const sizeScale = Math.max(1.0, Math.min(2.15, maxY / 68.0));
+  const branchDiameterScale = Math.max(0.65, Math.min(1.5, (profile.supportBranchDiameter || 2.0) / 2.2));
+  const branchAngleDeg = profile.supportBranchAngle || 45;
+  const branchAngleScale = branchAngleDeg / 45;
 
-  let dMerge = Math.min(11.5, Math.max(6.5, maxY * 0.095)) * branchAngleScale;
-  let tipRadius = 0.82 * branchDiameterScale * Math.pow(sizeScale, 0.35);
-  let maxTrunkRadius = 2.25 * branchDiameterScale * Math.pow(sizeScale, 0.5);
+  let dMerge = Math.min(20.0, Math.max(10.0, maxY * 0.14)) * branchAngleScale;
+  let tipRadius = 0.65 * branchDiameterScale;
+  let maxTrunkRadius = 1.95 * branchDiameterScale;
 
   if (style === 'slim') {
-    dMerge = Math.min(9.5, Math.max(5.5, maxY * 0.08)) * branchAngleScale;
-    tipRadius = 0.65 * branchDiameterScale * Math.pow(sizeScale, 0.32);
-    maxTrunkRadius = 1.85 * branchDiameterScale * Math.pow(sizeScale, 0.45);
+    dMerge = Math.min(16.0, Math.max(8.5, maxY * 0.12)) * branchAngleScale;
+    tipRadius = 0.52 * branchDiameterScale;
+    maxTrunkRadius = 1.55 * branchDiameterScale;
   } else if (style === 'strong') {
-    dMerge = Math.min(13.5, Math.max(7.5, maxY * 0.11)) * branchAngleScale;
-    tipRadius = 1.02 * branchDiameterScale * Math.pow(sizeScale, 0.38);
-    maxTrunkRadius = 2.85 * branchDiameterScale * Math.pow(sizeScale, 0.52);
+    dMerge = Math.min(24.0, Math.max(12.0, maxY * 0.16)) * branchAngleScale;
+    tipRadius = 0.82 * branchDiameterScale;
+    maxTrunkRadius = 2.45 * branchDiameterScale;
   } else if (style === 'hybrid') {
-    dMerge = Math.min(12.0, Math.max(7.0, maxY * 0.10)) * branchAngleScale;
-    tipRadius = 0.88 * branchDiameterScale * Math.pow(sizeScale, 0.35);
-    maxTrunkRadius = 2.45 * branchDiameterScale * Math.pow(sizeScale, 0.5);
+    dMerge = Math.min(21.0, Math.max(11.0, maxY * 0.15)) * branchAngleScale;
+    tipRadius = 0.72 * branchDiameterScale;
+    maxTrunkRadius = 2.15 * branchDiameterScale;
   }
 
   const topZDist = profile.supportTopZDistance ?? 0.2;
@@ -1200,7 +1202,7 @@ export function generateBambuSupportStructures(
   if (profile.supportMode === 'tree') {
     const visited = new Set<number>();
     const clusters: IConformalOverhangPatch[][] = [];
-    const maxYMerge = Math.min(12.0, Math.max(6.5, maxY * 0.14));
+    const maxYMerge = Math.min(24.0, Math.max(10.0, maxY * 0.22));
 
     for (let i = 0; i < patches.length; i++) {
       if (visited.has(i)) continue;
@@ -1208,17 +1210,14 @@ export function generateBambuSupportStructures(
       visited.add(i);
 
       const p1 = patches[i].center;
-      const f1 = patches[i].floorY;
 
       for (let j = i + 1; j < patches.length; j++) {
         if (visited.has(j) || cluster.length >= 4) continue;
         const p2 = patches[j].center;
-        const f2 = patches[j].floorY;
         const distXZ = Math.hypot(p1[0] - p2[0], p1[2] - p2[2]);
         const distY = Math.abs(p1[1] - p2[1]);
-        const floorDiff = Math.abs(f1 - f2);
 
-        if (distXZ <= dMerge && distY <= maxYMerge && floorDiff <= 5.0) {
+        if (distXZ <= dMerge && distY <= maxYMerge) {
           cluster.push(patches[j]);
           visited.add(j);
         }
@@ -1235,27 +1234,36 @@ export function generateBambuSupportStructures(
       const maxClusterFloorY = Math.max(...cluster.map((p) => p.floorY));
       const totalArea = cluster.reduce((sum, p) => sum + p.areaMm2, 0);
 
-      if (minClusterY < 1.8) continue;
+      if (minClusterY < 3.0) continue;
 
-      const { rootX, rootY, rootZ, isGroundedOnBed } = findOptimalRootPosition(
+      const {
+        canReach,
+        rootX,
+        rootY,
+        rootZ,
+        normX,
+        normZ,
+        isGroundedOnBed,
+      } = findOptimalRootPosition(
         avgX,
         avgZ,
         minClusterY,
-        buildPlateOnly ? 0 : maxClusterFloorY,
+        maxClusterFloorY,
         centerX,
         centerZ,
         maxY,
-        baseFootprintGrid,
+        voxelGrid,
         hullRadialProfile,
-        hullEnvelope,
         radialBins,
-        heightBins
+        buildPlateOnly,
+        branchAngleDeg
       );
 
-      const verticalSpan = minClusterY - rootY;
-      if (verticalSpan < 1.4) continue;
+      if (!canReach) continue;
 
-      // Tạo lớp đệm tiếp xúc Conformal cho toàn bộ các patch trong cụm
+      const verticalSpan = minClusterY - rootY;
+      if (verticalSpan < 2.5) continue;
+
       const targetTips: IBranchTargetTip[] = [];
       for (const patch of cluster) {
         const capGeom = buildPatchConformalCapGeometry(
@@ -1268,40 +1276,78 @@ export function generateBambuSupportStructures(
 
         const tips = extractTargetTipsFromPatch(
           patch,
-          cluster.length <= 2 && patch.triangles.length >= 4
+          cluster.length <= 2 && patch.triangles.length >= 6
         );
         targetTips.push(...tips);
       }
 
       const rootR = Math.min(
         maxTrunkRadius,
-        Math.max(1.35 * Math.pow(sizeScale, 0.35), Math.sqrt(totalArea) * 0.18 + 1.05 * Math.pow(sizeScale, 0.3))
+        Math.max(1.25, Math.sqrt(totalArea) * 0.14 + 0.95)
       );
       if (isGroundedOnBed) {
         rootPoints.push({ x: rootX, z: rootZ, r: rootR });
       }
 
-      // Điểm chạc cây chính (Primary Bifurcation Node): Mọc thẳng đứng từ gốc rồi nghiêng nhẹ vào tâm cụm
-      const splitY = rootY + Math.max(1.0, Math.min(verticalSpan - 0.9, verticalSpan * 0.65));
-      const splitPoint = new THREE.Vector3(
-        rootX * 0.35 + avgX * 0.65,
+      // Điểm chạc cây chính (Primary Bifurcation Node):
+      // Giữ thân cây mọc ở hành lang BÊN NGOÀI mô hình (~72% về phía rootX/rootZ) rồi mới uốn cành vào ở trên cao!
+      const splitY = rootY + Math.max(1.8, Math.min(verticalSpan - 1.5, verticalSpan * 0.68));
+      const rawSplitPoint = new THREE.Vector3(
+        rootX * 0.68 + avgX * 0.32,
         splitY,
-        rootZ * 0.35 + avgZ * 0.65
+        rootZ * 0.68 + avgZ * 0.32
+      );
+      const splitPoint = pushPointOutsideModelCollision(
+        rawSplitPoint,
+        rootR + 1.5,
+        centerX,
+        centerZ,
+        maxY,
+        voxelGrid,
+        hullEnvelope,
+        radialBins,
+        heightBins,
+        normX,
+        normZ
       );
 
-      const trunkMid1 = new THREE.Vector3(
-        rootX * 0.88 + splitPoint.x * 0.12,
-        rootY + (splitY - rootY) * 0.36,
-        rootZ * 0.88 + splitPoint.z * 0.12
+      const trunkMid1 = pushPointOutsideModelCollision(
+        new THREE.Vector3(
+          rootX * 0.92 + splitPoint.x * 0.08,
+          rootY + (splitY - rootY) * 0.35,
+          rootZ * 0.92 + splitPoint.z * 0.08
+        ),
+        rootR + 1.6,
+        centerX,
+        centerZ,
+        maxY,
+        voxelGrid,
+        hullEnvelope,
+        radialBins,
+        heightBins,
+        normX,
+        normZ
       );
 
-      const trunkMid2 = new THREE.Vector3(
-        rootX * 0.42 + splitPoint.x * 0.58,
-        rootY + (splitY - rootY) * 0.72,
-        rootZ * 0.42 + splitPoint.z * 0.58
+      const trunkMid2 = pushPointOutsideModelCollision(
+        new THREE.Vector3(
+          rootX * 0.65 + splitPoint.x * 0.35,
+          rootY + (splitY - rootY) * 0.7,
+          rootZ * 0.65 + splitPoint.z * 0.35
+        ),
+        rootR + 1.5,
+        centerX,
+        centerZ,
+        maxY,
+        voxelGrid,
+        hullEnvelope,
+        radialBins,
+        heightBins,
+        normX,
+        normZ
       );
 
-      const splitR = rootR * 0.78;
+      const splitR = rootR * 0.74;
       const trunkPoints = [
         new THREE.Vector3(rootX, rootY, rootZ),
         trunkMid1,
@@ -1320,11 +1366,10 @@ export function generateBambuSupportStructures(
       );
       if (trunkGeom) branchGeoms.push(trunkGeom);
 
-      const jointGeom = new THREE.SphereGeometry(splitR * 0.9, 10, 8);
+      const jointGeom = new THREE.SphereGeometry(splitR * 0.88, 10, 8);
       jointGeom.translate(splitPoint.x, splitPoint.y, splitPoint.z);
       junctionGeoms.push(jointGeom.toNonIndexed());
 
-      // Hàm dựng nhánh con đơn điệu (Monotonic Upward Twig) không bao giờ văng khuỷu ra ngoài không trung
       const buildTwigFromNode = (
         startNode: THREE.Vector3,
         startRadius: number,
@@ -1340,18 +1385,31 @@ export function generateBambuSupportStructures(
           ty + tipNormal.y * 0.06,
           tz + tipNormal.z * 0.06
         );
-        const branchSpanY = Math.max(0.5, ty - startNode.y);
-        const neckDist = Math.min(1.2, Math.max(0.35, branchSpanY * 0.2));
+        const branchSpanY = Math.max(0.6, ty - startNode.y);
+        const neckDist = Math.min(1.4, Math.max(0.4, branchSpanY * 0.22));
         const neckPt = new THREE.Vector3(
-          tx + tipNormal.x * neckDist * 0.5,
-          Math.min(ty - 0.2, Math.max(startNode.y + 0.2, ty - neckDist)),
-          tz + tipNormal.z * neckDist * 0.5
+          tx + tipNormal.x * neckDist * 0.65 + normX * 0.35,
+          Math.min(ty - 0.2, Math.max(startNode.y + 0.25, ty - neckDist)),
+          tz + tipNormal.z * neckDist * 0.65 + normZ * 0.35
         );
 
-        const midPt = new THREE.Vector3(
-          startNode.x * 0.46 + neckPt.x * 0.54,
+        const rawMidPt = new THREE.Vector3(
+          startNode.x * 0.58 + neckPt.x * 0.42,
           startNode.y + (neckPt.y - startNode.y) * 0.55,
-          startNode.z * 0.46 + neckPt.z * 0.54
+          startNode.z * 0.58 + neckPt.z * 0.42
+        );
+        const midPt = pushPointOutsideModelCollision(
+          rawMidPt,
+          startRadius + 1.0,
+          centerX,
+          centerZ,
+          maxY,
+          voxelGrid,
+          hullEnvelope,
+          radialBins,
+          heightBins,
+          normX,
+          normZ
         );
 
         const subBranchPoints = [startNode.clone(), midPt, neckPt, endPt];
@@ -1368,7 +1426,6 @@ export function generateBambuSupportStructures(
         if (subTubeGeom) branchGeoms.push(subTubeGeom);
       };
 
-      // Nếu cụm có từ 4 đầu nhánh trở lên, tạo thêm tầng Chạc Cấp 2 (Secondary Fork Nodes)
       if (targetTips.length >= 4) {
         const sortedTips = [...targetTips].sort(
           (a, b) =>
@@ -1389,13 +1446,26 @@ export function generateBambuSupportStructures(
           const gAvgZ = group.reduce((s, t) => s + t.tipPoint.z, 0) / group.length;
 
           const secY = Math.max(
-            splitPoint.y + 0.5,
-            Math.min(gAvgY - 0.5, splitPoint.y + (gAvgY - splitPoint.y) * 0.48)
+            splitPoint.y + 0.6,
+            Math.min(gAvgY - 0.6, splitPoint.y + (gAvgY - splitPoint.y) * 0.48)
           );
-          const secPoint = new THREE.Vector3(
-            splitPoint.x * 0.45 + gAvgX * 0.55,
+          const rawSecPoint = new THREE.Vector3(
+            splitPoint.x * 0.58 + gAvgX * 0.42,
             secY,
-            splitPoint.z * 0.45 + gAvgZ * 0.55
+            splitPoint.z * 0.58 + gAvgZ * 0.42
+          );
+          const secPoint = pushPointOutsideModelCollision(
+            rawSecPoint,
+            splitR + 1.1,
+            centerX,
+            centerZ,
+            maxY,
+            voxelGrid,
+            hullEnvelope,
+            radialBins,
+            heightBins,
+            normX,
+            normZ
           );
 
           const secR = splitR * 0.72;
@@ -1435,10 +1505,10 @@ export function generateBambuSupportStructures(
       }
     }
 
-    // Vành đế Tree Support Brim lớp 1 mỏng nhẹ chuẩn Bambu Studio (độ dày 0.14mm, rộng 1.2mm quanh gốc)
+    // Vành đế Tree Support Brim lớp 1 mỏng nhẹ chuẩn Bambu Studio
     rootPoints.forEach((root) => {
-      const baseRootR = root.r * 1.14;
-      const brimOuterR = baseRootR + 1.2 * Math.pow(sizeScale, 0.35);
+      const baseRootR = root.r * 1.15;
+      const brimOuterR = baseRootR + 1.3;
       const brimPad = new THREE.CylinderGeometry(brimOuterR * 0.96, brimOuterR, 0.14, 20);
       brimPad.translate(root.x, 0.07, root.z);
       brimGeoms.push(brimPad.toNonIndexed());
@@ -1447,12 +1517,31 @@ export function generateBambuSupportStructures(
     patches.forEach((patch) => {
       const [targetX, targetY, targetZ] = patch.center;
       const [nx, ny, nz] = patch.normal;
-      if (targetY < 1.8) return;
+      if (targetY < 2.5) return;
 
-      const baseStartY = patch.floorY > 0.5 ? patch.floorY + 0.14 : 0.14;
-      if (targetY - baseStartY < 1.2) return;
+      const {
+        canReach,
+        rootX,
+        rootY,
+        rootZ,
+        isGroundedOnBed,
+      } = findOptimalRootPosition(
+        targetX,
+        targetZ,
+        targetY,
+        patch.floorY,
+        centerX,
+        centerZ,
+        maxY,
+        voxelGrid,
+        hullRadialProfile,
+        radialBins,
+        buildPlateOnly,
+        25
+      );
+      if (!canReach) return;
 
-      const colRadius = Math.max(1.0, Math.min(2.1, Math.sqrt(patch.areaMm2) * 0.28));
+      const colRadius = Math.max(0.9, Math.min(1.8, Math.sqrt(patch.areaMm2) * 0.24));
       const capGeom = buildPatchConformalCapGeometry(
         patch,
         colRadius * 1.35,
@@ -1465,8 +1554,8 @@ export function generateBambuSupportStructures(
       const tipNormal = new THREE.Vector3(nx, ny, nz).normalize();
 
       const colPoints = [
-        new THREE.Vector3(targetX, baseStartY, targetZ),
-        new THREE.Vector3(targetX, (baseStartY + targetY) * 0.5, targetZ),
+        new THREE.Vector3(rootX, rootY, rootZ),
+        new THREE.Vector3((rootX + targetX) * 0.5, (rootY + targetY) * 0.5, (rootZ + targetZ) * 0.5),
         new THREE.Vector3(
           targetX + tipNormal.x * 0.08,
           targetY + tipNormal.y * 0.08,
@@ -1477,17 +1566,17 @@ export function generateBambuSupportStructures(
       const colGeom = createSmoothOrganicBranchGeom(
         colPoints,
         colRadius,
-        colRadius * 0.9,
+        colRadius * 0.85,
         12,
         12,
         { point: tipPoint, normal: tipNormal },
-        patch.floorY <= 0.5
+        isGroundedOnBed
       );
       if (colGeom) branchGeoms.push(colGeom);
 
-      if (patch.floorY <= 0.5) {
+      if (isGroundedOnBed) {
         const footPad = new THREE.CylinderGeometry(colRadius + 1.0, colRadius + 1.1, 0.14, 16);
-        footPad.translate(targetX, 0.07, targetZ);
+        footPad.translate(rootX, 0.07, rootZ);
         brimGeoms.push(footPad.toNonIndexed());
       }
     });
