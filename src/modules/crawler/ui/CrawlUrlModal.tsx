@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Link2, X, Loader2, CheckCircle2, Globe, Brain, Sparkles, AlertCircle } from 'lucide-react';
+import { Link2, X, Loader2, CheckCircle2, Globe, Brain, Sparkles, AlertCircle } from '@/components/icons/MinimalIcons';
 
 interface CrawlUrlModalProps {
   isOpen: boolean;

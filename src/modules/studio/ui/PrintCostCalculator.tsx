@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Calculator, DollarSign, Zap, TrendingUp, Copy, Check, ShieldCheck } from 'lucide-react';
+import { Calculator, DollarSign, Zap, TrendingUp, Copy, Check, ShieldCheck } from '@/components/icons/MinimalIcons';
 import { PrintCostCalculator } from '@/backend/services/slicing/PrintCostCalculator';
 import { ISupportConfig } from '@/backend/domain/slicing';
 

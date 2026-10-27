@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { ShieldAlert, Home, ShoppingBag } from 'lucide-react';
+import { ShieldAlert, Home, ShoppingBag } from '@/components/icons/MinimalIcons';
 import { useModulePermissions } from '@/hooks/useModulePermissions';
 import { useUserSession } from '@/hooks/useUserSession';
 import { SystemModuleKey } from '@/backend/domain/config';

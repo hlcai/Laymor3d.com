@@ -17,7 +17,7 @@ import {
   ExternalLink,
   Flame,
   Award,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { ISlicerProfilePreset, IPrinterProfile } from '@/backend/domain/slicing';
 import { IModel3D } from '@/backend/domain/models';
 

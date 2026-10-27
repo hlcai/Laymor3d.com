@@ -2,16 +2,17 @@ import { UserRole } from './user';
 
 export type AppEnvironment = 'staging' | 'official';
 
-// Danh sách các Module độc lập trong hệ thống
+// Danh sách các Module (Vùng chức năng) độc lập trong hệ thống
 export type SystemModuleKey =
   | 'studio'        // Module 1: AI 2D-to-3D Studio
-  | 'shop'          // Module 2: Cửa hàng vật tư cuộn nhựa & linh kiện
-  | 'services'      // Module 3: Xưởng in dịch vụ cấp tốc 24H
-  | 'marketplace'   // Module 4: Sàn mô hình 3D Free & Trả phí
-  | 'trends'        // Module 5: Phân tích Trend & Crawler
-  | 'seller_hub'    // Module 6: Gian hàng dành cho Seller
-  | 'wallet'        // Module 7: Ví điện tử nạp/trừ tiền
-  | 'admin_hub';    // Module 8: Trung tâm quản trị
+  | 'dsim'          // Module 2: 3D PrintSim Pro (/3dsim - Giả lập & Kiểm lỗi in 3D)
+  | 'shop'          // Module 3: Cửa hàng vật tư cuộn nhựa & linh kiện
+  | 'services'      // Module 4: Xưởng in dịch vụ cấp tốc 24H
+  | 'marketplace'   // Module 5: Sàn mô hình 3D Free & Trả phí
+  | 'trends'        // Module 6: Phân tích Trend & Crawler
+  | 'seller_hub'    // Module 7: Gian hàng dành cho Seller
+  | 'wallet'        // Module 8: Ví điện tử nạp/trừ tiền
+  | 'admin_hub';    // Module 9: Trung tâm quản trị
 
 // Ma trận quyền hiển thị & truy cập từng Module theo từng Role
 export type IModuleRoleMatrix = Record<SystemModuleKey, Record<UserRole, boolean>>;
@@ -105,6 +106,13 @@ export const DEFAULT_MODULE_PERMISSIONS: IModuleRoleMatrix = {
     staff: true,
     user: true,
   },
+  dsim: {
+    admin: true,
+    mod: true,
+    seller: true,
+    staff: true,
+    user: true,
+  },
   shop: {
     admin: true,
     mod: true,
@@ -157,28 +165,28 @@ export const DEFAULT_MODULE_PERMISSIONS: IModuleRoleMatrix = {
 };
 
 export const DEFAULT_SYSTEM_CONFIG: ISystemConfig = {
-  environment: 'official', // Bản thương mại chính thức đưa vào sử dụng
+  environment: 'official',
   commercial: DEFAULT_COMMERCIAL_CONFIG,
   materials: {
-    plaPerKgVnd: 180000,      // 180.000 đ/kg ~ 180 đ/g
-    petgPerKgVnd: 220000,     // 220.000 đ/kg ~ 220 đ/g
-    petgCfPerKgVnd: 450000,   // 450.000 đ/kg ~ 450 đ/g
-    absPerKgVnd: 240000,      // 240.000 đ/kg ~ 240 đ/g
-    resinPerLiterVnd: 420000, // 420.000 đ/lít ~ 420 đ/g
+    plaPerKgVnd: 180000,
+    petgPerKgVnd: 220000,
+    petgCfPerKgVnd: 450000,
+    absPerKgVnd: 240000,
+    resinPerLiterVnd: 420000,
   },
   operations: {
     machineHourlyRateVnd: 8000,
     electricityHourlyVnd: 2500,
     laborPostProcessVnd: 15000,
-    profitMarginPercent: 25, // Bản thương mại: áp dụng biên lợi nhuận niêm yết 25%
+    profitMarginPercent: 25,
   },
   aiPricing: {
     tripoUsd: 0.01,
-    tripoVnd: 250,        // Giá gốc API: 250 đ
+    tripoVnd: 250,
     trellisUsd: 0.05,
-    trellisVnd: 1250,     // Giá gốc API: 1.250 đ
+    trellisVnd: 1250,
     meshyUsd: 0.80,
-    meshyVnd: 20000,      // Giá gốc API: 20.000 đ
+    meshyVnd: 20000,
     exchangeRate: 25400,
   },
   apiKeys: {
@@ -189,6 +197,6 @@ export const DEFAULT_SYSTEM_CONFIG: ISystemConfig = {
     makerWorldCookie: '',
   },
   modulePermissions: DEFAULT_MODULE_PERMISSIONS,
-  updatedAt: '2026-10-08T04:00:00.000Z',
-  updatedBy: 'Khởi tạo hệ thống Staging',
+  updatedAt: '2026-10-22T04:00:00.000Z',
+  updatedBy: 'hlcai_admin',
 };

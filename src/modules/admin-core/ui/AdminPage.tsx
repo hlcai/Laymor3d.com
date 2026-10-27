@@ -39,7 +39,7 @@ import {
   Sliders,
   Compass,
   BookOpen,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useUserSession } from '@/hooks/useUserSession';
 import { useOrders } from '@/hooks/useOrders';
 import { UserRole, IUser } from '@/backend/domain/user';
@@ -66,13 +66,16 @@ function AdminPageContent() {
     currentUser,
     permissions,
     allUsers,
-    switchUser,
-    switchRole,
+    login,
     refreshSession,
     toastMessage,
     showToast,
     isLoading,
   } = useUserSession();
+  const [adminLoginId, setAdminLoginId] = useState('');
+  const [adminLoginPass, setAdminLoginPass] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
+  const [isLoggingInAdmin, setIsLoggingInAdmin] = useState(false);
 
   const {
     orders,
@@ -280,75 +283,98 @@ function AdminPageContent() {
     );
   }
 
-  // If user doesn't have access permissions, show friendly RBAC gate
-  if (!permissions.canAccessAdmin) {
+  // If user isn't logged in or doesn't have admin access permissions, show dedicated Admin Login Gate
+  if (!currentUser || !permissions.canAccessAdmin) {
+    const handleInlineAdminLogin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setAdminLoginError(null);
+      if (!adminLoginId.trim() || !adminLoginPass) {
+        setAdminLoginError('Vui lòng nhập đầy đủ ID Quản trị và Mật khẩu!');
+        return;
+      }
+      setIsLoggingInAdmin(true);
+      const res = await login(adminLoginId.trim(), adminLoginPass);
+      setIsLoggingInAdmin(false);
+      if (!res.ok) {
+        setAdminLoginError(res.error || 'Sai thông tin đăng nhập!');
+      } else {
+        setAdminLoginId('');
+        setAdminLoginPass('');
+      }
+    };
+
     return (
       <div className="min-h-[80vh] flex items-center justify-center p-6">
-        <div className="max-w-md w-full vision-glass-panel rounded-[36px] p-8 text-center space-y-5 shadow-2xl border border-slate-200/80 bg-white/90">
-          <div className="w-16 h-16 rounded-full bg-rose-50 border border-rose-200 text-rose-600 mx-auto flex items-center justify-center shadow-sm">
-            <ShieldAlert className="w-8 h-8" />
+        <div className="max-w-md w-full vision-glass-panel rounded-[36px] p-8 text-center space-y-5 shadow-2xl border border-slate-200/80 bg-white/95">
+          <div className="w-16 h-16 rounded-2xl bg-cyan-50 border border-cyan-200 text-cyan-600 mx-auto flex items-center justify-center shadow-sm">
+            <ShieldCheck className="w-8 h-8" />
           </div>
 
           <div>
-            <h2 className="text-xl font-black text-slate-900">Yêu Cầu Quyền Quản Trị</h2>
+            <h2 className="text-xl font-black text-slate-900">Xác Thực Quản Trị Hệ Thống</h2>
             <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              Tài khoản hiện tại của bạn là <strong className="text-slate-900">Khách hàng ({currentUser?.role?.toUpperCase()})</strong>. Bạn không có quyền truy cập hệ thống quản trị nội bộ.
+              {currentUser ? (
+                <>
+                  Tài khoản hiện tại (<strong className="text-slate-900">{currentUser.username}</strong> -{' '}
+                  {currentUser.role.toUpperCase()}) không có quyền truy cập khu vực quản trị. Vui lòng đăng nhập bằng tài khoản Quản trị viên.
+                </>
+              ) : (
+                <>
+                  Vui lòng đăng nhập bằng tài khoản <strong className="text-slate-900">Quản Trị Viên (Admin)</strong> hoặc Nhân sự được phân quyền để truy cập Trung Tâm Điều Hành.
+                </>
+              )}
             </p>
           </div>
 
-          {currentUser?.role === 'admin' ? (
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-left">
-              <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">
-                Chọn nhanh vai trò để trải nghiệm (Admin Only):
-              </p>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  onClick={() => switchUser('usr-admin-1')}
-                  className="p-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold transition-all text-left shadow-sm"
-                >
-                  <div className="font-black text-slate-900">Nguyễn Văn Admin</div>
-                  <div className="text-[10px] text-slate-500">Toàn quyền hệ thống</div>
-                </button>
-
-                <button
-                  onClick={() => switchUser('usr-staff-1')}
-                  className="p-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold transition-all text-left shadow-sm"
-                >
-                  <div className="font-black text-slate-900">Lê Kỹ Thuật (Staff)</div>
-                  <div className="text-[10px] text-emerald-700">Quản lý xưởng in</div>
-                </button>
-
-                <button
-                  onClick={() => switchUser('usr-mod-1')}
-                  className="p-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold transition-all text-left shadow-sm"
-                >
-                  <div className="font-black text-slate-900">Trần Thị Moderator</div>
-                  <div className="text-[10px] text-slate-500">Kiểm duyệt sản phẩm</div>
-                </button>
-
-                <button
-                  onClick={() => switchRole('admin')}
-                  className="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all text-left shadow-sm"
-                >
-                  <div className="font-black">Khôi Phục Quyền</div>
-                  <div className="text-[10px] text-amber-700">Về quyền Admin</div>
-                </button>
-              </div>
+          {adminLoginError && (
+            <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-semibold text-left">
+              {adminLoginError}
             </div>
-          ) : (
-            <Link
-              href="/shop"
-              className="block w-full py-3 rounded-full bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold transition-all text-center shadow-md"
-            >
-              Quay Lại Cửa Hàng &amp; Mua Sắm
-            </Link>
           )}
 
+          <form onSubmit={handleInlineAdminLogin} className="space-y-3.5 text-left">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                ID Quản Trị / Username <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Nhập ID tài khoản..."
+                value={adminLoginId}
+                onChange={(e) => setAdminLoginId(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:bg-white font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Mật Khẩu <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="Nhập mật khẩu..."
+                value={adminLoginPass}
+                onChange={(e) => setAdminLoginPass(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:bg-white font-mono"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingInAdmin}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-700 hover:to-sky-700 text-white text-xs font-bold transition-all text-center shadow-md cursor-pointer disabled:opacity-50"
+            >
+              {isLoggingInAdmin ? 'Đang xác thực...' : 'Đăng Nhập Trung Tâm Quản Trị'}
+            </button>
+          </form>
+
           <Link
-            href="/shop"
+            href="/"
             className="block w-full py-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all text-center"
           >
-            Quay lại Cửa Hàng 3D
+            Quay lại Trang Chủ 3D Hub
           </Link>
         </div>
       </div>

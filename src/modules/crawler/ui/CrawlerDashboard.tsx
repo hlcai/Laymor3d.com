@@ -17,7 +17,7 @@ import {
   Globe,
   CheckCircle2,
   AlertCircle,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { PlatformType } from '@/backend/domain/models';
 import { CrawlUrlModal } from './CrawlUrlModal';
 import { ManualIngestModal } from './ManualIngestModal';

@@ -19,6 +19,7 @@ import {
   IconSun,
   IconMoon,
   IconChevronDown,
+  IconChevronLeft,
 } from '@/components/icons/MinimalIcons';
 import {
   ISampleModel,
@@ -65,6 +66,7 @@ interface SimulatorHeaderProps {
   onOpenSupabaseHub?: () => void;
   isSupabaseConnected?: boolean;
   onOpenAI3DModal?: () => void;
+  onOpenDefectKnowledgeModal?: () => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
   onSyncToStudio?: (openOrderModal?: boolean) => void;
@@ -102,6 +104,7 @@ export function SimulatorHeader({
   onOpenSupabaseHub,
   isSupabaseConnected,
   onOpenAI3DModal,
+  onOpenDefectKnowledgeModal,
   theme = 'dark',
   onToggleTheme,
   onSyncToStudio,
@@ -141,6 +144,26 @@ export function SimulatorHeader({
           1. CỤM TRÁI: NHẬN DIỆN STUDIO & QUẢN LÝ PHÔI MÔ HÌNH
          ===================================================================== */}
       <div className="flex items-center gap-1.5 pointer-events-auto shrink-0">
+        {/* Nút điều hướng quay về 3D HUB (Spatial 3D Studio & Maker Intelligence) */}
+        <a
+          href="/"
+          target="_top"
+          data-testid="back-to-3dhub-btn"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-panel hover:border-[var(--accent-gold-border)] studio-pill-inactive transition-all cursor-pointer group"
+          title="Quay về 3D HUB — Spatial 3D Studio & Maker Intelligence"
+        >
+          <IconChevronLeft
+            size={13}
+            className="studio-text-gold group-hover:-translate-x-0.5 transition-transform shrink-0"
+          />
+          <div className="w-4 h-4 rounded-md studio-gold-badge flex items-center justify-center shrink-0">
+            <IconCube size={10} />
+          </div>
+          <span className="font-semibold text-xs tracking-tight studio-text-primary">
+            3D HUB
+          </span>
+        </a>
+
         {!isEmbedded && onSyncToStudio && (
           <button
             onClick={() => onSyncToStudio(false)}
@@ -207,14 +230,14 @@ export function SimulatorHeader({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".3mf,.stl,.obj"
+            accept=".3mf,.gcode,.gco,.stl,.obj"
             onChange={handleFileChange}
             className="hidden"
           />
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg studio-gold-badge text-[11px] font-medium transition-all cursor-pointer ml-0.5 hover:opacity-85"
-            title="Nạp file CAD (.3MF, .STL, .OBJ)"
+            title="Nạp file CAD hoặc G-Code Bambu Studio (.3MF, .GCODE.3MF, .GCODE, .STL, .OBJ)"
           >
             <IconImport size={12} />
             <span className="hidden 2xl:inline">Nạp File</span>
@@ -441,7 +464,7 @@ export function SimulatorHeader({
                 </button>
               )}
 
-              {/* 3. AI Overhang & Orientation Advisor */}
+              {/* 3. AI Print Consultant Copilot */}
               <button
                 onClick={() => {
                   setIsStudioMenuOpen(false);
@@ -454,11 +477,14 @@ export function SimulatorHeader({
                     <IconAngle size={15} />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold studio-text-primary">
-                      Phân Tích Góc Đặt &amp; Support AI
+                    <div className="text-xs font-semibold studio-text-primary flex items-center gap-1.5">
+                      <span>Chuyên Gia AI Tư Vấn In 3D</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded font-mono studio-gold-badge">
+                        COPILOT
+                      </span>
                     </div>
                     <div className="text-[10px] studio-text-secondary">
-                      Tối ưu hóa hướng đặt phôi giảm thiểu nhựa đỡ
+                      Tư vấn 6 nhóm Bambu Studio • Chat AI • Chẩn đoán ảnh lỗi
                     </div>
                   </div>
                 </div>
@@ -582,44 +608,70 @@ export function SimulatorHeader({
           )}
         </div>
 
-        {/* Live Telemetry & Supabase Cloud Hub Pill Group */}
-        {(onOpenLiveInspectorModal || onOpenSupabaseHub) && (
-          <div className="flex items-center rounded-xl glass-panel p-0.5 shrink-0">
-            {onOpenLiveInspectorModal && (
-              <button
-                data-testid="report-live-header-btn"
-                onClick={onOpenLiveInspectorModal}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-[var(--bg-hover)] transition-all cursor-pointer"
-                title="Thanh tra Telemetry & Báo cáo đã khóa"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-gold)] animate-pulse shrink-0" />
-                <span className="text-[11px] studio-text-gold whitespace-nowrap">Report Live</span>
-              </button>
-            )}
+        {/* Live Telemetry & Supabase Cloud Hub & Defect Knowledge Pill Group */}
+        <div className="flex items-center rounded-xl glass-panel p-0.5 shrink-0">
+          <button
+            data-testid="ai-consultant-header-btn"
+            onClick={onOpenSupportAIModal}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold studio-gold-badge hover:opacity-90 transition-all cursor-pointer"
+            title="Mở Chuyên Gia AI Tư Vấn In 3D Toàn Diện (Tối ưu 6 nhóm Bambu Studio, Chat AI & Chẩn đoán ảnh lỗi)"
+          >
+            <IconAngle size={12} className="shrink-0" />
+            <span className="text-[11px] whitespace-nowrap">Tư Vấn AI</span>
+          </button>
 
-            {onOpenLiveInspectorModal && onOpenSupabaseHub && (
-              <div className="w-[1px] h-3.5 bg-[var(--border-hairline)]" />
-            )}
+          <div className="w-[1px] h-3.5 bg-[var(--border-hairline)]" />
 
-            {onOpenSupabaseHub && (
-              <button
-                data-testid="supabase-hub-btn"
-                onClick={onOpenSupabaseHub}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-[var(--bg-hover)] transition-all cursor-pointer group"
-                title="Supabase Cloud Hub - Quản lý kết nối & Đồng bộ dữ liệu"
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    isSupabaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-[var(--accent-gold)]'
-                  }`}
-                />
-                <span className="text-[11px] studio-text-gold font-semibold group-hover:opacity-85 whitespace-nowrap">
-                  Supabase
-                </span>
-              </button>
-            )}
-          </div>
-        )}
+          {onOpenDefectKnowledgeModal && (
+            <button
+              data-testid="defect-knowledge-header-btn"
+              onClick={onOpenDefectKnowledgeModal}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-[var(--bg-hover)] transition-all cursor-pointer"
+              title="Đóng góp lỗi thực tế kèm giải thích để dạy AI & Quản trị Tri thức Admin"
+            >
+              <IconCheckShield size={12} className="studio-text-gold shrink-0" />
+              <span className="text-[11px] studio-text-gold whitespace-nowrap">Dạy AI Lỗi</span>
+            </button>
+          )}
+
+          {onOpenDefectKnowledgeModal && (onOpenLiveInspectorModal || onOpenSupabaseHub) && (
+            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)]" />
+          )}
+
+          {onOpenLiveInspectorModal && (
+            <button
+              data-testid="report-live-header-btn"
+              onClick={onOpenLiveInspectorModal}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-[var(--bg-hover)] transition-all cursor-pointer"
+              title="Thanh tra Telemetry & Báo cáo đã khóa"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-gold)] animate-pulse shrink-0" />
+              <span className="text-[11px] studio-text-gold whitespace-nowrap">Report Live</span>
+            </button>
+          )}
+
+          {onOpenLiveInspectorModal && onOpenSupabaseHub && (
+            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)]" />
+          )}
+
+          {onOpenSupabaseHub && (
+            <button
+              data-testid="supabase-hub-btn"
+              onClick={onOpenSupabaseHub}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-[var(--bg-hover)] transition-all cursor-pointer group"
+              title="Supabase Cloud Hub - Quản lý kết nối & Đồng bộ dữ liệu"
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  isSupabaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-[var(--accent-gold)]'
+                }`}
+              />
+              <span className="text-[11px] studio-text-gold font-semibold group-hover:opacity-85 whitespace-nowrap">
+                Supabase
+              </span>
+            </button>
+          )}
+        </div>
 
         {/* Dark / Light Mode Toggle Button */}
         {onToggleTheme && (

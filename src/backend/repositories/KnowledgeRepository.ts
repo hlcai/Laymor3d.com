@@ -1,22 +1,144 @@
 import fs from 'fs';
 import path from 'path';
-import { IKnowledgeEntry, ICrossReferenceResult, IRiskWarning, ISlicerParameterOverride } from '../domain/knowledge';
+import {
+  IKnowledgeEntry,
+  ICrossReferenceResult,
+  IRiskWarning,
+  ISlicerParameterOverride,
+} from '../domain/knowledge';
+import { supabaseCloudService } from '../db/supabaseClient';
 
 export const SEED_KNOWLEDGE_ENTRIES: IKnowledgeEntry[] = [
+  {
+    id: 'kn-sim-heat-creep-pla',
+    title: 'Tắc đầu phun do Heat Creep khi in PLA đóng kín buồng nhiệt và Retraction dài',
+    category: 'simulator_defect_learning',
+    defectType: 'clogging',
+    severity: 'critical',
+    problemSymptom: 'Đang in khoảng 30-45 phút thì nhựa ngừng đùn hoàn toàn (in không khí), bánh răng Extruder kêu lạch cạch và cào khuyết sợi nhựa.',
+    rootCause: 'Nhựa PLA có nhiệt độ chuyển thủy tinh thấp (Tg ~ 55-60°C). Khi đóng kín cửa máy hoặc rút nhựa (Retraction) > 1.5mm trên đầu Direct Drive, nhựa nóng bị kéo ngược lên vùng tản nhiệt (Cold Zone), nở phồng và kẹt cứng trong cổ họng.',
+    solutionText: 'Giảm Retraction Length xuống 0.6 - 0.8mm, hạ nhiệt bàn in PLA xuống 55°C, bật quạt buồng / mở hé nắp kính trên của máy Bambu Lab X1C/P1S khi in PLA.',
+    slicerOverrides: {
+      retraction_length: 0.8,
+      hot_plate_temp: 55,
+      nozzle_temperature: 220,
+    },
+    triggerCondition: {
+      paramKey: 'retractionDistanceMm',
+      operator: '>',
+      thresholdValue: 1.4,
+      description: 'Retraction > 1.4mm trên đầu Direct Drive với nhựa PLA',
+    },
+    autoFixPatch: {
+      retractionDistanceMm: 0.8,
+      bedTemp: 55,
+      nozzleTemp: 220,
+    },
+    submittedBy: 'hlcai_admin',
+    applicablePrinters: ['all'],
+    applicableFilaments: ['PLA', 'PLA-CF'],
+    confidenceScore: 99,
+    verificationCount: 412,
+    sourcePlatform: 'expert_curated',
+    sourceReference: 'Bambu Lab Direct-Drive Extruder Thermal Analysis',
+    tags: ['heat_creep', 'tac_dau_in', 'clogging', 'retraction', 'pla'],
+    createdAt: '2026-10-10T00:00:00.000Z',
+    updatedAt: '2026-10-20T00:00:00.000Z',
+    isVerified: true,
+  },
+  {
+    id: 'kn-sim-ringing-ghosting',
+    title: 'Sóng âm bề mặt (Ringing / Ghosting) và trượt bước (Layer Shift) khi gia tốc vách ngoài quá cao',
+    category: 'simulator_defect_learning',
+    defectType: 'ringing',
+    severity: 'high',
+    problemSymptom: 'Bề mặt quanh các góc vuông hoặc chữ khắc nổi xuất hiện các gợn sóng lặp lại như bóng ma (Ghosting), hoặc các lớp trên bị lệch hẳn sang một bên.',
+    rootCause: 'Khi tốc độ vách ngoài (Outer Wall Speed > 220mm/s) hoặc gia tốc vách ngoài (> 8000 mm/s²) vượt ngưỡng giảm chấn Input Shaping của khung máy, dao động cơ học dư thừa in hằn lên lớp nhựa.',
+    solutionText: 'Giảm tốc độ vách ngoài (Outer Wall Speed) xuống 120 - 150 mm/s và gia tốc vách ngoài xuống 5000 mm/s² để bề mặt láng bóng như đúc khuôn.',
+    slicerOverrides: {
+      outer_wall_speed: 120,
+    },
+    triggerCondition: {
+      paramKey: 'outerWallSpeed',
+      operator: '>',
+      thresholdValue: 200,
+      description: 'Tốc độ vách ngoài > 200 mm/s gây rung chấn bề mặt',
+    },
+    autoFixPatch: {
+      outerWallSpeed: 120,
+      outerWallAcceleration: 5000,
+      printSpeed: 220,
+    },
+    submittedBy: 'hlcai_admin',
+    applicablePrinters: ['all'],
+    applicableFilaments: ['PLA', 'PETG', 'ABS', 'ASA'],
+    confidenceScore: 98,
+    verificationCount: 365,
+    sourcePlatform: 'expert_curated',
+    sourceReference: 'Klipper & Bambu Input Shaping Resonance Benchmark',
+    tags: ['ringing', 'ghosting', 'layer_shift', 'outer_wall_speed', 'gia_toc'],
+    createdAt: '2026-10-11T00:00:00.000Z',
+    updatedAt: '2026-10-20T00:00:00.000Z',
+    isVerified: true,
+  },
+  {
+    id: 'kn-sim-delamination-abs',
+    title: 'Tách lớp ngang (Layer Delamination) khi in nhựa kỹ thuật ABS/ASA bật quạt làm mát quá mạnh',
+    category: 'simulator_defect_learning',
+    defectType: 'delamination',
+    severity: 'critical',
+    problemSymptom: 'Thân sản phẩm xuất hiện các vết nứt toác nằm ngang giữa các lớp in, bẻ nhẹ bị tách rời theo thớ lớp.',
+    rootCause: 'Nhựa ABS/ASA có độ co ngót nhiệt lớn. Khi quạt làm mát chi tiết (Part Cooling Fan) thổi mạnh (> 40%), lớp nhựa vừa đùn ra nguội đột ngột trước khi kịp khuếch tán phân tử vào lớp dưới, tạo ứng suất kéo làm nứt toác liên kết tầng.',
+    solutionText: 'Hạ quạt làm mát (Cooling Fan) xuống 15-25% khi in ABS/ASA, nâng nhiệt đầu phun lên 260°C và nhiệt bàn in lên 95-100°C để giữ nhiệt buồng in.',
+    slicerOverrides: {
+      fan_max_speed: 20,
+      nozzle_temperature: 260,
+      hot_plate_temp: 100,
+    },
+    triggerCondition: {
+      paramKey: 'coolingFanSpeed',
+      operator: '>',
+      thresholdValue: 45,
+      description: 'Quạt làm mát > 45% khi in ABS/ASA gây nứt tách lớp',
+    },
+    autoFixPatch: {
+      coolingFanSpeed: 20,
+      nozzleTemp: 260,
+      bedTemp: 100,
+    },
+    submittedBy: 'hlcai_admin',
+    applicablePrinters: ['all'],
+    applicableFilaments: ['ABS', 'ASA'],
+    confidenceScore: 99,
+    verificationCount: 290,
+    sourcePlatform: 'expert_curated',
+    sourceReference: 'Polymer Inter-Layer Diffusion & Thermal Shrinkage Study',
+    tags: ['delamination', 'tach_lop', 'abs', 'cooling_fan'],
+    createdAt: '2026-10-12T00:00:00.000Z',
+    updatedAt: '2026-10-20T00:00:00.000Z',
+    isVerified: true,
+  },
   {
     id: 'kn-vn-humidity-petg',
     title: 'Xử lý ẩm nhựa PETG & TPU trong mùa nồm ẩm Việt Nam (85-95%)',
     category: 'vietnam_environment',
+    defectType: 'moisture_bubbling',
+    severity: 'high',
     problemSymptom: 'Nhựa đùn ra có tiếng nổ lách tách li ti, bề mặt rỗ bọt khí và tưa sợi kéo màng (stringing) rất nặng.',
     rootCause: 'Khí hậu nồm ẩm Việt Nam khiến nhựa PETG và TPU no nước chỉ sau 48h để ngoài không khí. Nước bị đun sôi ở 240°C trong vòi phun tạo bọt khí giãn nở tức thì.',
-    solutionText: 'Sấy nhựa ở 65°C trong ít nhất 6 giờ bằng hộp sấy hoặc nồi chiên không dầu/máy sấy thực phẩm. In trực tiếp từ hộp sấy kín có bịch hạt hút ẩm Silica Gel.',
+    solutionText: 'Sấy nhựa ở 65°C trong ít nhất 6 giờ bằng hộp sấy chuyên dụng. Trong Slicer, chỉnh Retraction = 1.0mm và giảm nhiệt đầu phun PETG xuống 240-245°C.',
     slicerOverrides: {
       drying_temperature: 65,
       drying_time_hours: 6,
-      retraction_length: 0.9,
+      retraction_length: 1.0,
     },
+    autoFixPatch: {
+      retractionDistanceMm: 1.0,
+      nozzleTemp: 242,
+    },
+    submittedBy: 'hlcai_admin',
     applicablePrinters: ['all'],
-    applicableFilaments: ['PETG', 'PETG-CF', 'TPU', 'Nylon', 'PA-CF'],
+    applicableFilaments: ['PETG', 'PETG-CF', 'TPU', 'PA-CF'],
     confidenceScore: 98,
     verificationCount: 245,
     sourcePlatform: 'vietnam_community',
@@ -28,11 +150,19 @@ export const SEED_KNOWLEDGE_ENTRIES: IKnowledgeEntry[] = [
   },
   {
     id: 'kn-pei-bed-cleaning',
-    title: 'Khôi phục độ dính bàn in PEI bằng nước ấm và Sunlight',
+    title: 'Khôi phục độ dính bàn in PEI bằng nước ấm và Sunlight chống bong lớp 1',
     category: 'vietnam_environment',
-    problemSymptom: 'Lớp in đầu tiên bị bong mép (warping) hoặc không dính bàn PEI dù đã chỉnh Z-offset chuẩn.',
+    defectType: 'first_layer',
+    severity: 'high',
+    problemSymptom: 'Lớp in đầu tiên bị bong mép (warping) hoặc cuốn vào đầu phun dù đã chỉnh Z-offset chuẩn.',
     rootCause: 'Mồ hôi và dầu mỡ từ vân tay bám lên bề mặt PEI. Cồn Isopropyl Alcohol (IPA) chỉ hòa tan dầu mỡ và dàn đều ra chứ không rửa trôi hoàn toàn lớp nhờn.',
-    solutionText: 'Tháo tấm PEI rửa trực tiếp dưới vòi nước ấm với nước rửa chén Sunlight và miếng bọt biển mềm. Xả sạch và lau khô bằng khăn vi sợi sạch. Tuyệt đối không chạm tay vào vùng in sau khi rửa.',
+    solutionText: 'Tháo tấm PEI rửa trực tiếp dưới vòi nước ấm với nước rửa chén Sunlight. Trong Slicer, đặt độ dày lớp 1 (First Layer Height) = 0.24mm và bật Brim 5mm.',
+    autoFixPatch: {
+      firstLayerHeight: 0.24,
+      brimEnabled: true,
+      brimWidthMm: 5,
+    },
+    submittedBy: 'hlcai_admin',
     applicablePrinters: ['all'],
     applicableFilaments: ['PLA', 'PETG', 'ABS', 'TPU'],
     confidenceScore: 99,
@@ -46,16 +176,24 @@ export const SEED_KNOWLEDGE_ENTRIES: IKnowledgeEntry[] = [
   },
   {
     id: 'kn-scarf-joint-seam',
-    title: 'Giấu 90% vết nối viền ngoài Z-seam bằng Scarf Joint Seam trong OrcaSlicer',
+    title: 'Giấu 90% vết nối viền ngoài Z-Seam bằng Aligned / Scarf Seam & Pressure Advance',
     category: 'slicer_tuning',
-    problemSymptom: 'Mặt ngoài của chi tiết tròn, trụ hoặc figure có đường sọc nổi cộm (Z-seam) gây mất thẩm mỹ nghiêm trọng.',
-    rootCause: 'Điểm bắt đầu và kết thúc của một vòng viền ngoài tạo ra mối hàn nhựa thừa do áp lực đầu đùn chưa kịp giảm khi đổi lớp.',
-    solutionText: 'Kích hoạt tính năng "Scarf Joint Seam" trong OrcaSlicer ở góc vát 45°. Đầu in sẽ giảm dần lượng nhựa theo đường dốc nghiêng và bắt đầu lớp mới cũng theo góc nghiêng, hòa tan hoàn toàn mối nối vào thân vỏ.',
+    defectType: 'z_seam_scarring',
+    severity: 'medium',
+    problemSymptom: 'Mặt ngoài của chi tiết tròn, trụ hoặc figure có đường sọc nổi cộm hoặc mụn nhựa (Z-seam blobs) gây mất thẩm mỹ.',
+    rootCause: 'Điểm bắt đầu và kết thúc của một vòng viền ngoài tạo ra mối hàn nhựa thừa do áp lực buồng nóng chưa kịp giải phóng khi đổi lớp (thiếu Pressure Advance hoặc để Random Seam).',
+    solutionText: 'Chuyển Seam Position sang "Aligned" hoặc "Back" để gom đường nối vào góc khuất, đồng thời tinh chỉnh hệ số Pressure Advance = 0.02 - 0.04.',
     slicerOverrides: {
       seam_slope_type: 'scarf',
       seam_slope_angle: 45,
       outer_wall_speed: 60,
     },
+    autoFixPatch: {
+      seamPosition: 'aligned',
+      pressureAdvance: 0.025,
+      retractionDistanceMm: 0.8,
+    },
+    submittedBy: 'hlcai_admin',
     applicablePrinters: ['all'],
     applicableFilaments: ['PLA', 'PETG', 'ABS'],
     applicableCategories: ['Art & Decor', 'Toys & Games', 'Household'],
@@ -69,92 +207,39 @@ export const SEED_KNOWLEDGE_ENTRIES: IKnowledgeEntry[] = [
     isVerified: true,
   },
   {
-    id: 'kn-hardened-steel-cf',
-    title: 'Bắt buộc dùng vòi phun thép tôi cứng (Hardened Steel) khi in nhựa sợi Carbon',
-    category: 'printer_hardware',
-    problemSymptom: 'Sau khi in nửa cuộn PETG-CF hoặc PA-CF, các bản in sau bị xơ, mất chi tiết, sai kích thước lỗ nghiêm trọng.',
-    rootCause: 'Sợi micro carbon có độ cứng cực cao, đóng vai trò như giấy nhám mài mòn lỗ vòi phun bằng đồng (Brass nozzle) từ 0.4mm nở toét thành 0.6-0.7mm trong thời gian ngắn.',
-    solutionText: 'Nâng cấp cụm đầu in sang vòi thép tôi cứng (Hardened Steel Nozzle) hoặc vòi Ruby/Carbide. Tăng nhiệt độ nung chảy thêm 5-10°C vì thép dẫn nhiệt kém hơn đồng.',
-    slicerOverrides: {
-      nozzle_temperature: 255,
-      nozzle_temperature_initial_layer: 260,
-      flow_ratio: 0.96,
-    },
-    applicablePrinters: ['all'],
-    applicableFilaments: ['PETG-CF', 'PLA-CF', 'PA-CF', 'PA6-CF'],
-    applicableCategories: ['Mechanical & Functional', 'Tools & Utilities'],
-    confidenceScore: 100,
-    verificationCount: 520,
-    sourcePlatform: 'cnc_kitchen',
-    sourceReference: 'CNC Kitchen Abrasive Filament Wear Test Series',
-    tags: ['carbon_fiber', 'petg_cf', 'voi_thep_toi', 'mon_dau_in'],
-    createdAt: '2026-10-02T00:00:00.000Z',
-    updatedAt: '2026-10-08T00:00:00.000Z',
-    isVerified: true,
-  },
-  {
-    id: 'kn-pla-silk-adhesion',
-    title: 'Tăng nhiệt độ in PLA Silk để tránh giòn gãy giữa các lớp',
-    category: 'material_benchmark',
-    problemSymptom: 'Mô hình in bằng PLA Silk (nhũ bóng) rất dễ bị tách đôi lớp in theo phương ngang khi dùng lực bẻ nhẹ.',
-    rootCause: 'Chất phụ gia elastomer tạo độ bóng ánh kim làm giảm độ liên kết phân tử giữa các lớp nhựa nếu in ở nhiệt độ thấp chuẩn của PLA thường (200-210°C).',
-    solutionText: 'Tăng nhiệt độ vòi phun lên 225-230°C và giảm nhẹ quạt làm nguội xuống 70% để các lớp nhựa nóng chảy hòa quyện vào nhau tối đa.',
-    slicerOverrides: {
-      nozzle_temperature: 225,
-      nozzle_temperature_initial_layer: 230,
-      fan_max_speed: 70,
-    },
-    applicablePrinters: ['all'],
-    applicableFilaments: ['PLA Silk', 'Silk PLA'],
-    confidenceScore: 96,
-    verificationCount: 185,
-    sourcePlatform: 'reddit',
-    sourceReference: 'r/3Dprinting Silk PLA Layer Adhesion Consensus',
-    tags: ['pla_silk', 'nhiet_do_in', 'tach_lop', 'layer_adhesion'],
-    createdAt: '2026-10-03T00:00:00.000Z',
-    updatedAt: '2026-10-08T00:00:00.000Z',
-    isVerified: true,
-  },
-  {
-    id: 'kn-pla-matte-flow',
-    title: 'Giảm Flow Ratio xuống 0.94 đối với PLA Matte để xóa vết sần mặt trên',
-    category: 'material_benchmark',
-    problemSymptom: 'Mặt trên cùng (Top surface) của bản in PLA Matte bị cộm sần, đầu in phát ra tiếng kêu cọ quẹt khi di chuyển nhanh.',
-    rootCause: 'PLA Matte có cấu trúc vi mô xốp tạo bề mặt nhám mờ, khi đùn ra khỏi vòi phun nhựa có xu hướng nở phồng thể tích lớn hơn PLA bóng tiêu chuẩn.',
-    solutionText: 'Giảm Flow Ratio (Hệ số đùn) từ 0.98 xuống 0.93 - 0.94 trong filament settings. Bật tính năng Ironing nếu muốn mặt trên nhẵn mịn tuyệt đối.',
-    slicerOverrides: {
-      flow_ratio: 0.94,
-    },
-    applicablePrinters: ['all'],
-    applicableFilaments: ['PLA Matte', 'Matte PLA'],
-    confidenceScore: 95,
-    verificationCount: 220,
-    sourcePlatform: 'bambu_forum',
-    sourceReference: 'Bambu Lab Filament Tuning Guide for Matte PLA',
-    tags: ['pla_matte', 'flow_ratio', 'top_surface', 'no_nhua'],
-    createdAt: '2026-10-03T00:00:00.000Z',
-    updatedAt: '2026-10-08T00:00:00.000Z',
-    isVerified: true,
-  },
-  {
     id: 'kn-tree-support-interface',
-    title: 'Tree Support Organic với Top Z-Distance 0.20mm gỡ êm tay không để lại sẹo',
+    title: 'Tree Support Organic với Top Z-Distance 0.20mm gỡ êm tay không bị dính cứng',
     category: 'slicer_tuning',
-    problemSymptom: 'Support dính quá chặt vào mô hình, khi bóc tách để lại chân nhựa lởm chởm hoặc làm gãy ngón tay/chi tiết nhỏ của figure.',
-    rootCause: 'Khoảng cách giữa đỉnh support và đáy mô hình (Top Z Distance) quá nhỏ (<0.14mm) khiến nhựa nóng chảy dính chặt vào nhau.',
-    solutionText: 'Chuyển sang Tree Support Organic. Đặt Top Z-distance = 0.20mm (bằng đúng 1 lớp in) và đặt 3 Interface Layers đặc. Support sẽ tự động tách rời sạch sẽ chỉ bằng một cái búng tay.',
+    defectType: 'support_fusion',
+    severity: 'high',
+    problemSymptom: 'Support dính quá chặt vào mô hình (Support Fusion), khi bóc tách để lại chân nhựa lởm chởm hoặc làm gãy chi tiết nhỏ.',
+    rootCause: 'Khoảng cách giữa đỉnh support và đáy mô hình (Support Top Z-Distance) quá nhỏ (<0.14mm) khiến nhựa nóng chảy hàn chết vào bề mặt mẫu in.',
+    solutionText: 'Chuyển sang Tree Support Organic, đặt Support Top Z-Distance = 0.20mm (bằng 1 lớp in) và bật 2-3 Support Interface Layers.',
     slicerOverrides: {
       enable_support: true,
       support_type: 'tree(auto)',
-      support_top_z_distance: 0.20,
+      support_top_z_distance: 0.2,
     },
+    triggerCondition: {
+      paramKey: 'supportTopZDistance',
+      operator: '<',
+      thresholdValue: 0.14,
+      description: 'Khoảng cách Top Z-Distance < 0.14mm gây dính chết Support vào mẫu',
+    },
+    autoFixPatch: {
+      supportMode: 'tree',
+      treeStyle: 'organic',
+      supportTopZDistance: 0.2,
+      supportInterfaceLayers: 2,
+    },
+    submittedBy: 'hlcai_admin',
     applicablePrinters: ['all'],
     applicableFilaments: ['PLA', 'PETG', 'ABS'],
     applicableCategories: ['Art & Decor', 'Toys & Games'],
     confidenceScore: 98,
     verificationCount: 380,
     sourcePlatform: 'printables',
-    sourceReference: 'PrusaSlicer & OrcaSlicer Organic Support Best Practices',
+    sourceReference: 'PrusaSlicer & Bambu Studio Organic Support Best Practices',
     tags: ['tree_support', 'organic_support', 'khong_de_lai_seo', 'figure'],
     createdAt: '2026-10-04T00:00:00.000Z',
     updatedAt: '2026-10-08T00:00:00.000Z',
@@ -162,87 +247,64 @@ export const SEED_KNOWLEDGE_ENTRIES: IKnowledgeEntry[] = [
   },
   {
     id: 'kn-mechanical-wall-priority',
-    title: 'Tăng Wall Loops lên 4-5 lớp thay vì tăng Infill để tăng 80% độ chịu lực cơ học',
+    title: 'Tăng Wall Loops lên 3-4 lớp và Top Shell >= 4 lớp để chống phồng nóc (Pillowing) & tăng độ bền',
     category: 'commercial_practice',
-    problemSymptom: 'Chi tiết cơ khí, ngàm kẹp, bánh răng in 50% infill vẫn bị gãy nứt khi chịu tải trọng uốn.',
-    rootCause: 'Theo nguyên lý cơ học kết cấu rỗng (Stress Tensor), ứng suất tập trung 85% ở thành ngoài cùng của chi tiết. Ruột đặc bên trong đóng góp rất ít vào độ bền uốn.',
-    solutionText: 'Thiết lập 4 đến 5 Wall Loops và giữ Infill ở mức 25% (Gyroid). Bạn sẽ có một chi tiết cứng cáp gấp đôi trong khi tiết kiệm 20% nhựa và 15% thời gian in.',
+    defectType: 'pillowing',
+    severity: 'medium',
+    problemSymptom: 'Mặt trên cùng bị lồi lõm lỗ chỗ (Pillowing) hoặc vách mỏng lộ đường gân ruột bên trong (Infill Ghosting).',
+    rootCause: 'Số vòng tường (Wall Loops < 2) hoặc số lớp nóc (Top Shell Layers < 3) kết hợp với mật độ Infill thưa khiến nhựa lớp nóc bị sụp xuống các ô trống của Infill.',
+    solutionText: 'Thiết lập tối thiểu 3-4 Wall Loops, 4-5 Top Shell Layers và giữ Infill >= 15% mẫu Gyroid.',
     slicerOverrides: {
-      wall_loops: 4,
-      sparse_infill_density: '25%',
+      wall_loops: 3,
+      top_shell_layers: 4,
+      sparse_infill_density: '15%',
       sparse_infill_pattern: 'gyroid',
     },
+    autoFixPatch: {
+      wallLoops: 3,
+      topShellLayers: 4,
+      infillDensity: 15,
+      infillType: 'gyroid',
+    },
+    submittedBy: 'hlcai_admin',
     applicablePrinters: ['all'],
-    applicableFilaments: ['PETG', 'PETG-CF', 'ABS', 'PLA+'],
-    applicableCategories: ['Mechanical & Functional', 'Tools & Utilities'],
+    applicableFilaments: ['PLA', 'PETG', 'ABS', 'PLA-CF'],
     confidenceScore: 99,
     verificationCount: 460,
     sourcePlatform: 'cnc_kitchen',
     sourceReference: 'CNC Kitchen: More Walls vs More Infill Mechanical Strength Benchmarks',
-    tags: ['wall_loops', 'infill', 'do_ben_co_hoc', 'tiet_kiem_nhua'],
+    tags: ['wall_loops', 'infill', 'pillowing', 'top_shell'],
     createdAt: '2026-10-04T00:00:00.000Z',
     updatedAt: '2026-10-08T00:00:00.000Z',
     isVerified: true,
   },
   {
     id: 'kn-cross-hatch-highspeed',
-    title: 'Dùng Cross Hatch hoặc Gyroid ở tốc độ >200mm/s để tránh gãy đầu đùn',
+    title: 'Tránh dùng mẫu ruột Grid ở tốc độ >200mm/s để chống cọ quẹt đầu phun gây đổ mẫu (Knock-Over)',
     category: 'slicer_tuning',
-    problemSymptom: 'Máy in tốc độ cao (Bambu Lab, Creality K1, Voron) phát ra tiếng đập "cục cục" và có nguy cơ làm lệch bước hoặc gãy đầu gá khi in ruột.',
-    rootCause: 'Mẫu Grid infill có các đường nhựa cắt ngang qua nhau ở cùng một độ cao. Ở tốc độ cao, vòi phun va quẹt trực tiếp vào các điểm giao nhau bị gồ lên.',
-    solutionText: 'Bắt buộc chuyển sang mẫu ruột Cross Hatch (Bambu Studio mới) hoặc Gyroid. Các mẫu này không bao giờ cắt chéo nhau trên cùng một lớp, triệt tiêu hoàn toàn va chạm cơ học.',
+    defectType: 'knock_over',
+    severity: 'high',
+    problemSymptom: 'Máy in tốc độ cao phát ra tiếng cọ "cục cục" khi đi qua ruột và có nguy cơ hất văng mẫu in cao mảnh khỏi bàn nhiệt.',
+    rootCause: 'Mẫu Grid infill có các đường nhựa cắt chéo qua nhau trên cùng một lớp, làm tích tụ điểm gồ. Ở tốc độ cao, đầu phun tông trực tiếp vào các điểm gồ này.',
+    solutionText: 'Chuyển sang mẫu ruột Gyroid hoặc Honeycomb, bật Z-Hop = 0.4mm và bật Brim nếu mẫu cao.',
     slicerOverrides: {
-      sparse_infill_pattern: 'cross_hatch',
+      sparse_infill_pattern: 'gyroid',
     },
-    applicablePrinters: ['bambu-x1c-p1s', 'bambu-a1-mini', 'creality-k1', 'voron-24'],
+    autoFixPatch: {
+      infillType: 'gyroid',
+      zHopMm: 0.4,
+      brimEnabled: true,
+      brimWidthMm: 5,
+    },
+    submittedBy: 'hlcai_admin',
+    applicablePrinters: ['all'],
     applicableFilaments: ['all'],
     confidenceScore: 99,
     verificationCount: 510,
     sourcePlatform: 'bambu_forum',
-    sourceReference: 'Bambu Lab Studio v1.9 Cross Hatch Infill Documentation',
-    tags: ['cross_hatch', 'gyroid', 'corexy', 'chong_va_dau_in'],
+    sourceReference: 'Bambu Lab High-Speed Infill Collision Prevention Guide',
+    tags: ['gyroid', 'grid_collision', 'knock_over', 'z_hop'],
     createdAt: '2026-10-05T00:00:00.000Z',
-    updatedAt: '2026-10-08T00:00:00.000Z',
-    isVerified: true,
-  },
-  {
-    id: 'kn-warping-mouse-ears',
-    title: 'Bật Brim dạng Mouse Ears (tai chuột) 8mm ở các góc nhọn của hộp lớn để chống co ngót',
-    category: 'troubleshooting',
-    problemSymptom: 'Các mô hình hộp chữ nhật lớn có các góc nhọn bị nhấc bổng cong mép khỏi bàn in (Warping).',
-    rootCause: 'Ứng suất co ngót nhiệt tập trung cao nhất tại các góc nhọn (Stress Concentration).',
-    solutionText: 'Chọn kiểu viền Brim = "Mouse Ears" (tai chuột) đường kính 8-10mm ở các góc nhọn. Tai chuột bám cực chắc nhưng bẻ gỡ sạch sẽ chỉ trong 2 giây mà không cần dùng dao gọt bavia cả chu vi bản in.',
-    slicerOverrides: {
-      brim_type: 'mouse_ears',
-      brim_width: 8,
-    },
-    applicablePrinters: ['all'],
-    applicableFilaments: ['PLA', 'PETG', 'ABS'],
-    applicableCategories: ['Household', 'Tools & Utilities'],
-    confidenceScore: 97,
-    verificationCount: 330,
-    sourcePlatform: 'reddit',
-    sourceReference: 'r/FixMyPrint Warping Corner Prevention Tips',
-    tags: ['mouse_ears', 'brim', 'chong_cong_mep', 'warping'],
-    createdAt: '2026-10-05T00:00:00.000Z',
-    updatedAt: '2026-10-08T00:00:00.000Z',
-    isVerified: true,
-  },
-  {
-    id: 'kn-bambu-ams-tpu-warning',
-    title: 'CẢNH BÁO: Tuyệt đối không nạp nhựa TPU dẻo mềm vào bộ chuyển màu tự động Bambu AMS',
-    category: 'printer_hardware',
-    problemSymptom: 'Bambu AMS bị kẹt ống dẫn PTFE, đèn đỏ nhấp nháy, bánh răng đùn cuốn nát sợi nhựa không thể thụt lùi.',
-    rootCause: 'Nhựa TPU 95A hoặc 85A quá dẻo mềm. Cơ chế rút đẩy tự động của AMS có quãng đường ống PTFE dài và nhiều góc cua gắt, khiến sợi TPU bị cuộn xoắn kẹt cứng.',
-    solutionText: 'Nạp nhựa TPU trực tiếp từ giá treo cuộn ngoài (External Spool Holder) đi thẳng vào cụm đầu in Toolhead qua cổng phụ, không cắm qua bộ AMS.',
-    applicablePrinters: ['bambu-x1c-p1s', 'bambu-a1-mini'],
-    applicableFilaments: ['TPU', 'TPU 95A', 'TPU 85A', 'TPE'],
-    confidenceScore: 100,
-    verificationCount: 650,
-    sourcePlatform: 'bambu_forum',
-    sourceReference: 'Bambu Lab Official AMS Filament Compatibility Matrix',
-    tags: ['bambu_ams', 'tpu_warning', 'ket_nhua', 'external_spool'],
-    createdAt: '2026-10-06T00:00:00.000Z',
     updatedAt: '2026-10-08T00:00:00.000Z',
     isVerified: true,
   },
@@ -251,10 +313,49 @@ export const SEED_KNOWLEDGE_ENTRIES: IKnowledgeEntry[] = [
 class KnowledgeRepository {
   private entries: IKnowledgeEntry[] = [];
   private filePath: string;
+  private hydratedFromCloud = false;
 
   constructor() {
     this.filePath = path.join(process.cwd(), 'data', 'knowledge_base.json');
     this.loadFromDisk();
+    this.hydrateFromSupabase();
+  }
+
+  private hydrateFromSupabase(): void {
+    this.ensureHydrated().catch(() => {});
+  }
+
+  async ensureHydrated(): Promise<void> {
+    if (this.hydratedFromCloud) return;
+    this.hydratedFromCloud = true;
+    try {
+      const saved = await supabaseCloudService.loadKvState<{ entries?: IKnowledgeEntry[] }>(
+        'laymor_knowledge_state'
+      );
+      if (saved?.entries && Array.isArray(saved.entries) && saved.entries.length > 0) {
+        const map = new Map<string, IKnowledgeEntry>();
+        for (const s of SEED_KNOWLEDGE_ENTRIES) map.set(s.id, s);
+        for (const c of saved.entries) map.set(c.id, c);
+        this.entries = Array.from(map.values());
+      }
+    } catch {
+      // Fallback to in-memory / local seed entries
+    }
+  }
+
+  private persistToSupabase(): void {
+    this.persistToSupabaseAsync().catch(() => {});
+  }
+
+  async persistToSupabaseAsync(): Promise<boolean> {
+    try {
+      return await supabaseCloudService.saveKvState('laymor_knowledge_state', {
+        entries: this.entries,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      return false;
+    }
   }
 
   private loadFromDisk(): void {
@@ -263,15 +364,17 @@ class KnowledgeRepository {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          this.entries = parsed;
+          const map = new Map<string, IKnowledgeEntry>();
+          for (const s of SEED_KNOWLEDGE_ENTRIES) map.set(s.id, s);
+          for (const d of parsed) map.set(d.id, d);
+          this.entries = Array.from(map.values());
           return;
         }
       }
     } catch (e: any) {
-      console.warn('[KnowledgeRepository] Không thể đọc knowledge_base.json, khởi tạo bộ chuẩn:', e.message);
+      console.warn('[KnowledgeRepository] Khởi tạo bộ chuẩn:', e.message);
     }
 
-    // Khởi tạo từ bộ hạt nhân chuẩn
     this.entries = [...SEED_KNOWLEDGE_ENTRIES];
     this.saveToDisk();
   }
@@ -283,9 +386,10 @@ class KnowledgeRepository {
         fs.mkdirSync(dir, { recursive: true });
       }
       fs.writeFileSync(this.filePath, JSON.stringify(this.entries, null, 2), 'utf-8');
-    } catch (e: any) {
-      console.warn('[KnowledgeRepository] Không thể lưu knowledge_base.json:', e.message);
+    } catch {
+      // Ignore read-only filesystem on Vercel serverless
     }
+    this.persistToSupabase();
   }
 
   getAllEntries(): IKnowledgeEntry[] {
@@ -325,18 +429,15 @@ class KnowledgeRepository {
           k.title.toLowerCase().includes(q) ||
           k.solutionText.toLowerCase().includes(q) ||
           (k.problemSymptom && k.problemSymptom.toLowerCase().includes(q)) ||
+          (k.rootCause && k.rootCause.toLowerCase().includes(q)) ||
+          (k.defectType && k.defectType.toLowerCase().includes(q)) ||
           k.tags.some((t) => t.toLowerCase().includes(q))
       );
     }
 
-    return result.sort((a, b) => b.confidenceScore - a.confidenceScore);
+    return result.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
-  /**
-   * CÔNG CỤ ĐỐI CHIẾU TRI THỨC (CROSS-REFERENCE ENGINE)
-   * Tự động quét mô hình, máy in và loại nhựa để trích xuất các quy tắc đối chiếu,
-   * cảnh báo rủi ro kỹ thuật và bộ thông số override chuẩn xác nhất.
-   */
   crossReference(
     modelTitle: string = '',
     category: string = '',
@@ -353,62 +454,41 @@ class KnowledgeRepository {
     const titleLower = modelTitle.toLowerCase();
 
     for (const entry of this.entries) {
-      let isMatch = false;
+      if (!entry.isVerified) continue;
 
-      // 1. Kiểm tra độ tương thích vật liệu
       const filamentMatch =
         entry.applicableFilaments.includes('all') ||
         entry.applicableFilaments.some((f) => filLower.includes(f.toLowerCase()) || f.toLowerCase().includes(filLower));
 
-      // 2. Kiểm tra độ tương thích máy in
       const printerMatch =
         entry.applicablePrinters.includes('all') || entry.applicablePrinters.includes(printerId);
 
-      // 3. Kiểm tra độ tương thích danh mục / tiêu đề
       const categoryMatch =
         !entry.applicableCategories ||
         entry.applicableCategories.length === 0 ||
         entry.applicableCategories.some((c) => catLower.includes(c.toLowerCase()) || titleLower.includes(c.toLowerCase()));
 
       if (filamentMatch && printerMatch && categoryMatch) {
-        isMatch = true;
-      }
-
-      if (isMatch) {
         matchedEntries.push(entry);
-
-        // Gom các mẹo thực tiễn
         communityTips.push(entry.solutionText);
-
-        // Gom các thông số override
         if (entry.slicerOverrides) {
           Object.assign(recommendedOverrides, entry.slicerOverrides);
         }
-
-        // Bóc tách cảnh báo rủi ro cao nếu có
-        if (entry.id === 'kn-bambu-ams-tpu-warning' && filLower.includes('tpu') && printerId.includes('bambu')) {
+        if (entry.severity === 'critical' || entry.severity === 'high') {
           riskWarnings.push({
-            severity: 'high',
-            title: 'Nguy cơ kẹt ống Bambu AMS với nhựa TPU',
-            description: entry.problemSymptom || '',
-            suggestedFix: entry.solutionText,
-          });
-        } else if (entry.id === 'kn-hardened-steel-cf' && (filLower.includes('carbon') || filLower.includes('cf'))) {
-          riskWarnings.push({
-            severity: 'medium',
-            title: 'Yêu cầu vòi phun thép tôi cứng (Hardened Steel)',
-            description: entry.problemSymptom || '',
+            severity: entry.severity === 'critical' ? 'high' : 'medium',
+            title: entry.title,
+            description: entry.problemSymptom || entry.rootCause || '',
             suggestedFix: entry.solutionText,
           });
         }
       }
     }
 
-    // Tính chỉ số tin cậy trung bình của các quy tắc đối chiếu được
     const avgConfidence =
       matchedEntries.length > 0
         ? Math.round(matchedEntries.reduce((sum, e) => sum + e.confidenceScore, 0) / matchedEntries.length)
-        : 90;
+        : 92;
 
     return {
       matchedEntries,
@@ -421,7 +501,7 @@ class KnowledgeRepository {
   }
 
   upsertEntry(entry: Partial<IKnowledgeEntry> & { title: string; solutionText: string }): IKnowledgeEntry {
-    const existingIndex = this.entries.findIndex((k) => k.id === entry.id);
+    const existingIndex = entry.id ? this.entries.findIndex((k) => k.id === entry.id) : -1;
     const now = new Date().toISOString();
 
     if (existingIndex >= 0) {
@@ -441,19 +521,24 @@ class KnowledgeRepository {
     const newEntry: IKnowledgeEntry = {
       id: newId,
       title: entry.title,
-      category: entry.category || 'slicer_tuning',
+      category: entry.category || 'simulator_defect_learning',
+      defectType: entry.defectType || 'custom_defect',
+      severity: entry.severity || 'medium',
       problemSymptom: entry.problemSymptom,
       rootCause: entry.rootCause,
       solutionText: entry.solutionText,
       slicerOverrides: entry.slicerOverrides,
+      triggerCondition: entry.triggerCondition,
+      autoFixPatch: entry.autoFixPatch,
+      submittedBy: entry.submittedBy || 'maker_user',
       applicablePrinters: entry.applicablePrinters || ['all'],
-      applicableFilaments: entry.applicableFilaments || ['PLA'],
+      applicableFilaments: entry.applicableFilaments || ['PLA', 'PETG'],
       applicableCategories: entry.applicableCategories,
-      confidenceScore: entry.confidenceScore || 90,
-      verificationCount: entry.verificationCount || 1,
-      sourcePlatform: entry.sourcePlatform || 'expert_curated',
+      confidenceScore: entry.confidenceScore ?? 92,
+      verificationCount: entry.verificationCount ?? 1,
+      sourcePlatform: entry.sourcePlatform || 'user_contributed',
       sourceReference: entry.sourceReference,
-      tags: entry.tags || ['slicer'],
+      tags: entry.tags || ['defect_learning', '3dsim'],
       createdAt: now,
       updatedAt: now,
       isVerified: entry.isVerified ?? true,
@@ -464,6 +549,15 @@ class KnowledgeRepository {
     return newEntry;
   }
 
+  async upsertEntryAsync(
+    entry: Partial<IKnowledgeEntry> & { title: string; solutionText: string }
+  ): Promise<IKnowledgeEntry> {
+    await this.ensureHydrated();
+    const saved = this.upsertEntry(entry);
+    await this.persistToSupabaseAsync();
+    return saved;
+  }
+
   deleteEntry(id: string): boolean {
     const initialLen = this.entries.length;
     this.entries = this.entries.filter((k) => k.id !== id);
@@ -472,6 +566,15 @@ class KnowledgeRepository {
       return true;
     }
     return false;
+  }
+
+  async deleteEntryAsync(id: string): Promise<boolean> {
+    await this.ensureHydrated();
+    const deleted = this.deleteEntry(id);
+    if (deleted) {
+      await this.persistToSupabaseAsync();
+    }
+    return deleted;
   }
 }
 

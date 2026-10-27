@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Play, Pause, RotateCcw, Clock, Weight, DollarSign, Layers } from 'lucide-react';
+import { Play, Pause, RotateCcw, Clock, Weight, DollarSign, Layers } from '@/components/icons/MinimalIcons';
 import { IPrintEstimation } from '@/backend/domain/slicing';
 
 interface PrintSimulationSliderProps {

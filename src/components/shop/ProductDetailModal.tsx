@@ -16,7 +16,7 @@ import {
   ArrowUpRight,
   ShieldCheck,
   Play,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 
 interface ProductDetailModalProps {
   item: any | null;

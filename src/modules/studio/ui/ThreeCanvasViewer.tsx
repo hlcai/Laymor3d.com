@@ -6,7 +6,7 @@ import { SAMPLE_PRINT_MODELS, SampleModelId } from '@/backend/domain/sample-mode
 import { ModelBuilder } from '../backend/viewer/ModelBuilder';
 import { SupportBuilder } from '../backend/viewer/SupportBuilder';
 import { ILoadedCustomModel } from '../backend/viewer/CustomModelLoader';
-import { UploadCloud, Layers, FileCode, CheckCircle2, RotateCcw, Box, Ruler } from 'lucide-react';
+import { UploadCloud, Layers, FileCode, CheckCircle2, RotateCcw, Box, Ruler } from '@/components/icons/MinimalIcons';
 
 interface ThreeCanvasViewerProps {
   options: ViewerOptions;
@@ -486,10 +486,11 @@ export function ThreeCanvasViewer({
     const supports = SupportBuilder.buildSupports(
       supportConfig.type,
       sampleModelId,
-      clipPlaneRef.current || undefined
+      clipPlaneRef.current || undefined,
+      sampleModelId === 'custom' ? customLoadedModel?.group : undefined
     );
     sGroup.add(supports);
-  }, [supportConfig, sampleModelId]);
+  }, [supportConfig, sampleModelId, customLoadedModel]);
 
   // 6. Cập nhật góc đặt và căn phẳng bàn in khi options.orientationDeg hoặc options.showDimensions thay đổi
   useEffect(() => {

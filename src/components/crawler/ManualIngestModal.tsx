@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { PlusCircle, X, Loader2, CheckCircle2, Brain, Sparkles, Layers, Sliders, Thermometer, Gauge } from 'lucide-react';
+import { PlusCircle, X, Loader2, CheckCircle2, Brain, Sparkles, Layers, Sliders, Thermometer, Gauge } from '@/components/icons/MinimalIcons';
 import { PlatformType } from '@/backend/domain/models';
 
 interface ManualIngestModalProps {

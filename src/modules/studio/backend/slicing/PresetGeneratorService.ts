@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { IExpertPrintProfile } from '@/backend/domain/wallet';
 import { IPrinterProfile, ISupportConfig } from '@/backend/domain/slicing';
 import { ModelBuilder } from '@/components/viewer/ModelBuilder';
+import { SupportBuilder } from '@/components/viewer/SupportBuilder';
 import { SampleModelId } from '@/backend/domain/sample-models';
 import { zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
 
@@ -15,12 +16,13 @@ export class PresetGeneratorService {
     profile: IExpertPrintProfile,
     printer?: IPrinterProfile,
     dimensionsMm?: { x: number; y: number; z: number },
-    supportConfig?: ISupportConfig
+    supportConfig?: ISupportConfig,
+    customGroup?: THREE.Group
   ): string {
     const filename = `${profile.modelName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${printer?.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'BambuLab'}_Preset.3mf`;
 
     const configData = {
-      generator: '3D Hub Slicer Intelligence System v2.4',
+      generator: 'Laymor3D Slicer Intelligence System v2.5',
       targetSlicers: ['Bambu Studio', 'OrcaSlicer', 'PrusaSlicer'],
       model: {
         id: profile.modelId,
@@ -67,12 +69,13 @@ export class PresetGeneratorService {
       },
       proTips: profile.proTips,
       gcodeSnippet: {
-        startGcode: `; === 3D HUB OPTIMIZED START GCODE ===\nG28 ; Home all axes\nM104 S${profile.firstLayerNozzleTempC} ; Set nozzle temp\nM140 S${profile.bedTempC} ; Set bed temp\nG29.1 Z${profile.zHopMm} ; Auto bed tramming offset\nM109 S${profile.firstLayerNozzleTempC} ; Wait nozzle temp\nM190 S${profile.bedTempC} ; Wait bed temp\nG1 Z0.2 F1200 ; Prime line approach\nG1 X60.0 E9.0 F1000 ; Intro line\n; =====================================`,
-        endGcode: `; === 3D HUB OPTIMIZED END GCODE ===\nM104 S0 ; Turn off extruder\nM140 S0 ; Turn off bed\nG91 ; Relative positioning\nG1 E-1 F300 ; Retract\nG1 Z+10 F3000 ; Move up\nG90 ; Absolute positioning\nG1 X0 Y${printer?.bedDimensions.y || 256} F3000 ; Present print\nM84 ; Disable motors\n; ===================================`,
+        startGcode: `; === LAYMOR 3D OPTIMIZED START GCODE ===\nG28 ; Home all axes\nM104 S${profile.firstLayerNozzleTempC} ; Set nozzle temp\nM140 S${profile.bedTempC} ; Set bed temp\nG29.1 Z${profile.zHopMm} ; Auto bed tramming offset\nM109 S${profile.firstLayerNozzleTempC} ; Wait nozzle temp\nM190 S${profile.bedTempC} ; Wait bed temp\nG1 Z0.2 F1200 ; Prime line approach\nG1 X60.0 E9.0 F1000 ; Intro line\n; =====================================`,
+        endGcode: `; === LAYMOR 3D OPTIMIZED END GCODE ===\nM104 S0 ; Turn off extruder\nM140 S0 ; Turn off bed\nG91 ; Relative positioning\nG1 E-1 F300 ; Retract\nG1 Z+10 F3000 ; Move up\nG90 ; Absolute positioning\nG1 X0 Y${printer?.bedDimensions.y || 256} F3000 ; Present print\nM84 ; Disable motors\n; ===================================`,
       },
     };
 
-    // 1. Khởi tạo hình học 3D thực tế của mô hình
+    // 1. Khởi tạo hình học 3D thực tế của mô hình (ưu tiên customGroup từ AI 2D->3D / File tải lên)
+    let builtGroup = new THREE.Group();
     const rawId = (profile.modelId || 'benchy').toLowerCase();
     const validIds: SampleModelId[] = ['benchy', 'dragon', 'robot', 'gear', 'helmet', 'turbine', 'eiffel'];
     let sampleId: SampleModelId = 'benchy';
@@ -83,26 +86,48 @@ export class PresetGeneratorService {
       if (matched) sampleId = matched;
     }
 
-    const dummyMat = new THREE.MeshBasicMaterial();
-    const { group: builtGroup } = ModelBuilder.buildModel(sampleId, dummyMat);
+    let modelSubGroup: THREE.Group;
+    if (customGroup) {
+      modelSubGroup = customGroup.clone(true);
+    } else {
+      const dummyMat = new THREE.MeshBasicMaterial();
+      modelSubGroup = ModelBuilder.buildModel(sampleId, dummyMat).group;
+    }
+    builtGroup.add(modelSubGroup);
 
-    // Chuẩn hóa kích thước hình học theo dimensionsMm
-    const targetX = dimensionsMm?.x || 60;
-    const targetY = dimensionsMm?.y || 31; // Slicer Y là chiều sâu
-    const targetZ = dimensionsMm?.z || 48; // Slicer Z là chiều cao
+    // Chuẩn hóa kích thước hình học theo dimensionsMm (đo trên modelSubGroup trước khi gắn Tree Support)
+    const targetX = dimensionsMm?.x || 80;
+    const targetY = dimensionsMm?.y || 80; // Slicer Y là chiều sâu
+    const targetZ = dimensionsMm?.z || 80; // Slicer Z là chiều cao
 
-    builtGroup.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(builtGroup);
+    modelSubGroup.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(modelSubGroup);
     const size = new THREE.Vector3();
     box.getSize(size);
+
+    // Đính kèm hệ thống 3D Tree Support trực tiếp vào mô hình xuất .3MF khi bật Support
+    const sType = supportConfig?.enabled === false ? 'none' : (supportConfig?.type || 'tree');
+    if (sType !== 'none') {
+      const supportMeshGroup = SupportBuilder.buildSupports(
+        sType,
+        customGroup ? 'custom' : sampleId,
+        undefined,
+        customGroup ? modelSubGroup : undefined
+      );
+      builtGroup.add(supportMeshGroup);
+    }
 
     if (size.x > 0.001 && size.y > 0.001 && size.z > 0.001) {
       const scaleX = targetX / size.x;
       const scaleY = targetZ / size.y;
       const scaleZ = targetY / size.z;
-      builtGroup.scale.set(scaleX, scaleY, scaleZ);
+      builtGroup.scale.multiply(new THREE.Vector3(scaleX, scaleY, scaleZ));
       builtGroup.updateMatrixWorld(true);
     }
+
+    // Đặt đáy mô hình chạm mặt phẳng Z = 0 trong không gian 3MF
+    const scaledBox = new THREE.Box3().setFromObject(builtGroup);
+    const minY = scaledBox.min.y;
 
     // 2. Chuyển đổi lưới 3D Three.js sang định dạng chuẩn 3MF XML
     let vertexOffset = 0;
@@ -129,10 +154,10 @@ export class PresetGeneratorService {
           v.applyMatrix4(meshMatrix);
 
           // Three.js (Y-up) sang 3MF (Z-up):
-          // 3MF X = v.x, 3MF Y = -v.z, 3MF Z = v.y
+          // 3MF X = v.x, 3MF Y = -v.z, 3MF Z = v.y - minY
           const x3mf = v.x.toFixed(4);
           const y3mf = (-v.z).toFixed(4);
-          const z3mf = Math.max(0, v.y).toFixed(4);
+          const z3mf = Math.max(0, v.y - minY).toFixed(4);
           verticesXml += `          <vertex x="${x3mf}" y="${y3mf}" z="${z3mf}" />\n`;
         }
 
@@ -159,7 +184,7 @@ export class PresetGeneratorService {
     const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
   <metadata name="Title">${profile.modelName}</metadata>
-  <metadata name="Designer">3D Hub Studio</metadata>
+  <metadata name="Designer">Laymor 3D Studio</metadata>
   <resources>
     <object id="1" type="model">
       <mesh>
@@ -189,9 +214,9 @@ ${trianglesXml}        </triangles>
 </Types>`;
 
     const projectConfig = `; Bambu Studio / OrcaSlicer Project Preset
-; Exported by 3D Hub Slicer Intelligence
+; Exported by Laymor 3D Slicer Intelligence
 [print]
-name = ${profile.modelName} - 3D Hub Expert Profile
+name = ${profile.modelName} - Laymor 3D Expert Profile
 printer_model = ${printer?.name || 'Bambu Lab X1-Carbon'}
 layer_height = ${profile.layerHeightMm}
 initial_layer_print_height = ${profile.firstLayerHeightMm}
@@ -233,7 +258,7 @@ z_hop = ${profile.zHopMm}
     let blob: Blob;
     try {
       const zipBuffer = zipSync(zipFiles);
-      blob = new Blob([zipBuffer], {
+      blob = new Blob([zipBuffer as unknown as BlobPart], {
         type: 'application/vnd.ms-package.3dmanufacturing-3dmodelxml',
       });
     } catch (zipErr) {
@@ -256,28 +281,139 @@ z_hop = ${profile.zHopMm}
   }
 
   /**
-   * Generates and downloads a valid 3D ASCII STL file for slicers
+   * Generates and downloads a real Binary STL file of the active 3D model scaled to dimensionsMm
    */
-  static downloadSTL(modelName: string): string {
+  static downloadSTL(
+    modelName: string,
+    dimensionsMm?: { x: number; y: number; z: number },
+    customGroup?: THREE.Group,
+    supportConfig?: ISupportConfig
+  ): string {
     const filename = `${modelName.replace(/[^a-zA-Z0-9_-]/g, '_')}_Model.stl`;
-    const stlContent = `solid ${modelName}
-  facet normal 0 0 1
-    outer loop
-      vertex 0 0 0
-      vertex 10 0 0
-      vertex 0 10 0
-    endloop
-  endfacet
-  facet normal 0 0 1
-    outer loop
-      vertex 10 0 0
-      vertex 10 10 0
-      vertex 0 10 0
-    endloop
-  endfacet
-endsolid ${modelName}`;
 
-    const blob = new Blob([stlContent], { type: 'application/sla' });
+    const builtGroup = new THREE.Group();
+    const rawId = (modelName || 'benchy').toLowerCase();
+    const validIds: SampleModelId[] = ['benchy', 'dragon', 'robot', 'gear', 'helmet', 'turbine', 'eiffel'];
+    let sampleId: SampleModelId = 'benchy';
+    if (validIds.includes(rawId as SampleModelId)) {
+      sampleId = rawId as SampleModelId;
+    } else {
+      const matched = validIds.find((id) => rawId.includes(id));
+      if (matched) sampleId = matched;
+    }
+
+    let modelSubGroup: THREE.Group;
+    if (customGroup) {
+      modelSubGroup = customGroup.clone(true);
+    } else {
+      const dummyMat = new THREE.MeshBasicMaterial();
+      modelSubGroup = ModelBuilder.buildModel(sampleId, dummyMat).group;
+    }
+    builtGroup.add(modelSubGroup);
+
+    const targetX = dimensionsMm?.x || 80;
+    const targetY = dimensionsMm?.y || 80;
+    const targetZ = dimensionsMm?.z || 80;
+
+    modelSubGroup.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(modelSubGroup);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    const sType = supportConfig?.enabled === false ? 'none' : (supportConfig?.type || 'tree');
+    if (sType !== 'none') {
+      const supportMeshGroup = SupportBuilder.buildSupports(
+        sType,
+        customGroup ? 'custom' : sampleId,
+        undefined,
+        customGroup ? modelSubGroup : undefined
+      );
+      builtGroup.add(supportMeshGroup);
+    }
+
+    if (size.x > 0.001 && size.y > 0.001 && size.z > 0.001) {
+      builtGroup.scale.multiply(
+        new THREE.Vector3(targetX / size.x, targetZ / size.y, targetY / size.z)
+      );
+      builtGroup.updateMatrixWorld(true);
+    }
+
+    const scaledBox = new THREE.Box3().setFromObject(builtGroup);
+    const minY = scaledBox.min.y;
+
+    // Collect all triangles in Z-up millimeter space
+    const triangles: Array<[THREE.Vector3, THREE.Vector3, THREE.Vector3]> = [];
+    builtGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const geom = mesh.geometry;
+        if (!geom || !geom.attributes.position) return;
+        const pos = geom.attributes.position;
+        const index = geom.index;
+        const mat = mesh.matrixWorld;
+
+        const toZUp = (idx: number) => {
+          const v = new THREE.Vector3().fromBufferAttribute(pos, idx).applyMatrix4(mat);
+          return new THREE.Vector3(v.x, -v.z, Math.max(0, v.y - minY));
+        };
+
+        if (index) {
+          for (let i = 0; i < index.count; i += 3) {
+            triangles.push([
+              toZUp(index.getX(i)),
+              toZUp(index.getX(i + 1)),
+              toZUp(index.getX(i + 2)),
+            ]);
+          }
+        } else {
+          for (let i = 0; i < pos.count; i += 3) {
+            triangles.push([toZUp(i), toZUp(i + 1), toZUp(i + 2)]);
+          }
+        }
+      }
+    });
+
+    const triCount = triangles.length;
+    const buffer = new ArrayBuffer(84 + triCount * 50);
+    const view = new DataView(buffer);
+    const header = `Laymor3D Binary STL - ${modelName}`.slice(0, 79);
+    for (let i = 0; i < header.length; i++) {
+      view.setUint8(i, header.charCodeAt(i));
+    }
+    view.setUint32(80, triCount, true);
+
+    const edge1 = new THREE.Vector3();
+    const edge2 = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    let offset = 84;
+
+    for (let i = 0; i < triCount; i++) {
+      const [v1, v2, v3] = triangles[i];
+      edge1.subVectors(v2, v1);
+      edge2.subVectors(v3, v1);
+      normal.crossVectors(edge1, edge2).normalize();
+
+      view.setFloat32(offset, normal.x, true);
+      view.setFloat32(offset + 4, normal.y, true);
+      view.setFloat32(offset + 8, normal.z, true);
+
+      view.setFloat32(offset + 12, v1.x, true);
+      view.setFloat32(offset + 16, v1.y, true);
+      view.setFloat32(offset + 20, v1.z, true);
+
+      view.setFloat32(offset + 24, v2.x, true);
+      view.setFloat32(offset + 28, v2.y, true);
+      view.setFloat32(offset + 32, v2.z, true);
+
+      view.setFloat32(offset + 36, v3.x, true);
+      view.setFloat32(offset + 40, v3.y, true);
+      view.setFloat32(offset + 44, v3.z, true);
+
+      view.setUint16(offset + 48, 0, true);
+      offset += 50;
+    }
+
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

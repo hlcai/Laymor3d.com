@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Zap, Rocket, Crown, Cpu, DollarSign, Clock } from 'lucide-react';
+import { Zap, Rocket, Crown, Cpu, DollarSign, Clock } from '@/components/icons/MinimalIcons';
 import { AIProviderType } from '@/backend/domain/models';
 
 interface EngineSelectorProps {

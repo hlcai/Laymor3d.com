@@ -15,7 +15,7 @@ import {
   ChevronUp,
   ChevronLeft,
   ChevronRight,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { ITrendMetric, IModel3D } from '@/backend/domain/models';
 import { getMatchingSampleModelId } from '@/backend/domain/sample-models';
 import { SlicingProfileModal } from '@/components/slicing/SlicingProfileModal';

@@ -12,7 +12,7 @@ import {
   Radio,
   ArrowRight,
   Layers,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useTrendAnalytics } from '@/hooks/useTrendAnalytics';
 import { TrendMetricsOverview } from '@/components/trends/TrendMetricsOverview';
 import { VelocityLeaderboard } from '@/components/trends/VelocityLeaderboard';

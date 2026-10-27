@@ -110,7 +110,7 @@ export function usePrintSlicer() {
       setScalePercent(100);
       setSupportConfig(prev => ({
         ...prev,
-        enabled: loaded.dimensionsMm.z > 35,
+        enabled: true,
         type: 'tree',
       }));
       return loaded;
@@ -147,7 +147,7 @@ export function usePrintSlicer() {
       setScalePercent(100);
       setSupportConfig(prev => ({
         ...prev,
-        enabled: loaded.dimensionsMm.z > 35,
+        enabled: true,
         type: 'tree',
       }));
       return loaded;

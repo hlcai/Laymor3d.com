@@ -427,7 +427,7 @@ export function offsetContourInward(loop: IContourLoop, offsetMm: number): ICont
 function computeSeamPointOnContours(
   contours: IContourLoop[],
   heightY: number,
-  seamPosition: 'aligned' | 'nearest' | 'random'
+  seamPosition: 'aligned' | 'nearest' | 'random' | 'back'
 ): ISlicePoint | null {
   if (contours.length === 0 || contours[0].points.length === 0) return null;
   const mainLoop = contours[0];
@@ -461,6 +461,19 @@ function computeSeamPointOnContours(
       }
     }
     return bestPt;
+  }
+
+  if (seamPosition === 'back') {
+    // 'back': Căn thẳng phía mặt lưng sau của bàn in (min Z)
+    let backPt = pts[0];
+    let minZVal = Infinity;
+    for (const p of pts) {
+      if (p.z < minZVal) {
+        minZVal = p.z;
+        backPt = p;
+      }
+    }
+    return backPt;
   }
 
   // 'aligned': Căn thẳng hàng ở mặt sau-phải (max X, min Z) chuẩn Bambu Studio Back-Aligned Seam

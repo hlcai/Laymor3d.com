@@ -26,7 +26,7 @@ import {
   Layers,
   Sparkles,
   Info,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useUserSession } from '@/hooks/useUserSession';
 import { ModuleRouteGuard } from '@/components/common/ModuleRouteGuard';
 

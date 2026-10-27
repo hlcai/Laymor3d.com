@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Compass, RefreshCw, Layers, ShieldCheck, Link2, PlusCircle } from 'lucide-react';
+import { Compass, RefreshCw, Layers, ShieldCheck, Link2, PlusCircle } from '@/components/icons/MinimalIcons';
 import { usePlatformCrawler } from '@/hooks/usePlatformCrawler';
 import { CrawlerDashboard } from '@/components/crawler/CrawlerDashboard';
 import { ModelGrid } from '@/components/crawler/ModelGrid';

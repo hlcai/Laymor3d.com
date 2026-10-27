@@ -9,7 +9,7 @@ import {
   ShoppingCart,
   CheckCircle2,
   ShieldCheck,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { ShopCategoryTab } from '@/backend/domain/shop';
 import { useSystemEnvironment } from '@/hooks/useSystemEnvironment';
 

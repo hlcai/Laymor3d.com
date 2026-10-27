@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { IExpertPrintProfile } from '../../domain/wallet';
 import { IPrinterProfile, ISupportConfig } from '../../domain/slicing';
 import { ModelBuilder } from '@/components/viewer/ModelBuilder';
+import { SupportBuilder } from '@/components/viewer/SupportBuilder';
 import { SampleModelId } from '@/backend/domain/sample-models';
 import { zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
 
@@ -74,33 +75,47 @@ export class PresetGeneratorService {
     };
 
     // 1. Khởi tạo hình học 3D thực tế của mô hình (ưu tiên customGroup từ AI 2D->3D / File tải lên)
-    let builtGroup: THREE.Group;
-    if (customGroup) {
-      builtGroup = customGroup.clone(true);
+    let builtGroup = new THREE.Group();
+    const rawId = (profile.modelId || 'benchy').toLowerCase();
+    const validIds: SampleModelId[] = ['benchy', 'dragon', 'robot', 'gear', 'helmet', 'turbine', 'eiffel'];
+    let sampleId: SampleModelId = 'benchy';
+    if (validIds.includes(rawId as SampleModelId)) {
+      sampleId = rawId as SampleModelId;
     } else {
-      const rawId = (profile.modelId || 'benchy').toLowerCase();
-      const validIds: SampleModelId[] = ['benchy', 'dragon', 'robot', 'gear', 'helmet', 'turbine', 'eiffel'];
-      let sampleId: SampleModelId = 'benchy';
-      if (validIds.includes(rawId as SampleModelId)) {
-        sampleId = rawId as SampleModelId;
-      } else {
-        const matched = validIds.find((id) => rawId.includes(id));
-        if (matched) sampleId = matched;
-      }
-
-      const dummyMat = new THREE.MeshBasicMaterial();
-      builtGroup = ModelBuilder.buildModel(sampleId, dummyMat).group;
+      const matched = validIds.find((id) => rawId.includes(id));
+      if (matched) sampleId = matched;
     }
 
-    // Chuẩn hóa kích thước hình học theo dimensionsMm
+    let modelSubGroup: THREE.Group;
+    if (customGroup) {
+      modelSubGroup = customGroup.clone(true);
+    } else {
+      const dummyMat = new THREE.MeshBasicMaterial();
+      modelSubGroup = ModelBuilder.buildModel(sampleId, dummyMat).group;
+    }
+    builtGroup.add(modelSubGroup);
+
+    // Chuẩn hóa kích thước hình học theo dimensionsMm (đo trên modelSubGroup trước khi gắn Tree Support)
     const targetX = dimensionsMm?.x || 80;
     const targetY = dimensionsMm?.y || 80; // Slicer Y là chiều sâu
     const targetZ = dimensionsMm?.z || 80; // Slicer Z là chiều cao
 
-    builtGroup.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(builtGroup);
+    modelSubGroup.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(modelSubGroup);
     const size = new THREE.Vector3();
     box.getSize(size);
+
+    // Đính kèm hệ thống 3D Tree Support trực tiếp vào mô hình xuất .3MF khi bật Support
+    const sType = supportConfig?.enabled === false ? 'none' : (supportConfig?.type || 'tree');
+    if (sType !== 'none') {
+      const supportMeshGroup = SupportBuilder.buildSupports(
+        sType,
+        customGroup ? 'custom' : sampleId,
+        undefined,
+        customGroup ? modelSubGroup : undefined
+      );
+      builtGroup.add(supportMeshGroup);
+    }
 
     if (size.x > 0.001 && size.y > 0.001 && size.z > 0.001) {
       const scaleX = targetX / size.x;
@@ -271,33 +286,51 @@ z_hop = ${profile.zHopMm}
   static generateSTLBuffer(
     modelName: string,
     dimensionsMm?: { x: number; y: number; z: number },
-    customGroup?: THREE.Group
+    customGroup?: THREE.Group,
+    supportConfig?: ISupportConfig
   ): ArrayBuffer {
-    let builtGroup: THREE.Group;
-    if (customGroup) {
-      builtGroup = customGroup.clone(true);
+    const builtGroup = new THREE.Group();
+    const rawId = (modelName || 'benchy').toLowerCase();
+    const validIds: SampleModelId[] = ['benchy', 'dragon', 'robot', 'gear', 'helmet', 'turbine', 'eiffel'];
+    let sampleId: SampleModelId = 'benchy';
+    if (validIds.includes(rawId as SampleModelId)) {
+      sampleId = rawId as SampleModelId;
     } else {
-      const rawId = (modelName || 'benchy').toLowerCase();
-      const validIds: SampleModelId[] = ['benchy', 'dragon', 'robot', 'gear', 'helmet', 'turbine', 'eiffel'];
-      let sampleId: SampleModelId = 'benchy';
-      if (validIds.includes(rawId as SampleModelId)) {
-        sampleId = rawId as SampleModelId;
-      } else {
-        const matched = validIds.find((id) => rawId.includes(id));
-        if (matched) sampleId = matched;
-      }
-      const dummyMat = new THREE.MeshBasicMaterial();
-      builtGroup = ModelBuilder.buildModel(sampleId, dummyMat).group;
+      const matched = validIds.find((id) => rawId.includes(id));
+      if (matched) sampleId = matched;
     }
+
+    let modelSubGroup: THREE.Group;
+    if (customGroup) {
+      modelSubGroup = customGroup.clone(true);
+    } else {
+      const dummyMat = new THREE.MeshBasicMaterial();
+      modelSubGroup = ModelBuilder.buildModel(sampleId, dummyMat).group;
+    }
+    builtGroup.add(modelSubGroup);
 
     const targetX = dimensionsMm?.x || 80;
     const targetY = dimensionsMm?.y || 80;
     const targetZ = dimensionsMm?.z || 80;
 
-    builtGroup.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(builtGroup);
+    modelSubGroup.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(modelSubGroup);
     const size = new THREE.Vector3();
     box.getSize(size);
+
+    const sType =
+      !supportConfig || supportConfig.enabled === false
+        ? 'none'
+        : supportConfig.type || 'tree';
+    if (sType !== 'none') {
+      const supportMeshGroup = SupportBuilder.buildSupports(
+        sType,
+        customGroup ? 'custom' : sampleId,
+        undefined,
+        customGroup ? modelSubGroup : undefined
+      );
+      builtGroup.add(supportMeshGroup);
+    }
 
     if (size.x > 0.001 && size.y > 0.001 && size.z > 0.001) {
       builtGroup.scale.multiply(
@@ -389,10 +422,16 @@ z_hop = ${profile.zHopMm}
   static downloadSTL(
     modelName: string,
     dimensionsMm?: { x: number; y: number; z: number },
-    customGroup?: THREE.Group
+    customGroup?: THREE.Group,
+    supportConfig?: ISupportConfig
   ): string {
     const filename = `${modelName.replace(/[^a-zA-Z0-9_-]/g, '_')}_Model.stl`;
-    const buffer = PresetGeneratorService.generateSTLBuffer(modelName, dimensionsMm, customGroup);
+    const buffer = PresetGeneratorService.generateSTLBuffer(
+      modelName,
+      dimensionsMm,
+      customGroup,
+      supportConfig
+    );
     const blob = new Blob([buffer], { type: 'application/octet-stream' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');

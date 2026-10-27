@@ -19,7 +19,7 @@ import {
   Copy,
   Check,
   PackageCheck,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { ICartItem } from '@/backend/domain/shop';
 import { useUserWallet } from '@/hooks/useUserWallet';
 import { useSystemEnvironment } from '@/hooks/useSystemEnvironment';

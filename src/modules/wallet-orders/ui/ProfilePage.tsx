@@ -35,7 +35,7 @@ import {
   FileCode,
   Tag,
   ShieldAlert,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { useUserSession } from '@/hooks/useUserSession';
 import { useUserWallet } from '@/hooks/useUserWallet';
 import { useOrders } from '@/hooks/useOrders';

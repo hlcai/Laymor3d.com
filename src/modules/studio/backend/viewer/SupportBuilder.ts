@@ -20,10 +20,11 @@ export class SupportBuilder {
   static buildSupports(
     type: SupportType,
     modelId: SampleModelId,
-    clipPlane?: THREE.Plane
+    clipPlane?: THREE.Plane,
+    customGroup?: THREE.Group
   ): THREE.Group {
     const group = new THREE.Group();
-    if (type === 'none' || modelId === 'gear') return group;
+    if (type === 'none') return group;
 
     // A. Main Slicer Trunk Material (Translucent emerald green for tree, cyan for normal)
     const trunkMat = new THREE.MeshStandardMaterial({
@@ -59,9 +60,9 @@ export class SupportBuilder {
     });
 
     if (type === 'tree') {
-      return this.buildRealisticTreeSupport(modelId, trunkMat, interfaceMat, brimMat);
+      return this.buildRealisticTreeSupport(modelId, trunkMat, interfaceMat, brimMat, customGroup);
     } else {
-      return this.buildRealisticNormalSupport(modelId, trunkMat, interfaceMat, brimMat);
+      return this.buildRealisticNormalSupport(modelId, trunkMat, interfaceMat, brimMat, customGroup);
     }
   }
 
@@ -73,10 +74,11 @@ export class SupportBuilder {
     modelId: SampleModelId,
     trunkMat: THREE.Material,
     interfaceMat: THREE.Material,
-    brimMat: THREE.Material
+    brimMat: THREE.Material,
+    customGroup?: THREE.Group
   ): THREE.Group {
     const group = new THREE.Group();
-    const branches = this.getBranchSpecs(modelId);
+    const branches = this.getBranchSpecs(modelId, customGroup);
 
     branches.forEach((b) => {
       // 1. Bed Brim Disc (Đế bám bàn in rộng chống bong mép - Brim 5mm)
@@ -124,6 +126,45 @@ export class SupportBuilder {
       const pad = new THREE.Mesh(padGeo, interfaceMat);
       pad.position.set(b.targetX, b.targetY - 0.015, b.targetZ);
       group.add(pad);
+
+      // 5. Bifurcated Organic Secondary Twigs (Chạc cây phân nhánh chữ Y đỡ vùng lân cận)
+      if (b.targetY > 0.36) {
+        const splitPt = curve.getPoint(0.56);
+        const jointGeo = new THREE.SphereGeometry(b.trunkRadius * 1.08, 12, 10);
+        const joint = new THREE.Mesh(jointGeo, trunkMat);
+        joint.position.copy(splitPt);
+        group.add(joint);
+
+        const rdx = b.targetX - b.bedX;
+        const rdz = b.targetZ - b.bedZ;
+        const rLen = Math.hypot(rdx, rdz) || 1;
+        const tanX = -rdz / rLen;
+        const tanZ = rdx / rLen;
+        const spread = Math.max(0.12, Math.min(0.24, b.targetY * 0.16));
+
+        for (const side of [-1, 1]) {
+          const subTargetX = b.targetX + tanX * spread * side;
+          const subTargetZ = b.targetZ + tanZ * spread * side;
+          const subTargetY = Math.max(0.22, b.targetY - 0.025);
+
+          const midSub = new THREE.Vector3(
+            splitPt.x * 0.45 + subTargetX * 0.55,
+            splitPt.y + (subTargetY - splitPt.y) * 0.55,
+            splitPt.z * 0.45 + subTargetZ * 0.55
+          );
+          const subEnd = new THREE.Vector3(subTargetX, subTargetY - 0.015, subTargetZ);
+          const subCurve = new THREE.CatmullRomCurve3([splitPt.clone(), midSub, subEnd]);
+          const subTubeGeo = new THREE.TubeGeometry(subCurve, 18, b.trunkRadius * 0.68, 10, false);
+          const subTube = new THREE.Mesh(subTubeGeo, trunkMat);
+          subTube.castShadow = true;
+          group.add(subTube);
+
+          const subPadGeo = new THREE.CylinderGeometry(padR * 0.72, padR * 0.6, 0.025, 16);
+          const subPad = new THREE.Mesh(subPadGeo, interfaceMat);
+          subPad.position.set(subTargetX, subTargetY - 0.01, subTargetZ);
+          group.add(subPad);
+        }
+      }
     });
 
     return group;
@@ -136,10 +177,11 @@ export class SupportBuilder {
     modelId: SampleModelId,
     trunkMat: THREE.Material,
     interfaceMat: THREE.Material,
-    brimMat: THREE.Material
+    brimMat: THREE.Material,
+    customGroup?: THREE.Group
   ): THREE.Group {
     const group = new THREE.Group();
-    const branches = this.getBranchSpecs(modelId);
+    const branches = this.getBranchSpecs(modelId, customGroup);
 
     branches.forEach((b) => {
       const colWidth = b.trunkRadius * 2.2;
@@ -177,9 +219,144 @@ export class SupportBuilder {
   }
 
   /**
+   * Quét hình học 3D thực tế của mô hình tải lên (custom .3MF / .STL / .OBJ) để sinh các nhánh
+   * Organic Tree Support ôm sát đúng vùng Overhang và biên dạng của mô hình.
+   */
+  private static extractCustomGroupBranchSpecs(customGroup?: THREE.Group): SupportBranchSpec[] {
+    if (customGroup) {
+      customGroup.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(customGroup);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+
+      const minY = isFinite(box.min.y) ? box.min.y : 0;
+      const height = Math.max(0.4, isFinite(size.y) && size.y > 0.05 ? size.y : 1.4);
+      const halfX = Math.max(0.35, isFinite(size.x) && size.x > 0.05 ? size.x * 0.5 : 0.75);
+      const halfZ = Math.max(0.35, isFinite(size.z) && size.z > 0.05 ? size.z * 0.5 : 0.75);
+
+      const sectors = 10;
+      const bestTargets: Array<{ x: number; y: number; z: number; score: number } | null> =
+        new Array(sectors).fill(null);
+      const sectorHullRadius = new Float32Array(sectors);
+
+      const pA = new THREE.Vector3();
+      const pB = new THREE.Vector3();
+      const pC = new THREE.Vector3();
+      const e1 = new THREE.Vector3();
+      const e2 = new THREE.Vector3();
+      const norm = new THREE.Vector3();
+
+      customGroup.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          const geom = mesh.geometry;
+          if (!geom || !geom.attributes.position) return;
+          const pos = geom.attributes.position;
+          const idx = geom.index;
+          const triCount = Math.floor((idx ? idx.count : pos.count) / 3);
+          const stride = Math.max(1, Math.floor(triCount / 8000));
+          const mat = mesh.matrixWorld;
+
+          for (let t = 0; t < triCount; t += stride) {
+            const i0 = idx ? idx.getX(t * 3) : t * 3;
+            const i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+            const i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+
+            pA.fromBufferAttribute(pos, i0).applyMatrix4(mat);
+            pB.fromBufferAttribute(pos, i1).applyMatrix4(mat);
+            pC.fromBufferAttribute(pos, i2).applyMatrix4(mat);
+
+            e1.subVectors(pB, pA);
+            e2.subVectors(pC, pA);
+            norm.crossVectors(e1, e2);
+            const len = norm.length();
+            if (len < 1e-6) continue;
+            norm.divideScalar(len);
+
+            const mx = (pA.x + pB.x + pC.x) / 3;
+            const my = (pA.y + pB.y + pC.y) / 3 - minY;
+            const mz = (pA.z + pB.z + pC.z) / 3;
+
+            const dx = mx - center.x;
+            const dz = mz - center.z;
+            const distR = Math.hypot(dx, dz);
+            if (distR < 0.06) continue;
+
+            let sIdx = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * sectors);
+            sIdx = Math.max(0, Math.min(sectors - 1, sIdx));
+
+            if (distR > sectorHullRadius[sIdx]) {
+              sectorHullRadius[sIdx] = distR;
+            }
+
+            if (my < height * 0.14 || my > height * 0.9) continue;
+            if (norm.y > 0.25) continue;
+
+            const overhangBonus = norm.y < -0.25 ? (-norm.y) * 3.2 : 0.4;
+            const score = overhangBonus + distR * 0.85;
+            const cur = bestTargets[sIdx];
+            if (!cur || score > cur.score) {
+              bestTargets[sIdx] = { x: mx, y: my, z: mz, score };
+            }
+          }
+        }
+      });
+
+      const foundSpecs: SupportBranchSpec[] = [];
+      for (let s = 0; s < sectors; s++) {
+        const tgt = bestTargets[s];
+        if (!tgt) continue;
+        const dx = tgt.x - center.x;
+        const dz = tgt.z - center.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const bedOffset = Math.max(0.24, Math.min(0.45, tgt.y * 0.34));
+        const safeBedR = Math.max(dist + bedOffset, sectorHullRadius[s] + 0.18);
+        foundSpecs.push({
+          bedX: center.x + nx * safeBedR,
+          bedZ: center.z + nz * safeBedR,
+          targetX: tgt.x,
+          targetY: Math.max(0.22, tgt.y),
+          targetZ: tgt.z,
+          trunkRadius: 0.068,
+          padRadius: 0.135,
+        });
+      }
+
+      if (foundSpecs.length >= 4) {
+        return foundSpecs;
+      }
+
+      // Fallback theo đúng kích thước Bounding Box của customGroup
+      const targetH = Math.max(0.32, height * 0.52);
+      return [
+        { bedX: 0, bedZ: halfZ + 0.28, targetX: 0, targetY: targetH, targetZ: halfZ * 0.88, trunkRadius: 0.068, padRadius: 0.135 },
+        { bedX: 0, bedZ: -(halfZ + 0.28), targetX: 0, targetY: targetH, targetZ: -halfZ * 0.88, trunkRadius: 0.068, padRadius: 0.135 },
+        { bedX: halfX + 0.28, bedZ: 0, targetX: halfX * 0.88, targetY: targetH, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
+        { bedX: -(halfX + 0.28), bedZ: 0, targetX: -halfX * 0.88, targetY: targetH, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
+        { bedX: halfX * 0.85, bedZ: halfZ * 0.85, targetX: halfX * 0.65, targetY: targetH * 1.15, targetZ: halfZ * 0.65, trunkRadius: 0.062, padRadius: 0.125 },
+        { bedX: -halfX * 0.85, bedZ: -halfZ * 0.85, targetX: -halfX * 0.65, targetY: targetH * 1.15, targetZ: -halfZ * 0.65, trunkRadius: 0.062, padRadius: 0.125 },
+      ];
+    }
+
+    return [
+      { bedX: 0, bedZ: 0.92, targetX: 0, targetY: 0.58, targetZ: 0.68, trunkRadius: 0.068, padRadius: 0.135 },
+      { bedX: 0, bedZ: -0.92, targetX: 0, targetY: 0.58, targetZ: -0.68, trunkRadius: 0.068, padRadius: 0.135 },
+      { bedX: 0.92, bedZ: 0, targetX: 0.68, targetY: 0.58, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
+      { bedX: -0.92, bedZ: 0, targetX: -0.68, targetY: 0.58, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
+    ];
+  }
+
+  /**
    * Precise overhang specifications calculated from 3D model geometry coordinates
    */
-  private static getBranchSpecs(modelId: SampleModelId): SupportBranchSpec[] {
+  private static getBranchSpecs(modelId: SampleModelId, customGroup?: THREE.Group): SupportBranchSpec[] {
+    if (customGroup || modelId === 'custom') {
+      return this.extractCustomGroupBranchSpecs(customGroup);
+    }
     switch (modelId) {
       case 'dragon':
         // Crystal Dragon: Tree supports sprout outside the model and gently curve in
@@ -475,8 +652,7 @@ export class SupportBuilder {
 
       case 'gear':
       default:
-        // Planetary gear is self-supporting Print-in-Place mechanism
-        return [];
+        return this.extractCustomGroupBranchSpecs(customGroup);
     }
   }
 }

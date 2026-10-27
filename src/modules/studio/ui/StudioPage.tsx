@@ -21,7 +21,7 @@ import {
   ExternalLink,
   Cpu,
   ShieldCheck,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { use3DGenerator } from '@/hooks/use3DGenerator';
 import { useModelViewer } from '@/hooks/useModelViewer';
 import { usePrintSlicer } from '@/hooks/usePrintSlicer';
@@ -744,7 +744,8 @@ function StudioInner() {
                   PresetGeneratorService.downloadSTL(
                     customModel ? customModel.fileName : selectedModelId,
                     dimensionsMm,
-                    customModel?.group
+                    customModel?.group,
+                    supportConfig
                   )
                 }
               />
@@ -847,7 +848,8 @@ function StudioInner() {
                   PresetGeneratorService.downloadSTL(
                     customModel ? customModel.fileName : selectedModelId,
                     dimensionsMm,
-                    customModel?.group
+                    customModel?.group,
+                    supportConfig
                   );
                   showStudioToast('📥 Đang tải tệp Binary STL chuẩn thực tế về thiết bị...');
                 }}

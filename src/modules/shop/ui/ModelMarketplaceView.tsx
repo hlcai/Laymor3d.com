@@ -12,7 +12,7 @@ import {
   Layers,
   Box,
   ArrowUpRight,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IShopModelItem, ModelMarketplaceCategory } from '@/backend/domain/shop';
 
 interface ModelMarketplaceViewProps {

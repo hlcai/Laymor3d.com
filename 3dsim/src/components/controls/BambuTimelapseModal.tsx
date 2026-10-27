@@ -16,7 +16,7 @@ import {
   Eye,
   X,
   FastForward,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import {
   ISimulationProfile,
   ISimulationState,

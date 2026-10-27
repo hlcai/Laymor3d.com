@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { UploadCloud, Sparkles, CheckCircle2 } from 'lucide-react';
+import { UploadCloud, Sparkles, CheckCircle2 } from '@/components/icons/MinimalIcons';
 
 interface ImageUploadZoneProps {
   onImageSelected: (imageBase64OrUrl: string) => void;

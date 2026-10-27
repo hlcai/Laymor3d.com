@@ -11,15 +11,13 @@ import {
   Wallet,
   Building2,
   CheckCircle,
-  XCircle,
-  AlertTriangle,
   RotateCcw,
   Sliders,
-  Shield,
   Info,
-} from 'lucide-react';
+  Cpu,
+} from '@/components/icons/MinimalIcons';
 import { useModulePermissions } from '@/hooks/useModulePermissions';
-import { SystemModuleKey, DEFAULT_MODULE_PERMISSIONS } from '@/backend/domain/config';
+import { SystemModuleKey } from '@/backend/domain/config';
 import { UserRole } from '@/backend/domain/user';
 
 interface ModuleDefinition {
@@ -41,8 +39,16 @@ const MODULES_LIST: ModuleDefinition[] = [
     route: '/studio',
   },
   {
+    key: 'dsim',
+    name: '2. 3D PrintSim Pro (/3dsim)',
+    category: 'Giả Lập & Kiểm Lỗi',
+    description: 'Giả lập thông số Bambu Studio thời gian thực trên phôi 3D, kiểm lỗi 15+ khuyết tật thực tế, đóng góp tri thức và xuất file .3MF.',
+    icon: Cpu,
+    route: '/3dsim',
+  },
+  {
     key: 'shop',
-    name: '2. Cửa Hàng Vật Tư & Linh Kiện',
+    name: '3. Cửa Hàng Vật Tư & Linh Kiện',
     category: 'Thương Mại E-Commerce',
     description: 'Bán lẻ cuộn nhựa in (PLA, PETG-CF, ABS, TPU, Resin) và linh kiện phụ kiện máy in chính hãng.',
     icon: ShoppingBag,
@@ -50,7 +56,7 @@ const MODULES_LIST: ModuleDefinition[] = [
   },
   {
     key: 'services',
-    name: '3. Xưởng In Cấp Tốc 24H',
+    name: '4. Xưởng In Cấp Tốc 24H',
     category: 'Dịch Vụ Xưởng',
     description: 'Báo giá tự động theo khối lượng gram và gửi file in trực tiếp lên Farm Bambu Lab X1C & Voron 2.4.',
     icon: Printer,
@@ -58,7 +64,7 @@ const MODULES_LIST: ModuleDefinition[] = [
   },
   {
     key: 'marketplace',
-    name: '4. Sàn Mô Hình 3D (Marketplace)',
+    name: '5. Sàn Mô Hình 3D (Marketplace)',
     category: 'Nội Dung & Bản Quyền',
     description: 'Thư viện mô hình 3D chất lượng cao, hỗ trợ tải miễn phí và mua bán file 3D có bản quyền.',
     icon: Layers,
@@ -66,7 +72,7 @@ const MODULES_LIST: ModuleDefinition[] = [
   },
   {
     key: 'trends',
-    name: '5. Phân Tích Trend & Crawler',
+    name: '6. Phân Tích Trend & Crawler',
     category: 'Trí Tuệ Dữ Liệu',
     description: 'Tự động quét mô hình hot từ MakerWorld, Printables, Thingiverse và phân tích xu hướng bằng Gemini AI.',
     icon: Compass,
@@ -74,7 +80,7 @@ const MODULES_LIST: ModuleDefinition[] = [
   },
   {
     key: 'seller_hub',
-    name: '6. Gian Hàng Dành Cho Seller',
+    name: '7. Gian Hàng Dành Cho Seller',
     category: 'Đối Tác & Nhà Bán',
     description: 'Khu vực quản lý riêng cho các Maker/Seller: đăng bán sản phẩm, theo dõi đơn bán và ví hoa hồng.',
     icon: Store,
@@ -82,7 +88,7 @@ const MODULES_LIST: ModuleDefinition[] = [
   },
   {
     key: 'wallet',
-    name: '7. Ví Điện Tử & Nạp/Trừ Tiền',
+    name: '8. Ví Điện Tử & Nạp/Trừ Tiền',
     category: 'Tài Chính & Fintech',
     description: 'Nạp tiền ví tự động qua VietQR Napas 24/7, trừ tiền khi in hoặc mua hàng, sao kê lịch sử.',
     icon: Wallet,
@@ -90,9 +96,9 @@ const MODULES_LIST: ModuleDefinition[] = [
   },
   {
     key: 'admin_hub',
-    name: '8. Trung Tâm Quản Trị Hệ Thống',
+    name: '9. Trung Tâm Quản Trị Hệ Thống',
     category: 'Quản Trị Tối Cao',
-    description: 'Điều phối xưởng in, quản lý thành viên, bảng giá vốn, API keys và cấu hình hệ thống.',
+    description: 'Điều phối xưởng in, quản lý thành viên, kho tri thức giả lập, bảng giá vốn, API keys và cấu hình hệ thống.',
     icon: Building2,
     route: '/admin',
   },
@@ -100,13 +106,14 @@ const MODULES_LIST: ModuleDefinition[] = [
 
 const ROLES_COLUMNS: { role: UserRole; label: string; badgeColor: string; description: string }[] = [
   { role: 'admin', label: 'Admin (Quản trị)', badgeColor: 'bg-rose-50 text-rose-800 border-rose-300', description: 'Toàn quyền điều hành' },
-  { role: 'mod', label: 'Mod (Kiểm duyệt)', badgeColor: 'bg-indigo-50 text-indigo-800 border-indigo-300', description: 'Quản lý kho & duyệt mẫu' },
+  { role: 'mod', label: 'Mod (Kiểm duyệt)', badgeColor: 'bg-indigo-50 text-indigo-800 border-indigo-300', description: 'Quản lý kho & tri thức' },
+  { role: 'staff', label: 'Staff (Kỹ thuật)', badgeColor: 'bg-cyan-50 text-cyan-800 border-cyan-300', description: 'Vận hành xưởng in' },
   { role: 'seller', label: 'Seller (Người bán)', badgeColor: 'bg-amber-50 text-amber-800 border-amber-300', description: 'Quản lý gian hàng riêng' },
-  { role: 'user', label: 'User (Khách hàng)', badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-300', description: 'Người dùng cuối' },
+  { role: 'user', label: 'User (Khách hàng)', badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-300', description: 'Người dùng trải nghiệm' },
 ];
 
 export function AdminModulesManager() {
-  const { matrix, isLoading, toggleModuleForRole, refreshPermissions } = useModulePermissions();
+  const { matrix, toggleModuleForRole, refreshPermissions } = useModulePermissions();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -118,7 +125,7 @@ export function AdminModulesManager() {
     const nextVal = !currentVal;
     const ok = await toggleModuleForRole(moduleKey, role, nextVal);
     if (ok) {
-      showToast(`Đã ${nextVal ? 'BẬT' : 'TẮT'} module [${moduleKey}] đối với vai trò [${role.toUpperCase()}]`);
+      showToast(`Đã ${nextVal ? 'BẬT' : 'TẮT'} vùng [${moduleKey}] đối với nhóm [${role.toUpperCase()}]`);
     } else {
       showToast('Lỗi khi cập nhật phân quyền module!');
     }
@@ -126,7 +133,6 @@ export function AdminModulesManager() {
 
   return (
     <div className="space-y-6 text-slate-800">
-      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl bg-slate-900 border border-cyan-500/50 text-white font-semibold text-xs shadow-2xl animate-slideUp flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -134,7 +140,6 @@ export function AdminModulesManager() {
         </div>
       )}
 
-      {/* Top Banner Header */}
       <div className="vision-glass-panel rounded-[32px] p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-200/80 bg-white/90 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-cyan-50 border border-cyan-200 flex items-center justify-center text-cyan-700 shrink-0 shadow-sm">
@@ -143,14 +148,14 @@ export function AdminModulesManager() {
           <div>
             <div className="flex items-center gap-2.5">
               <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
-                Phân Quyền Module Hệ Thống (Feature-Flag Matrix)
+                Ma Trận Vùng Chức Năng Hệ Thống (9 Vùng Hiển Thị)
               </h2>
               <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-800 border border-rose-300">
-                CHỈ ADMIN
+                MASTER ADMIN
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Bật hoặc tắt quyền hiển thị và truy cập từng tính năng độc lập cho từng nhóm vai trò (Admin, Mod, Seller, User).
+              Bật hoặc tắt quyền hiển thị mặc định theo từng nhóm Vai trò. Để tắt/mở riêng cho từng cá nhân cụ thể, vào mục &ldquo;Quản Lý Người Dùng&rdquo;.
             </p>
           </div>
         </div>
@@ -158,30 +163,28 @@ export function AdminModulesManager() {
         <button
           type="button"
           onClick={() => refreshPermissions()}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold transition-all shadow-sm shrink-0 self-start md:self-auto active:scale-95"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold transition-all shadow-sm shrink-0 self-start md:self-auto active:scale-95 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
           <span>Tải lại ma trận</span>
         </button>
       </div>
 
-      {/* Guidance Note */}
       <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3 text-xs text-slate-700 shadow-sm">
         <Info className="w-4 h-4 text-cyan-600 shrink-0 mt-0.5" />
         <p className="leading-relaxed">
-          <strong className="text-slate-900">Cơ chế hoạt động:</strong> Khi một module bị tắt đối với một Role, thanh điều hướng Navbar sẽ tự động ẩn liên kết tương ứng. Nếu người dùng thuộc Role đó cố truy cập trực tiếp bằng đường dẫn URL, hệ thống sẽ tự động chặn và thông báo tính năng đang bảo trì.
+          <strong className="text-slate-900">Phân cấp ưu tiên:</strong> Mỗi tài khoản người dùng có thể được cấu hình tắt/mở từng vùng chức năng riêng biệt trong tab <strong>Quản Lý Người Dùng &rarr; Tắt/Mở Vùng &amp; Chức Năng</strong>. Bảng dưới đây thiết lập trạng thái mặc định chung cho toàn bộ nhóm vai trò.
         </p>
       </div>
 
-      {/* Matrix Table in VisionOS Glass Container */}
       <div className="vision-glass rounded-[32px] overflow-hidden border border-slate-200/80 bg-white/90 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70 text-xs text-slate-700 font-bold uppercase tracking-wider">
-                <th className="py-4 px-6 min-w-[280px]">Tên Module &amp; Chức Năng</th>
+                <th className="py-4 px-6 min-w-[280px]">Tên Vùng &amp; Chức Năng</th>
                 {ROLES_COLUMNS.map((col) => (
-                  <th key={col.role} className="py-4 px-4 text-center min-w-[140px]">
+                  <th key={col.role} className="py-4 px-4 text-center min-w-[130px]">
                     <div className="space-y-1">
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${col.badgeColor}`}>
                         {col.label}
@@ -199,7 +202,6 @@ export function AdminModulesManager() {
                 const Icon = mod.icon;
                 return (
                   <tr key={mod.key} className="hover:bg-slate-50/60 transition-colors">
-                    {/* Module Info */}
                     <td className="py-4 px-6">
                       <div className="flex items-start gap-3.5">
                         <div className="w-9 h-9 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-center text-cyan-700 shrink-0 mt-0.5">
@@ -218,7 +220,6 @@ export function AdminModulesManager() {
                       </div>
                     </td>
 
-                    {/* Roles Toggles */}
                     {ROLES_COLUMNS.map((col) => {
                       const isEnabled = matrix[mod.key] ? matrix[mod.key][col.role] ?? true : true;
                       const isMasterAdminRole = col.role === 'admin' && mod.key === 'admin_hub';
@@ -228,18 +229,13 @@ export function AdminModulesManager() {
                           <div className="flex flex-col items-center justify-center gap-1.5">
                             <button
                               type="button"
-                              disabled={isMasterAdminRole} // Admin luôn có quyền vào admin_hub
+                              disabled={isMasterAdminRole}
                               onClick={() => handleToggle(mod.key, col.role, isEnabled)}
                               className={`w-12 h-6 rounded-full transition-colors p-0.5 relative flex items-center border ${
                                 isEnabled
                                   ? 'bg-cyan-600 border-cyan-600'
                                   : 'bg-slate-200 border-slate-300'
                               } ${isMasterAdminRole ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
-                              title={
-                                isMasterAdminRole
-                                  ? 'Không thể tắt quyền quản trị tối cao của Admin'
-                                  : `Click để ${isEnabled ? 'Tắt' : 'Bật'} module cho ${col.role}`
-                              }
                             >
                               <div
                                 className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${

@@ -28,7 +28,12 @@ import {
   computeProSlicerTelemetry,
   generateSurroundingGcodeBlock,
 } from '@/services/proSlicerLocalEngine';
-import { runPreflightInspection } from '@/services/preflightAnalyzer';
+import {
+  runPreflightInspection,
+  fetchLearnedDefectRulesFromDB,
+  ICustomDefectKnowledgeRule,
+} from '@/services/preflightAnalyzer';
+import { DefectKnowledgeModal } from '@/components/controls/DefectKnowledgeModal';
 import {
   embedProtocol,
   mapStudioModelIdToSimSampleId,
@@ -38,6 +43,9 @@ import {
   clearAllSupportCaches,
   setPreloadedSupport,
   setPreloadedToolpaths,
+  extractBambuGcodeFromBuffer,
+  parseBambuGcodeNative,
+  reconstructGeometryFromToolpaths,
 } from '@/services/nativeSupportLoader';
 import { sliceUniversalGeometry } from '@/services/universalSlicerEngine';
 
@@ -110,10 +118,19 @@ export default function App() {
   const [selectedReportLogId, setSelectedReportLogId] = useState<string | null>(null);
   const [isModelLibraryOpen, setIsModelLibraryOpen] = useState<boolean>(false);
   const [isAI3DModalOpen, setIsAI3DModalOpen] = useState<boolean>(false);
+  const [isDefectKnowledgeOpen, setIsDefectKnowledgeOpen] = useState<boolean>(false);
+  const [learnedDefectRules, setLearnedDefectRulesState] = useState<ICustomDefectKnowledgeRule[]>([]);
   const [hasGeminiKey, setHasGeminiKey] = useState<boolean>(() => {
     return getSavedGeminiApiKey().length > 0;
   });
   const captureSnapshotRef = useRef<(() => string | null) | null>(null);
+
+  // Nạp quy tắc lỗi học từ Knowledge Database (/api/knowledge) khi khởi động
+  useEffect(() => {
+    fetchLearnedDefectRulesFromDB().then((rules) => {
+      setLearnedDefectRulesState(rules);
+    });
+  }, []);
 
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
   const [showToolhead, setShowToolhead] = useState<boolean>(true);
@@ -131,8 +148,8 @@ export default function App() {
   }, [geometry, profile, modelTransform.scale]);
 
   const preflightReport = React.useMemo(() => {
-    return runPreflightInspection(geometry, profile, slicingMetrics);
-  }, [geometry, profile, slicingMetrics]);
+    return runPreflightInspection(geometry, profile, slicingMetrics, learnedDefectRules);
+  }, [geometry, profile, slicingMetrics, learnedDefectRules]);
 
   // 5. Simulation State (Mặc định hiển thị 100% mô hình hoàn thiện rõ ràng ngay khi mở)
   const [simulationState, setSimulationState] = useState<ISimulationState>(() => ({
@@ -439,9 +456,27 @@ export default function App() {
     }));
   };
 
-  // Áp dụng kết quả Slicing từ Local Slicer CLI vào Simulation State
+  // Áp dụng kết quả Slicing từ Local Slicer CLI hoặc G-Code vào Simulation State
   const handleApplySliceResult = (res: ISliceResponse) => {
     if (!res || !res.success) return;
+    setShowSupport(true);
+    const nativeKey = `bambu-native-${Date.now()}`;
+    if (res.supportData && res.supportData.segments && res.supportData.segments.length > 0) {
+      setPreloadedSupport(nativeKey, res.supportData);
+      setPreloadedSupport(currentModel.name, res.supportData);
+      setPreloadedSupport(currentModel.id, res.supportData);
+      if (currentModel.path) setPreloadedSupport(currentModel.path, res.supportData);
+    }
+    if (res.toolpathData && res.toolpathData.outerWalls && res.toolpathData.outerWalls.length > 0) {
+      setPreloadedToolpaths(nativeKey, res.toolpathData);
+      setPreloadedToolpaths(currentModel.name, res.toolpathData);
+      setPreloadedToolpaths(currentModel.id, res.toolpathData);
+      if (currentModel.path) setPreloadedToolpaths(currentModel.path, res.toolpathData);
+    }
+    setCurrentModel((prev) => ({
+      ...prev,
+      path: nativeKey,
+    }));
     setSimulationState((prev) => ({
       ...prev,
       totalLayers: res.totalLayers,
@@ -454,7 +489,75 @@ export default function App() {
     }));
   };
 
-  // Tải file 3MF / STL / OBJ từ máy tính
+  // Nạp trực tiếp file .gcode.3mf hoặc .gcode xuất từ Bambu Studio áp dụng lên mô hình hiện tại
+  const handleImportNativeSupportFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const buffer = e.target?.result as ArrayBuffer;
+      if (!buffer) return;
+      const gcodeText = extractBambuGcodeFromBuffer(buffer, file.name);
+      if (!gcodeText) {
+        alert(
+          'File này chưa có dữ liệu G-Code đã cắt lát từ Bambu Studio.\nHãy chọn File -> Export -> Export plate sliced file (.gcode.3mf) hoặc Export G-code (.gcode) trong Bambu Studio!'
+        );
+        return;
+      }
+
+      const bundle = parseBambuGcodeNative(gcodeText, currentModel.name);
+      // Nếu file .gcode.3mf có kèm cả lưới 3D (.model), cập nhật luôn lưới 3D cho đồng bộ
+      try {
+        if (file.name.toLowerCase().endsWith('.3mf')) {
+          const maybeGeom = parseCADFile(buffer, file.name);
+          if (maybeGeom && maybeGeom.getAttribute('position')?.count > 0) {
+            setBaseGeometry(maybeGeom);
+          }
+        }
+      } catch {
+        // Giữ nguyên baseGeometry hiện tại của mô hình
+      }
+
+      const nativeKey = `bambu-gcode-${Date.now()}`;
+      setShowSupport(true);
+      setProfile((prev) => ({
+        ...prev,
+        supportMode: 'tree',
+        treeStyle: prev.treeStyle || 'organic',
+      }));
+      setPreloadedSupport(nativeKey, bundle.supportData);
+      setPreloadedSupport(currentModel.name, bundle.supportData);
+      setPreloadedSupport(currentModel.id, bundle.supportData);
+      setPreloadedToolpaths(nativeKey, bundle.toolpathData);
+      setPreloadedToolpaths(currentModel.name, bundle.toolpathData);
+      setPreloadedToolpaths(currentModel.id, bundle.toolpathData);
+
+      setCurrentModel((prev) => ({
+        ...prev,
+        path: nativeKey,
+        accentBadge: 'Bambu G-Code Native',
+      }));
+
+      setSimulationState((prev) => ({
+        ...prev,
+        totalLayers: bundle.totalLayers,
+        currentLayer: bundle.totalLayers,
+        totalTimeSec: bundle.estimatedTimeSec,
+        elapsedTimeSec: bundle.estimatedTimeSec,
+        totalFilamentGrams: bundle.filamentWeightGrams,
+        filamentUsedGrams: bundle.filamentWeightGrams,
+        currentProgress: 1.0,
+        isPlaying: false,
+        isCompleted: true,
+      }));
+
+      setUploadSlicingStatus(
+        `Đã nạp Tree Support gốc từ Bambu Studio (${bundle.totalLayers} lớp, ${bundle.supportLinesCount.toLocaleString()} đường dao Support)`
+      );
+      setTimeout(() => setUploadSlicingStatus(null), 5500);
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // Tải file 3MF / .gcode.3mf / .gcode / STL / OBJ từ máy tính
   const handleUploadFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -463,28 +566,109 @@ export default function App() {
       try {
         clearAllSupportCaches();
         setViewMode('cad');
+        setShowSupport(true);
+        setProfile((prev) => ({
+          ...prev,
+          supportMode: prev.supportMode === 'none' ? 'tree' : prev.supportMode,
+          treeStyle: prev.treeStyle || 'organic',
+        }));
         setModelTransform(DEFAULT_TRANSFORM);
-        const customGeom = parseCADFile(buffer, file.name);
+
+        // 1. Kiểm tra nếu file tải lên là .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio
+        const embeddedGcode = extractBambuGcodeFromBuffer(buffer, file.name);
+        const parsedGcodeBundle = embeddedGcode ? parseBambuGcodeNative(embeddedGcode, file.name) : null;
+
+        let customGeom: THREE.BufferGeometry | null = null;
+        try {
+          if (!file.name.toLowerCase().endsWith('.gcode') && !file.name.toLowerCase().endsWith('.gco')) {
+            customGeom = parseCADFile(buffer, file.name);
+          }
+        } catch (cadErr) {
+          if (!parsedGcodeBundle) {
+            throw cadErr;
+          }
+        }
+
+        // Nếu file là .gcode.3mf hoặc .gcode chỉ chứa G-code mà không có thẻ <mesh> (.model):
+        // Giữ nguyên mô hình hiện tại nếu người dùng đang đính kèm support, hoặc tái tạo lưới 3D từ G-code
+        if (!customGeom && parsedGcodeBundle) {
+          if (currentModel.id.startsWith('custom-') && baseGeometry.getAttribute('position')?.count > 0) {
+            customGeom = baseGeometry;
+          } else {
+            customGeom = reconstructGeometryFromToolpaths(parsedGcodeBundle.toolpathData);
+          }
+        }
+
+        if (!customGeom) {
+          throw new Error('Không thể đọc dữ liệu hình học 3D từ file này.');
+        }
+
         setBaseGeometry(customGeom);
 
         customGeom.computeBoundingBox();
         const bbox = customGeom.boundingBox || new THREE.Box3();
-        const dimX = Math.round(bbox.max.x - bbox.min.x);
-        const dimY = Math.round(bbox.max.y - bbox.min.y);
-        const dimZ = Math.round(bbox.max.z - bbox.min.z);
+        const dimX = Math.max(1, Math.round(bbox.max.x - bbox.min.x));
+        const dimY = Math.max(1, Math.round(bbox.max.y - bbox.min.y));
+        const dimZ = Math.max(1, Math.round(bbox.max.z - bbox.min.z));
 
         const is3MF = file.name.toUpperCase().endsWith('.3MF');
+        const isGcode = file.name.toUpperCase().endsWith('.GCODE') || Boolean(parsedGcodeBundle);
+        const nativePathKey = parsedGcodeBundle ? `bambu-native-${Date.now()}` : undefined;
+        const cleanName = file.name.replace(/\.gcode\.3mf$/i, '').replace(/\.[^/.]+$/, '');
+
         const customModelObj: ISampleModel = {
           id: 'custom-' + Date.now(),
-          name: file.name.replace(/\.[^/.]+$/, ''),
+          name: cleanName,
+          path: nativePathKey,
           description: `Mô hình 3D tùy chỉnh (${dimX} x ${dimY} x ${dimZ} mm) nạp từ máy tính`,
           category: 'User Upload',
           geometryType: 'custom' as any,
           defaultProfileId: profile.id,
           dimensionsMm: [dimX, dimY, dimZ],
-          estimatedWeightGrams: Math.round(dimX * dimY * dimZ * 0.00045 * 1.24 * 10) / 10,
-          accentBadge: is3MF ? 'Bambu 3MF' : file.name.toUpperCase().endsWith('.OBJ') ? 'File OBJ' : 'File STL',
+          estimatedWeightGrams:
+            parsedGcodeBundle?.filamentWeightGrams ||
+            Math.round(dimX * dimY * dimZ * 0.00045 * 1.24 * 10) / 10,
+          accentBadge: isGcode
+            ? 'Bambu G-Code Native'
+            : is3MF
+            ? 'Bambu 3MF'
+            : file.name.toUpperCase().endsWith('.OBJ')
+            ? 'File OBJ'
+            : 'File STL',
         };
+
+        // Nếu file đã có sẵn G-Code cắt lát từ Bambu Studio (.gcode.3mf / .gcode), nạp trực tiếp 100% Support gốc!
+        if (parsedGcodeBundle && nativePathKey) {
+          if (parsedGcodeBundle.supportData.segments.length > 0) {
+            setPreloadedSupport(nativePathKey, parsedGcodeBundle.supportData);
+            setPreloadedSupport(customModelObj.name, parsedGcodeBundle.supportData);
+            setPreloadedSupport(customModelObj.id, parsedGcodeBundle.supportData);
+          }
+          if (parsedGcodeBundle.toolpathData.outerWalls.length > 0) {
+            setPreloadedToolpaths(nativePathKey, parsedGcodeBundle.toolpathData);
+            setPreloadedToolpaths(customModelObj.name, parsedGcodeBundle.toolpathData);
+            setPreloadedToolpaths(customModelObj.id, parsedGcodeBundle.toolpathData);
+          }
+          setCurrentModel(customModelObj);
+          setSimulationState((prev) => ({
+            ...prev,
+            totalLayers: parsedGcodeBundle.totalLayers,
+            currentLayer: parsedGcodeBundle.totalLayers,
+            totalTimeSec: parsedGcodeBundle.estimatedTimeSec,
+            elapsedTimeSec: parsedGcodeBundle.estimatedTimeSec,
+            totalFilamentGrams: parsedGcodeBundle.filamentWeightGrams,
+            filamentUsedGrams: parsedGcodeBundle.filamentWeightGrams,
+            currentProgress: 1.0,
+            isPlaying: false,
+            isCompleted: true,
+          }));
+          setUploadSlicingStatus(
+            `Đã trích xuất trực tiếp Tree Support gốc từ Bambu Studio (${parsedGcodeBundle.totalLayers} lớp, ${parsedGcodeBundle.supportLinesCount.toLocaleString()} đoạn Support)`
+          );
+          setTimeout(() => setUploadSlicingStatus(null), 5500);
+          return;
+        }
+
         setCurrentModel(customModelObj);
 
         setSimulationState((prev) => ({
@@ -494,8 +678,8 @@ export default function App() {
           isCompleted: true,
         }));
 
-        // Gửi trực tiếp file nhị phân lên Bambu Studio CLI để dựng Organic Tree Support & Sợi In
-        setUploadSlicingStatus('⚡ Đang gửi sang Bambu Studio CLI để dựng Organic Tree Support & Sợi In...');
+        // Gửi trực tiếp file nhị phân lên Bambu Studio CLI (nếu chạy Localhost) để dựng Organic Tree Support & Sợi In
+        setUploadSlicingStatus('Đang phân tích cấu trúc Overhang & đồng bộ Bambu Studio Tree Support...');
         fetch(`/api/slicer/upload-and-slice?name=${encodeURIComponent(file.name)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
@@ -503,12 +687,10 @@ export default function App() {
         })
           .then((res) => res.json())
           .then((resData) => {
-            if (resData.success) {
-              if (resData.supportData) {
-                setPreloadedSupport(resData.modelPath || file.name, resData.supportData);
-                setPreloadedSupport(customModelObj.name, resData.supportData);
-                setPreloadedSupport(customModelObj.id, resData.supportData);
-              }
+            if (resData.success && resData.supportData?.segments?.length > 0) {
+              setPreloadedSupport(resData.modelPath || file.name, resData.supportData);
+              setPreloadedSupport(customModelObj.name, resData.supportData);
+              setPreloadedSupport(customModelObj.id, resData.supportData);
               if (resData.toolpathData) {
                 setPreloadedToolpaths(resData.modelPath || file.name, resData.toolpathData);
                 setPreloadedToolpaths(customModelObj.name, resData.toolpathData);
@@ -532,15 +714,14 @@ export default function App() {
               }
 
               setUploadSlicingStatus(
-                `✓ Hoàn tất Bambu Studio Native! (${resData.totalLayers || 180} lớp in, ${resData.supportLinesCount || 0} đoạn Tree Support)`
+                `Hoàn tất Bambu Studio Native (${resData.totalLayers || 180} lớp in, ${resData.supportLinesCount || 0} đoạn Tree Support)`
               );
               setTimeout(() => setUploadSlicingStatus(null), 5000);
             } else {
               setUploadSlicingStatus(null);
             }
           })
-          .catch((err) => {
-            console.warn('Lỗi gọi upload-and-slice:', err);
+          .catch(() => {
             setUploadSlicingStatus(null);
           });
       } catch (err: any) {
@@ -554,6 +735,12 @@ export default function App() {
   const handleLoadCustomGeometry = (geom: THREE.BufferGeometry, modelInfo: ISampleModel) => {
     clearAllSupportCaches();
     setViewMode('cad');
+    setShowSupport(true);
+    setProfile((prev) => ({
+      ...prev,
+      supportMode: prev.supportMode === 'none' ? 'tree' : prev.supportMode,
+      treeStyle: prev.treeStyle || 'organic',
+    }));
     setModelTransform(DEFAULT_TRANSFORM);
     setBaseGeometry(geom);
     setCurrentModel(modelInfo);
@@ -848,6 +1035,7 @@ export default function App() {
         onOpenSupabaseHub={() => setIsSupabaseHubOpen(true)}
         isSupabaseConnected={isSupabaseConnected}
         onOpenAI3DModal={() => setIsAI3DModalOpen(true)}
+        onOpenDefectKnowledgeModal={() => setIsDefectKnowledgeOpen(true)}
         theme={theme}
         onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
         onSyncToStudio={handleSyncBackToStudio}
@@ -1001,6 +1189,16 @@ export default function App() {
           setSimulationState((prev) => ({ ...prev, isPlaying: true, isCompleted: false }));
         }}
         profile={profile}
+        onOpenDefectKnowledgeModal={() => setIsDefectKnowledgeOpen(true)}
+      />
+
+      {/* 5.05. Defect Knowledge Base & User/Admin Learning Modal */}
+      <DefectKnowledgeModal
+        isOpen={isDefectKnowledgeOpen}
+        onClose={() => setIsDefectKnowledgeOpen(false)}
+        currentProfile={profile}
+        onRulesUpdated={(rules) => setLearnedDefectRulesState(rules)}
+        onApplyFix={handleApplyFix}
       />
 
       {/* 5.1. Live Telemetry & Locked Report Parameters Inspector Modal */}
@@ -1066,7 +1264,10 @@ export default function App() {
         geometry={geometry}
         profile={profile}
         modelTransform={modelTransform}
-        onChangeProfile={(updated) => setProfile((prev) => ({ ...prev, ...updated }))}
+        onChangeProfile={(updated) => {
+          setShowSupport(true);
+          setProfile((prev) => ({ ...prev, ...updated }));
+        }}
         onChangeTransform={setModelTransform}
       />
 
@@ -1083,8 +1284,12 @@ export default function App() {
         onClose={() => setIsLocalSlicerModalOpen(false)}
         currentModel={currentModel}
         profile={profile}
-        onApplyProfilePatch={(patch) => setProfile((prev) => ({ ...prev, ...patch }))}
+        onApplyProfilePatch={(patch) => {
+          setShowSupport(true);
+          setProfile((prev) => ({ ...prev, ...patch }));
+        }}
         onApplySliceResult={handleApplySliceResult}
+        onImportBambuGcodeFile={handleImportNativeSupportFile}
       />
 
       {/* 12. Model Library & 3MF Local Browser Modal */}

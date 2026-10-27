@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Sparkles, Zap, Rocket, Crown, Check, ShieldCheck } from 'lucide-react';
+import { Sparkles, Zap, Rocket, Crown, Check, ShieldCheck } from '@/components/icons/MinimalIcons';
 import { AITierId, AI_PRINT_TIERS } from '@/backend/domain/ai-tiers';
 
 interface AIPrintTierSelectorProps {

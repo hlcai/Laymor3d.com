@@ -25,7 +25,7 @@ import {
   Eye,
   Copy,
   Check,
-} from 'lucide-react';
+} from '@/components/icons/MinimalIcons';
 import { IExpertPrintProfile, IExpertPrintProfileVariant } from '@/backend/domain/wallet';
 import { IPrinterProfile, ISupportConfig } from '@/backend/domain/slicing';
 import { PresetGeneratorService } from '@/backend/services/slicing/PresetGeneratorService';
