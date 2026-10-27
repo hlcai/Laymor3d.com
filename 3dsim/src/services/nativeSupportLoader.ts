@@ -62,14 +62,23 @@ export async function loadNativeBambuSupport(
   }
 
   if (fallbackFile) {
-    try {
-      const res = await fetch(fallbackFile);
-      if (res.ok) {
-        const data = await res.json();
-        modelSupportCache.set(cacheKey, data);
-        return data;
-      }
-    } catch (_) {}
+    const baseUrl = (import.meta as any).env?.BASE_URL || '/';
+    const cleanRel = fallbackFile.replace(/^\//, '');
+    const candidateUrls = [
+      `${baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'}${cleanRel}`,
+      `/3dsim/${cleanRel}`,
+      fallbackFile,
+    ];
+    for (const url of candidateUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          modelSupportCache.set(cacheKey, data);
+          return data;
+        }
+      } catch (_) {}
+    }
   }
 
   return null;
@@ -422,14 +431,23 @@ export async function loadFullBambuToolpaths(
   }
 
   if (fallbackFile) {
-    try {
-      const res = await fetch(fallbackFile);
-      if (res.ok) {
-        const data: IFullToolpathData = await res.json();
-        toolpathsCache.set(cacheKey, data);
-        return data;
-      }
-    } catch (_) {}
+    const baseUrl = (import.meta as any).env?.BASE_URL || '/';
+    const cleanRel = fallbackFile.replace(/^\//, '');
+    const candidateUrls = [
+      `${baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'}${cleanRel}`,
+      `/3dsim/${cleanRel}`,
+      fallbackFile,
+    ];
+    for (const url of candidateUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data: IFullToolpathData = await res.json();
+          toolpathsCache.set(cacheKey, data);
+          return data;
+        }
+      } catch (_) {}
+    }
   }
 
   return null;
@@ -579,6 +597,12 @@ export function buildFullFilamentPreviewMesh(data: IFullToolpathData): THREE.Gro
         ifMat.clippingPlanes = planes;
         seamMat.clippingPlanes = planes;
       }
+    },
+    updateVisibility: (opts: { showSupport: boolean; brimEnabled: boolean; infillDensity: number }) => {
+      supLines.visible = opts.showSupport;
+      ifLines.visible = opts.showSupport;
+      brimLines.visible = opts.brimEnabled;
+      infillLines.visible = opts.infillDensity > 0;
     },
   };
 

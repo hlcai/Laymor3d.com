@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Sparkles,
@@ -18,6 +18,9 @@ import {
   X,
   Tag,
   FileCheck,
+  ExternalLink,
+  Cpu,
+  ShieldCheck,
 } from 'lucide-react';
 import { use3DGenerator } from '@/hooks/use3DGenerator';
 import { useModelViewer } from '@/hooks/useModelViewer';
@@ -122,6 +125,17 @@ function StudioInner() {
   const [studioToast, setStudioToast] = useState<string | null>(null);
   const [isOrderServiceModalOpen, setIsOrderServiceModalOpen] = useState(false);
 
+  // Tích hợp sâu với 3D Print Simulator (/3dsim)
+  const [viewportEngine, setViewportEngine] = useState<'studio' | 'printsim_pro'>('studio');
+  const simIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [simLiveMetrics, setSimLiveMetrics] = useState<{
+    printabilityScore: number;
+    overhangPercent: number;
+    filamentWeightGrams?: number;
+    estimatedPrintTimeMinutes?: number;
+    material?: string;
+  } | null>(null);
+
   // Giai đoạn 2: Vault Tệp 3D & Bán Marketplace 1-Click
   const [isSavingVault, setIsSavingVault] = useState(false);
   const [isMarketplaceModalOpen, setIsMarketplaceModalOpen] = useState(false);
@@ -212,7 +226,7 @@ function StudioInner() {
     }
   };
 
-  // Tự động nạp model nếu được chuyển từ trang Trends, Crawler hoặc Shop qua URL Query (?sampleModel=... hoặc ?model=...)
+  // Tự động nạp model nếu được chuyển từ trang Trends, Crawler, Shop hoặc từ /3dsim qua URL Query
   useEffect(() => {
     const modelParam = (searchParams.get('sampleModel') || searchParams.get('model')) as SampleModelId | null;
     if (modelParam) {
@@ -221,7 +235,194 @@ function StudioInner() {
         loadSampleModel(found);
       }
     }
-  }, [searchParams, loadSampleModel]);
+
+    // Kiểm tra dữ liệu đồng bộ ngược từ /3dsim
+    if (searchParams.get('fromSim') === '1') {
+      try {
+        const raw = localStorage.getItem('laymor_3dsim_to_studio_sync_v1');
+        if (raw) {
+          const synced = JSON.parse(raw);
+          if (synced && Date.now() - synced.timestamp < 10 * 60 * 1000) {
+            setSimLiveMetrics({
+              printabilityScore: synced.printabilityScore ?? 92,
+              overhangPercent: synced.overhangPercent ?? 8,
+              filamentWeightGrams: synced.filamentWeightGrams,
+              estimatedPrintTimeMinutes: synced.estimatedPrintTimeMinutes,
+              material: synced.profile?.material,
+            });
+            if (synced.profile?.supportMode) {
+              updateSupport({
+                enabled: synced.profile.supportMode !== 'none',
+                type: synced.profile.supportMode === 'none' ? 'tree' : synced.profile.supportMode,
+              });
+            }
+            showStudioToast(
+              `🔗 Đã đồng bộ từ PrintSim PRO: ${synced.filamentWeightGrams}g nhựa • Điểm an toàn ${synced.printabilityScore}/100`
+            );
+            if (searchParams.get('openOrder') === '1' || synced.openOrderModal) {
+              setIsOrderServiceModalOpen(true);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  }, [searchParams, loadSampleModel, updateSupport]);
+
+  // Gửi dữ liệu mô hình & cấu hình cắt lớp hiện tại sang iframe /3dsim
+  const syncStateToSimIframe = useCallback(
+    (viewModeOverride?: 'prepare' | 'cad' | 'filament_preview') => {
+      const win = simIframeRef.current?.contentWindow;
+      if (!win) return;
+
+      const currentName = customModel
+        ? customModel.fileName
+        : SAMPLE_PRINT_MODELS.find((m) => m.id === selectedModelId)?.name || '3D Benchy';
+
+      let stlBuffer: ArrayBuffer | undefined;
+      if (customModel?.group || !['benchy', 'dragon', 'gear'].includes(selectedModelId)) {
+        try {
+          stlBuffer = PresetGeneratorService.generateSTLBuffer(
+            currentName,
+            dimensionsMm,
+            customModel?.group
+          );
+        } catch (_) {}
+      }
+
+      win.postMessage(
+        {
+          source: '3D_STUDIO',
+          type: 'SYNC_FROM_STUDIO',
+          data: {
+            sampleId: selectedModelId,
+            modelName: currentName,
+            stlBuffer,
+            scale: Math.max(0.2, Math.min(3.0, scalePercent / 100)),
+            viewMode: viewModeOverride,
+            profile: {
+              materialColor: viewerOptions.materialColor,
+              supportMode: supportConfig.enabled ? supportConfig.type : 'none',
+              supportAngleThreshold: supportConfig.overhangThresholdDegrees,
+              supportInterfaceLayers: supportConfig.interfaceLayers,
+            },
+          },
+        },
+        '*'
+      );
+    },
+    [customModel, selectedModelId, dimensionsMm, scalePercent, viewerOptions.materialColor, supportConfig]
+  );
+
+  // Tự động đẩy thay đổi cấu hình xuống iframe /3dsim khi đang ở chế độ nhúng
+  useEffect(() => {
+    if (viewportEngine === 'printsim_pro') {
+      syncStateToSimIframe();
+    }
+  }, [viewportEngine, syncStateToSimIframe]);
+
+  // Lắng nghe sự kiện trả về từ iframe /3dsim (SIMULATOR_READY, SIMULATOR_REPORT, SIMULATOR_APPLY_TO_STUDIO)
+  useEffect(() => {
+    const handleSimMessage = (e: MessageEvent) => {
+      if (!e.data || e.data.source !== '3D_PRINT_SIMULATOR') return;
+      const { type, data } = e.data;
+
+      if (type === 'SIMULATOR_READY') {
+        syncStateToSimIframe();
+      } else if (type === 'SIMULATOR_REPORT' && data) {
+        setSimLiveMetrics((prev) => ({
+          ...prev,
+          printabilityScore: data.printabilityScore ?? 90,
+          overhangPercent: data.overhangRiskAreaPercent ?? 10,
+          estimatedPrintTimeMinutes: data.estimatedPrintTimeMinutes ?? prev?.estimatedPrintTimeMinutes,
+        }));
+      } else if (type === 'SIMULATOR_APPLY_TO_STUDIO' && data) {
+        setSimLiveMetrics({
+          printabilityScore: data.printabilityScore ?? 92,
+          overhangPercent: data.overhangPercent ?? 8,
+          filamentWeightGrams: data.filamentWeightGrams,
+          estimatedPrintTimeMinutes: data.estimatedPrintTimeMinutes,
+          material: data.profile?.material,
+        });
+        if (data.profile?.supportMode) {
+          updateSupport({
+            enabled: data.profile.supportMode !== 'none',
+            type: data.profile.supportMode === 'none' ? 'tree' : data.profile.supportMode,
+          });
+        }
+        showStudioToast(
+          `✅ Đã áp dụng thông số từ PrintSim PRO (${data.filamentWeightGrams}g • ${data.estimatedPrintTimeMinutes} phút)!`
+        );
+        if (data.openOrderModal) {
+          setIsOrderServiceModalOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleSimMessage);
+    return () => window.removeEventListener('message', handleSimMessage);
+  }, [syncStateToSimIframe, updateSupport]);
+
+  // Mở toàn màn hình /3dsim kèm truyền toàn bộ dữ liệu mô hình (kể cả STL custom) và cấu hình
+  const handleLaunchFullSimulator = (initialViewMode: 'cad' | 'filament_preview' = 'cad') => {
+    const currentName = customModel
+      ? customModel.fileName
+      : SAMPLE_PRINT_MODELS.find((m) => m.id === selectedModelId)?.name || '3D Benchy';
+
+    let stlBase64: string | undefined;
+    if (customModel?.group || !['benchy', 'dragon', 'gear'].includes(selectedModelId)) {
+      try {
+        const buf = PresetGeneratorService.generateSTLBuffer(
+          currentName,
+          dimensionsMm,
+          customModel?.group
+        );
+        if (buf.byteLength < 3.5 * 1024 * 1024) {
+          const bytes = new Uint8Array(buf);
+          let binary = '';
+          const chunkSize = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(
+              null,
+              Array.from(bytes.subarray(i, i + chunkSize))
+            );
+          }
+          stlBase64 = btoa(binary);
+        }
+      } catch (_) {}
+    }
+
+    const supportParam = supportConfig.enabled ? supportConfig.type : 'none';
+    try {
+      localStorage.setItem(
+        'laymor_studio_to_3dsim_sync_v1',
+        JSON.stringify({
+          timestamp: Date.now(),
+          sampleId: selectedModelId,
+          modelName: currentName,
+          stlBase64,
+          dimensionsMm,
+          scalePercent,
+          viewMode: initialViewMode,
+          printerName: selectedPrinter.name,
+          profile: {
+            materialColor: viewerOptions.materialColor,
+            supportMode: supportParam,
+            supportAngleThreshold: supportConfig.overhangThresholdDegrees,
+            supportInterfaceLayers: supportConfig.interfaceLayers,
+          },
+        })
+      );
+    } catch (_) {}
+
+    const params = new URLSearchParams({
+      model: selectedModelId,
+      support: supportParam,
+      color: viewerOptions.materialColor,
+      scale: String(scalePercent),
+      viewMode: initialViewMode,
+    });
+    window.location.href = `/3dsim?${params.toString()}`;
+  };
 
   const handleDropCustomFile = async (file: File) => {
     const loaded = await loadCustomFile(file, viewerOptions.materialColor);
@@ -262,7 +463,27 @@ function StudioInner() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {simLiveMetrics && (
+            <span className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 shadow-xs">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                Printability: {simLiveMetrics.printabilityScore}/100 • Overhang {simLiveMetrics.overhangPercent}%
+              </span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleLaunchFullSimulator('filament_preview')}
+            className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+            title="Mở trình mô phỏng G-Code, Conformal Tree Support & Sợi In Bambu toàn màn hình"
+          >
+            <Cpu className="w-3.5 h-3.5 text-amber-400" />
+            <span>Mở 3D Simulator PRO (G-Code &amp; Sợi In)</span>
+            <ExternalLink className="w-3 h-3 opacity-80" />
+          </button>
+
           {/* Quick Engine Indicator */}
           <span className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-cyan-50 text-cyan-800 border border-cyan-200 flex items-center gap-1.5 shadow-xs">
             <Sparkles className="w-3.5 h-3.5 text-cyan-600" />
@@ -435,57 +656,124 @@ function StudioInner() {
 
         {/* Right Column: 3D WebGL Canvas & Slicing Simulation Slider */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Three.js Canvas Container with Printer Bed & Volume Bounding Box */}
-          <div className="relative rounded-[32px] overflow-hidden border border-white/15 shadow-2xl bg-black/60">
-            <ThreeCanvasViewer
-              options={viewerOptions}
-              modelUrl={activeJob?.resultGlbUrl}
-              printer={selectedPrinter}
-              dimensionsMm={dimensionsMm}
-              supportConfig={supportConfig}
-              currentLayer={currentLayer}
-              totalLayers={estimation.totalLayers}
-              sampleModelId={selectedModelId}
-              customLoadedModel={customModel}
-              onDropFile={handleDropCustomFile}
-              onClearCustomModel={clearCustomModel}
-              className="h-[480px]"
-            />
+          {/* Dual Viewport Switcher Bar: 3D Studio Chuẩn vs PrintSim PRO Nhúng Trực Tiếp */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-2xl bg-white/90 border border-slate-200/90 shadow-xs">
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewportEngine('studio')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewportEngine === 'studio'
+                    ? 'bg-white text-cyan-900 shadow-xs border border-slate-200/80'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Box className="w-3.5 h-3.5 text-cyan-600" />
+                <span>Khung Xem 3D Studio</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewportEngine('printsim_pro')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewportEngine === 'printsim_pro'
+                    ? 'bg-slate-900 text-amber-300 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-500" />
+                <span>PrintSim PRO Nhúng (Tree Support &amp; Sợi In)</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {viewportEngine === 'printsim_pro' && (
+                <button
+                  type="button"
+                  onClick={() => syncStateToSimIframe('filament_preview')}
+                  className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-[11px] font-bold transition-all cursor-pointer"
+                >
+                  Xem Sợi In Bambu
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleLaunchFullSimulator('cad')}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-200 text-[11px] font-bold transition-all cursor-pointer"
+                title="Mở 3D Print Simulator toàn màn hình với toàn bộ thông số hiện tại"
+              >
+                <span>Toàn Màn Hình /3dsim</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            </div>
           </div>
 
-          {/* Interactive Toolbar below Canvas (With Slicer Toolpath Mode & Auto-Orientation) */}
-          <ViewerToolbar
-            options={viewerOptions}
-            onToggleWireframe={toggleWireframe}
-            onToggleAutoRotate={toggleAutoRotate}
-            onToggleGrid={toggleGrid}
-            onToggleDimensions={toggleDimensions}
-            onToggleViewMode={toggleViewMode}
-            onSetOrientation={setOrientationDeg}
-            onRotateStep={rotateStep}
-            onColorChange={setMaterialColor}
-            onLightingChange={setLightingIntensity}
-            onExportSTL={() =>
-              PresetGeneratorService.downloadSTL(
-                customModel ? customModel.fileName : selectedModelId,
-                dimensionsMm,
-                customModel?.group
-              )
-            }
-          />
+          {/* Three.js Canvas Container OR Embedded PrintSim PRO Iframe */}
+          {viewportEngine === 'studio' ? (
+            <>
+              <div className="relative rounded-[32px] overflow-hidden border border-white/15 shadow-2xl bg-black/60">
+                <ThreeCanvasViewer
+                  options={viewerOptions}
+                  modelUrl={activeJob?.resultGlbUrl}
+                  printer={selectedPrinter}
+                  dimensionsMm={dimensionsMm}
+                  supportConfig={supportConfig}
+                  currentLayer={currentLayer}
+                  totalLayers={estimation.totalLayers}
+                  sampleModelId={selectedModelId}
+                  customLoadedModel={customModel}
+                  onDropFile={handleDropCustomFile}
+                  onClearCustomModel={clearCustomModel}
+                  className="h-[480px]"
+                />
+              </div>
 
-          {/* Slicing Layer-by-Layer Simulation Slider with Stats */}
-          <PrintSimulationSlider
-            currentLayer={currentLayer}
-            totalLayers={estimation.totalLayers}
-            simulationProgressPercent={simulationProgressPercent}
-            isPlayingSimulation={isPlayingSimulation}
-            onPlay={playSimulation}
-            onPause={pauseSimulation}
-            onReset={resetSimulation}
-            onSeek={seekLayer}
-            estimation={estimation}
-          />
+              {/* Interactive Toolbar below Canvas (With Slicer Toolpath Mode & Auto-Orientation) */}
+              <ViewerToolbar
+                options={viewerOptions}
+                onToggleWireframe={toggleWireframe}
+                onToggleAutoRotate={toggleAutoRotate}
+                onToggleGrid={toggleGrid}
+                onToggleDimensions={toggleDimensions}
+                onToggleViewMode={toggleViewMode}
+                onSetOrientation={setOrientationDeg}
+                onRotateStep={rotateStep}
+                onColorChange={setMaterialColor}
+                onLightingChange={setLightingIntensity}
+                onExportSTL={() =>
+                  PresetGeneratorService.downloadSTL(
+                    customModel ? customModel.fileName : selectedModelId,
+                    dimensionsMm,
+                    customModel?.group
+                  )
+                }
+              />
+
+              {/* Slicing Layer-by-Layer Simulation Slider with Stats */}
+              <PrintSimulationSlider
+                currentLayer={currentLayer}
+                totalLayers={estimation.totalLayers}
+                simulationProgressPercent={simulationProgressPercent}
+                isPlayingSimulation={isPlayingSimulation}
+                onPlay={playSimulation}
+                onPause={pauseSimulation}
+                onReset={resetSimulation}
+                onSeek={seekLayer}
+                estimation={estimation}
+              />
+            </>
+          ) : (
+            <div className="relative rounded-[32px] overflow-hidden border border-slate-800 shadow-2xl bg-slate-950 h-[620px]">
+              <iframe
+                ref={simIframeRef}
+                src={`/3dsim?embed=true&model=${encodeURIComponent(selectedModelId)}&support=${
+                  supportConfig.enabled ? supportConfig.type : 'none'
+                }&color=${encodeURIComponent(viewerOptions.materialColor)}`}
+                title="3D Print Simulator PRO Embedded"
+                className="w-full h-full border-0"
+              />
+            </div>
+          )}
 
           {/* FAST CONVERSION & 3D ASSET LIFECYCLE ACTION BAR */}
           <div className="p-4 sm:p-5 rounded-[28px] vision-glass border border-slate-200/90 bg-white/90 shadow-xs flex flex-col gap-4">
@@ -505,7 +793,7 @@ function StudioInner() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Ước tính: ~{estimation.filamentWeightGrams}g nhựa • Thời gian in: ~{Math.round((estimation.estimatedPrintTimeMinutes / 60) * 10) / 10}h • Giao toàn quốc
+                    Ước tính: ~{simLiveMetrics?.filamentWeightGrams || estimation.filamentWeightGrams}g nhựa • Thời gian in: ~{Math.round(((simLiveMetrics?.estimatedPrintTimeMinutes || estimation.estimatedPrintTimeMinutes) / 60) * 10) / 10}h • Giao toàn quốc
                   </p>
                 </div>
               </div>
@@ -517,7 +805,7 @@ function StudioInner() {
                   className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-700 hover:to-sky-700 text-white font-bold text-xs shadow-md active:scale-95 transition-all"
                 >
                   <Sparkles className="w-4 h-4 text-white" />
-                  <span>Đặt In (Tạm Tính {Math.max(25000, estimation.filamentWeightGrams * 600 + Math.round(estimation.estimatedPrintTimeMinutes / 60) * 15000).toLocaleString('vi-VN')} đ)</span>
+                  <span>Đặt In (Tạm Tính {Math.max(25000, Math.round((simLiveMetrics?.filamentWeightGrams || estimation.filamentWeightGrams) * 600 + Math.round((simLiveMetrics?.estimatedPrintTimeMinutes || estimation.estimatedPrintTimeMinutes) / 60) * 15000)).toLocaleString('vi-VN')} đ)</span>
                 </button>
 
                 <Link
@@ -683,22 +971,22 @@ function StudioInner() {
         onTopUp={topUpBalance}
       />
 
-      {/* Order Service Modal synced from 3D Studio */}
+      {/* Order Service Modal synced from 3D Studio & PrintSim PRO */}
       <OrderServiceModal
         isOpen={isOrderServiceModalOpen}
         onClose={() => setIsOrderServiceModalOpen(false)}
         initialFileName={customModel ? customModel.fileName : (SAMPLE_PRINT_MODELS.find(m => m.id === selectedModelId)?.name || '3D Benchy')}
         initialDimensions={dimensionsMm}
-        initialWeightGrams={estimation.filamentWeightGrams}
-        initialPrintHours={Math.round((estimation.estimatedPrintTimeMinutes / 60) * 10) / 10}
-        initialMaterial="PLA Basic"
-        initialCostVnd={Math.max(25000, estimation.filamentWeightGrams * 600 + Math.round(estimation.estimatedPrintTimeMinutes / 60) * 15000)}
+        initialWeightGrams={simLiveMetrics?.filamentWeightGrams || estimation.filamentWeightGrams}
+        initialPrintHours={Math.round(((simLiveMetrics?.estimatedPrintTimeMinutes || estimation.estimatedPrintTimeMinutes) / 60) * 10) / 10}
+        initialMaterial={simLiveMetrics?.material || 'PLA Basic'}
+        initialCostVnd={Math.max(25000, Math.round((simLiveMetrics?.filamentWeightGrams || estimation.filamentWeightGrams) * 600 + Math.round((simLiveMetrics?.estimatedPrintTimeMinutes || estimation.estimatedPrintTimeMinutes) / 60) * 15000))}
         onShowToast={showStudioToast}
       />
 
       {/* Floating Toast Notification */}
       {(toastMessage || studioToast) && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-full vision-glass border border-white/25 shadow-2xl text-white text-xs font-semibold animate-in fade-in slide-in-from-bottom-3 duration-200">
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-full bg-slate-900 border border-slate-700 shadow-2xl text-white text-xs font-semibold animate-in fade-in slide-in-from-bottom-3 duration-200">
           <span>{toastMessage || studioToast}</span>
         </div>
       )}

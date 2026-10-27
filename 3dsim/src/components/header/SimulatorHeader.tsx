@@ -67,6 +67,7 @@ interface SimulatorHeaderProps {
   onOpenAI3DModal?: () => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
+  onSyncToStudio?: (openOrderModal?: boolean) => void;
 }
 
 export function SimulatorHeader({
@@ -75,6 +76,7 @@ export function SimulatorHeader({
   onUploadFile,
   preflightReport,
   onOpenReportModal,
+  isEmbedded,
   simulatorEngine,
   onSetEngine,
   onOpenEngineModal,
@@ -102,6 +104,7 @@ export function SimulatorHeader({
   onOpenAI3DModal,
   theme = 'dark',
   onToggleTheme,
+  onSyncToStudio,
 }: SimulatorHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isStudioMenuOpen, setIsStudioMenuOpen] = useState(false);
@@ -138,6 +141,17 @@ export function SimulatorHeader({
           1. CỤM TRÁI: NHẬN DIỆN STUDIO & QUẢN LÝ PHÔI MÔ HÌNH
          ===================================================================== */}
       <div className="flex items-center gap-1.5 pointer-events-auto shrink-0">
+        {!isEmbedded && onSyncToStudio && (
+          <button
+            onClick={() => onSyncToStudio(false)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-panel hover:border-[var(--accent-gold)] text-xs font-semibold studio-text-primary transition-all cursor-pointer"
+            title="Quay về trang 3D Studio cùng toàn bộ thông số cắt lớp hiện tại"
+          >
+            <span className="studio-text-gold font-bold">←</span>
+            <span className="hidden sm:inline">3D Studio</span>
+          </button>
+        )}
+
         {/* Minimalist Architectural Brand Mark */}
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-panel">
           <div className="w-5 h-5 rounded-md studio-pill-active flex items-center justify-center">
@@ -624,6 +638,23 @@ export function SimulatorHeader({
             ) : (
               <IconMoon size={14} className="studio-text-primary" />
             )}
+          </button>
+        )}
+
+        {/* Sync to Studio & Order CTA */}
+        {onSyncToStudio && (
+          <button
+            data-testid="sync-to-studio-btn"
+            onClick={() => onSyncToStudio(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl studio-gold-badge hover:opacity-90 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+            title={
+              isEmbedded
+                ? 'Áp dụng thông số cắt lớp & mở Đặt In ngay trên 3D Studio'
+                : 'Đồng bộ thông số cắt lớp về 3D Studio & Đặt In Dịch Vụ'
+            }
+          >
+            <IconCheckShield size={13} />
+            <span>{isEmbedded ? 'Áp Dụng & Đặt In' : 'Đặt In Mẫu Này'}</span>
           </button>
         )}
 

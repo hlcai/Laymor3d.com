@@ -24,6 +24,7 @@ import {
   loadFullBambuToolpaths,
   buildFullFilamentPreviewMesh,
 } from '@/services/nativeSupportLoader';
+import { sliceUniversalGeometry } from '@/services/universalSlicerEngine';
 import { BuildPlateToolbar } from './BuildPlateToolbar';
 import { ProSlicerTelemetryPanel } from '@/components/controls/ProSlicerTelemetryPanel';
 import {
@@ -513,14 +514,28 @@ export function PrintSimulatorViewport({
     };
     removeExistingFilament();
 
-    loadFullBambuToolpaths(currentModel?.name || currentModel?.id, (currentModel as any)?.path).then((toolpathsData) => {
+    const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
+    loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
       if (!sceneRef.current || !parentGroup) return;
+      const toolpathsData =
+        loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
+          ? loadedToolpaths
+          : sliceUniversalGeometry(clonedGeom, `${modelKey}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}`, profile).toolpathsData;
+
       if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
         removeExistingFilament();
         const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
         filamentGroup.visible = viewMode === 'filament_preview';
         parentGroup.add(filamentGroup);
         fullFilamentGroupRef.current = filamentGroup;
+
+        if (filamentGroup.userData?.updateVisibility) {
+          filamentGroup.userData.updateVisibility({
+            showSupport: showSupport && profile.supportMode !== 'none',
+            brimEnabled: profile.brimEnabled,
+            infillDensity: profile.infillDensity,
+          });
+        }
 
         // Cập nhật drawRange ngay cho layer hiện tại
         if (filamentGroup.userData?.updateLayer) {
@@ -586,8 +601,19 @@ export function PrintSimulatorViewport({
     profile.material,
     profile.materialColor,
     profile.layerHeight,
+    profile.infillType,
+    profile.infillDensity,
+    profile.wallLoops,
+    profile.seamPosition,
     profile.supportMode,
+    profile.treeStyle,
+    profile.supportAngleThreshold,
+    profile.supportOnBuildPlateOnly,
+    profile.supportTopZDistance,
+    profile.supportBranchDiameter,
+    profile.supportBranchAngle,
     profile.brimEnabled,
+    profile.brimWidthMm,
     showHeatmap,
     showSupport,
     renderMode,
@@ -872,13 +898,31 @@ export function PrintSimulatorViewport({
     const isPrepare = viewMode === 'prepare';
 
     if (isFilament && (!fullFilamentGroupRef.current || fullFilamentGroupRef.current.children.length === 0)) {
-      loadFullBambuToolpaths(currentModel?.name || currentModel?.id, (currentModel as any)?.path).then((toolpathsData) => {
+      const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
+      loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
         if (!modelRootGroupRef.current) return;
+        const clonedGeom = geometry.clone();
+        clonedGeom.computeBoundingBox();
+        const minY = clonedGeom.boundingBox?.min.y || 0;
+        clonedGeom.translate(0, -minY, 0);
+
+        const toolpathsData =
+          loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
+            ? loadedToolpaths
+            : sliceUniversalGeometry(clonedGeom, `${modelKey}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}`, profile).toolpathsData;
+
         if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
           const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
           filamentGroup.visible = true;
           modelRootGroupRef.current.add(filamentGroup);
           fullFilamentGroupRef.current = filamentGroup;
+          if (filamentGroup.userData?.updateVisibility) {
+            filamentGroup.userData.updateVisibility({
+              showSupport: showSupport && profile.supportMode !== 'none',
+              brimEnabled: profile.brimEnabled,
+              infillDensity: profile.infillDensity,
+            });
+          }
           if (filamentGroup.userData?.updateLayer) {
             filamentGroup.userData.updateLayer(
               simulationState.currentLayer,
@@ -898,6 +942,13 @@ export function PrintSimulatorViewport({
 
     if (fullFilamentGroupRef.current) {
       fullFilamentGroupRef.current.visible = showFilament;
+      if (fullFilamentGroupRef.current.userData?.updateVisibility) {
+        fullFilamentGroupRef.current.userData.updateVisibility({
+          showSupport: showSupport && profile.supportMode !== 'none',
+          brimEnabled: profile.brimEnabled,
+          infillDensity: profile.infillDensity,
+        });
+      }
       if (showFilament && fullFilamentGroupRef.current.userData?.updateLayer) {
         fullFilamentGroupRef.current.userData.updateLayer(
           simulationState.currentLayer,

@@ -29,12 +29,17 @@ import {
   generateSurroundingGcodeBlock,
 } from '@/services/proSlicerLocalEngine';
 import { runPreflightInspection } from '@/services/preflightAnalyzer';
-import { embedProtocol } from '@/services/embedProtocol';
+import {
+  embedProtocol,
+  mapStudioModelIdToSimSampleId,
+  mapSimSampleIdToStudioModelId,
+} from '@/services/embedProtocol';
 import {
   clearAllSupportCaches,
   setPreloadedSupport,
   setPreloadedToolpaths,
 } from '@/services/nativeSupportLoader';
+import { sliceUniversalGeometry } from '@/services/universalSlicerEngine';
 
 import { PrintSimulatorViewport } from '@/components/viewport/PrintSimulatorViewport';
 import { TimeScrubber } from '@/components/controls/TimeScrubber';
@@ -173,35 +178,152 @@ export default function App() {
     return generateSurroundingGcodeBlock(simulationState, slicingMetrics, profile);
   }, [simulationState, slicingMetrics, profile]);
 
-  // Gửi thông báo Ready và Report khi nhúng trong iframe
+  // Gửi thông báo Ready và Report khi nhúng trong iframe + Đọc cầu nối từ /studio
   useEffect(() => {
     embedProtocol.notifyReady();
     embedProtocol.notifyReport(preflightReport);
+
+    const bridge = embedProtocol.consumeInitialStudioBridge();
+    if (bridge) {
+      if (bridge.stlBase64) {
+        try {
+          const binaryStr = atob(bridge.stlBase64);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          const customGeom = parseCADFile(bytes.buffer, bridge.modelName || 'Studio_Model.stl');
+          customGeom.computeBoundingBox();
+          const bbox = customGeom.boundingBox || new THREE.Box3();
+          const dimX = Math.round(bbox.max.x - bbox.min.x);
+          const dimY = Math.round(bbox.max.y - bbox.min.y);
+          const dimZ = Math.round(bbox.max.z - bbox.min.z);
+          const customModelObj: ISampleModel = {
+            id: 'studio-custom-' + Date.now(),
+            name: (bridge.modelName || 'Studio Model').replace(/\.[^/.]+$/, ''),
+            description: `Mô hình chuyển tiếp từ 3D Studio (${dimX} × ${dimY} × ${dimZ} mm)`,
+            category: '3D Studio Sync',
+            geometryType: 'custom' as any,
+            defaultProfileId: profile.id,
+            dimensionsMm: [dimX, dimY, dimZ],
+            estimatedWeightGrams: Math.round(dimX * dimY * dimZ * 0.00045 * 1.24 * 10) / 10,
+            accentBadge: 'Studio CAD',
+          };
+          setBaseGeometry(customGeom);
+          setCurrentModel(customModelObj);
+        } catch (err) {
+          console.warn('Không thể giải mã stlBase64 từ 3D Studio:', err);
+        }
+      } else if (bridge.sampleId) {
+        const mappedId = mapStudioModelIdToSimSampleId(bridge.sampleId);
+        const found = SAMPLE_MODELS.find((m) => m.id === mappedId || m.id === bridge.sampleId);
+        if (found) {
+          handleSelectSample(found);
+        }
+      }
+
+      if (bridge.profile) {
+        setProfile((prev) => ({ ...prev, ...bridge.profile }));
+      }
+      if (bridge.scalePercent && bridge.scalePercent > 10) {
+        const s = Math.max(0.2, Math.min(3.0, bridge.scalePercent / 100));
+        setModelTransform((prev) => ({ ...prev, scale: s }));
+      }
+      if (bridge.viewMode) {
+        setViewMode(bridge.viewMode);
+      }
+    }
   }, []);
 
-  // Lắng nghe Message từ 3D Hub nếu nhúng qua iframe
+  // Tự động đồng bộ Report & Profile sang parent iframe (/studio) khi có thay đổi
+  useEffect(() => {
+    embedProtocol.notifyReport(preflightReport);
+  }, [preflightReport]);
+
+  useEffect(() => {
+    embedProtocol.syncProfile(profile);
+  }, [profile]);
+
+  // Lắng nghe Message từ 3D Hub / 3D Studio nếu nhúng qua iframe
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
-      if (!e.data || e.data.source !== '3DHUB') return;
-      const { type, data } = e.data;
+      if (!e.data || (e.data.source !== '3DHUB' && e.data.source !== '3D_STUDIO')) return;
+      const msgType = e.data.type || e.data.action;
+      const payload = e.data.data || e.data;
 
-      if (type === 'LOAD_MODEL') {
-        if (data.sampleId) {
-          const sample = SAMPLE_MODELS.find((m) => m.id === data.sampleId);
+      if (msgType === 'LOAD_MODEL' || msgType === 'SYNC_FROM_STUDIO') {
+        if (payload.stlBuffer instanceof ArrayBuffer) {
+          try {
+            clearAllSupportCaches();
+            const customGeom = parseCADFile(payload.stlBuffer, payload.modelName || 'Studio_Model.stl');
+            customGeom.computeBoundingBox();
+            const bbox = customGeom.boundingBox || new THREE.Box3();
+            const dimX = Math.round(bbox.max.x - bbox.min.x);
+            const dimY = Math.round(bbox.max.y - bbox.min.y);
+            const dimZ = Math.round(bbox.max.z - bbox.min.z);
+            const customModelObj: ISampleModel = {
+              id: 'studio-custom-' + Date.now(),
+              name: (payload.modelName || 'Studio Model').replace(/\.[^/.]+$/, ''),
+              description: `Mô hình đồng bộ trực tiếp từ 3D Studio (${dimX} × ${dimY} × ${dimZ} mm)`,
+              category: '3D Studio Sync',
+              geometryType: 'custom' as any,
+              defaultProfileId: profile.id,
+              dimensionsMm: [dimX, dimY, dimZ],
+              estimatedWeightGrams: Math.round(dimX * dimY * dimZ * 0.00045 * 1.24 * 10) / 10,
+              accentBadge: 'Studio CAD',
+            };
+            setBaseGeometry(customGeom);
+            setCurrentModel(customModelObj);
+          } catch (err) {
+            console.warn('Lỗi đọc stlBuffer qua postMessage:', err);
+          }
+        } else if (payload.sampleId) {
+          const mappedId = mapStudioModelIdToSimSampleId(payload.sampleId);
+          const sample = SAMPLE_MODELS.find((m) => m.id === mappedId || m.id === payload.sampleId);
           if (sample) handleSelectSample(sample);
         }
-      } else if (type === 'SET_PROFILE') {
-        if (data.profile) {
-          setProfile((prev) => ({ ...prev, ...data.profile }));
+
+        if (payload.profile) {
+          setProfile((prev) => ({ ...prev, ...payload.profile }));
         }
-      } else if (type === 'START_SIMULATION') {
-        setSimulationState((prev) => ({ ...prev, isPlaying: true }));
+        if (typeof payload.scale === 'number' && payload.scale > 0.1) {
+          setModelTransform((prev) => ({ ...prev, scale: payload.scale }));
+        }
+        if (payload.viewMode) {
+          setViewMode(payload.viewMode);
+        }
+      } else if (msgType === 'SET_PROFILE') {
+        if (payload.profile) {
+          setProfile((prev) => ({ ...prev, ...payload.profile }));
+        }
+      } else if (msgType === 'START_SIMULATION' || msgType === 'PLAY') {
+        setSimulationState((prev) => ({
+          ...prev,
+          isPlaying: true,
+          isCompleted: false,
+          currentProgress: prev.currentProgress >= 0.99 ? 0 : prev.currentProgress,
+        }));
+      } else if (msgType === 'PAUSE') {
+        setSimulationState((prev) => ({ ...prev, isPlaying: false }));
+      } else if (msgType === 'SCRUB_PROGRESS' && typeof payload.progress === 'number') {
+        const progress = Math.max(0, Math.min(1.0, payload.progress));
+        setSimulationState((prev) => {
+          const { currentLayer: curLayer } = calculateLayerProgress(progress, prev.totalLayers);
+          return {
+            ...prev,
+            currentProgress: progress,
+            currentLayer: curLayer,
+            elapsedTimeSec: Math.round(progress * prev.totalTimeSec),
+            filamentUsedGrams: Number((progress * prev.totalFilamentGrams).toFixed(1)),
+            isCompleted: progress >= 1.0,
+          };
+        });
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [profile.id]);
 
   // Vòng lặp mô phỏng in 3D thời gian thực (Simulation Clock Loop)
   useEffect(() => {
@@ -648,6 +770,43 @@ export default function App() {
     });
   };
 
+  // Đồng bộ thông số cắt lớp & báo giá từ /3dsim về lại /studio
+  const handleSyncBackToStudio = (openOrderModal: boolean = false) => {
+    const [dimX, dimY, dimZ] = slicingMetrics.boundingBox.dimensions;
+    embedProtocol.syncBackToStudio({
+      timestamp: Date.now(),
+      sampleId: mapSimSampleIdToStudioModelId(currentModel.id),
+      modelName: currentModel.name,
+      dimensionsMm: {
+        x: Math.round(dimX),
+        y: Math.round(dimZ),
+        z: Math.round(dimY),
+      },
+      filamentWeightGrams: Number(slicingMetrics.estimatedFilamentGrams.toFixed(1)),
+      estimatedPrintTimeMinutes: Math.max(5, Math.round(slicingMetrics.estimatedPrintTimeSec / 60)),
+      totalLayers: slicingMetrics.totalLayers,
+      printabilityScore: preflightReport.printabilityScore,
+      overhangPercent: preflightReport.overhangRiskAreaPercent,
+      profile,
+      openOrderModal,
+    });
+
+    setUploadSlicingStatus(
+      openOrderModal
+        ? '✓ Đã đồng bộ thông số cắt lớp & chuyển sang Đặt In trên 3D Studio!'
+        : '✓ Đã lưu & đồng bộ cấu hình cắt lớp về 3D Studio!'
+    );
+    setTimeout(() => setUploadSlicingStatus(null), 3500);
+
+    if (!isEmbedded) {
+      const studioModel = mapSimSampleIdToStudioModelId(currentModel.id);
+      const targetUrl = `/studio?model=${encodeURIComponent(studioModel)}&fromSim=1${
+        openOrderModal ? '&openOrder=1' : ''
+      }`;
+      window.location.href = targetUrl;
+    }
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden select-none bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-300">
       {/* 1. Header Toolbar (Single Unified Top Bar - No Overlap) */}
@@ -691,6 +850,7 @@ export default function App() {
         onOpenAI3DModal={() => setIsAI3DModalOpen(true)}
         theme={theme}
         onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+        onSyncToStudio={handleSyncBackToStudio}
       />
 
       {/* Notification Toast khi Bambu Studio CLI đang cắt lát */}

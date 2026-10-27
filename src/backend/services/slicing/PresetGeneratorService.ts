@@ -266,15 +266,13 @@ z_hop = ${profile.zHopMm}
   }
 
   /**
-   * Generates and downloads a real Binary STL file of the active 3D model scaled to dimensionsMm
+   * Generates an in-memory Binary STL ArrayBuffer of the active 3D model scaled to dimensionsMm
    */
-  static downloadSTL(
+  static generateSTLBuffer(
     modelName: string,
     dimensionsMm?: { x: number; y: number; z: number },
     customGroup?: THREE.Group
-  ): string {
-    const filename = `${modelName.replace(/[^a-zA-Z0-9_-]/g, '_')}_Model.stl`;
-
+  ): ArrayBuffer {
     let builtGroup: THREE.Group;
     if (customGroup) {
       builtGroup = customGroup.clone(true);
@@ -311,7 +309,6 @@ z_hop = ${profile.zHopMm}
     const scaledBox = new THREE.Box3().setFromObject(builtGroup);
     const minY = scaledBox.min.y;
 
-    // Collect all triangles in Z-up millimeter space
     const triangles: Array<[THREE.Vector3, THREE.Vector3, THREE.Vector3]> = [];
     builtGroup.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
@@ -383,6 +380,19 @@ z_hop = ${profile.zHopMm}
       offset += 50;
     }
 
+    return buffer;
+  }
+
+  /**
+   * Generates and downloads a real Binary STL file of the active 3D model scaled to dimensionsMm
+   */
+  static downloadSTL(
+    modelName: string,
+    dimensionsMm?: { x: number; y: number; z: number },
+    customGroup?: THREE.Group
+  ): string {
+    const filename = `${modelName.replace(/[^a-zA-Z0-9_-]/g, '_')}_Model.stl`;
+    const buffer = PresetGeneratorService.generateSTLBuffer(modelName, dimensionsMm, customGroup);
     const blob = new Blob([buffer], { type: 'application/octet-stream' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');

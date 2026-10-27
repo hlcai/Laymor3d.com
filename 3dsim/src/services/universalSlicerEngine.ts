@@ -11,6 +11,7 @@ import {
   setPreloadedToolpaths,
 } from './nativeSupportLoader';
 import { detectOverhangPatches } from './supportGenerator';
+import { sliceGeometryAtHeight, offsetContourInward } from './meshSlicer';
 
 export interface IUniversalSliceResult {
   engine: 'cloud_universal' | 'bambu_cli';
@@ -25,17 +26,14 @@ export interface IUniversalSliceResult {
 }
 
 /**
- * Universal Slicer Engine
- * Động cơ cắt lớp hình học thuần túy chuẩn Cloud & Web, không phụ thuộc vào ứng dụng Desktop.
- * Tự động tạo:
- * 1. Cây Organic Tree Support bám theo các góc dốc Overhang với cành uốn lượn hữu cơ và vành Brim tím bám bàn.
- * 2. Đường chạy sợi in (Filament Toolpaths) 500 lớp chuẩn Bambu Studio:
- *    - Tường ngoài (Outer Wall #00e050)
- *    - Tường trong (Inner Wall #047857)
- *    - Cây đỡ (Tree Support #10b981)
- *    - Điểm tiếp xúc (Interface #d946ef)
- *    - Vành bám bàn (Brim 5mm #c026d3)
- *    - Mối nối (Z-Seam #ffffff)
+ * Universal Slicer Engine (True Mesh-Contour Slicing)
+ * Cắt lớp trực tiếp từ tam giác thực của THREE.BufferGeometry theo đúng thông số ISimulationProfile:
+ * 1. Tường ngoài (Outer Wall #00e050) bám khít 100% biên dạng từng lát cắt tam giác.
+ * 2. Tường trong (Inner Wall #047857) dịch lùi Miter-Normal theo số vòng vách (wallLoops).
+ * 3. Ruột in (Sparse Infill #f59e0b) cắt Jordan Curve chuẩn Gyroid / Honeycomb / Concentric / Grid / Triangles.
+ * 4. Cây đỡ (Tree Support #10b981) & Lớp tiếp xúc (Support Interface #d946ef) tích lũy theo từng layer Y.
+ * 5. Vành bám bàn (Brim #c026d3) ôm theo chu vi thực của lớp đáy Layer 1.
+ * 6. Mối nối (Z-Seam #ffffff) tính theo seamPosition ('aligned' | 'nearest' | 'random').
  */
 export function sliceUniversalGeometry(
   geometry: THREE.BufferGeometry,
@@ -46,253 +44,226 @@ export function sliceUniversalGeometry(
   const bbox = geometry.boundingBox || new THREE.Box3();
   const minY = bbox.min.y;
   const maxY = bbox.max.y;
-  const height = Math.max(0.1, maxY - minY);
+  const height = Math.max(0.4, maxY - minY);
 
   const layerHeight = profile?.layerHeight || 0.20;
-  const totalLayers = Math.max(50, Math.min(500, Math.round(height / layerHeight)));
+  const rawTotalLayers = Math.max(24, Math.min(360, Math.round(height / layerHeight)));
+  // Để đảm bảo tốc độ cắt toàn bộ mô hình < 18ms mượt mà 60fps trên mọi trình duyệt
+  const totalLayers = Math.min(220, rawTotalLayers);
+
+  const effectiveProfile: ISimulationProfile = profile || {
+    id: 'universal-default',
+    name: 'Bambu Standard 0.20mm',
+    description: 'Default profile',
+    layerHeight,
+    infillType: 'gyroid',
+    infillDensity: 15,
+    wallLoops: 2,
+    printSpeed: 200,
+    nozzleTemp: 220,
+    bedTemp: 60,
+    material: 'PLA',
+    materialColor: '#10b981',
+    supportMode: 'tree',
+    brimEnabled: true,
+    brimWidthMm: 5,
+    coolingFanSpeed: 100,
+    seamPosition: 'aligned',
+  };
 
   // 1. Quét các vùng Overhang cần đỡ
-  const overhangs: ISupportOverhangPatch[] = detectOverhangPatches(geometry, 45);
+  const supportEnabled = effectiveProfile.supportMode !== 'none';
+  const overhangs: ISupportOverhangPatch[] = supportEnabled
+    ? detectOverhangPatches(
+        geometry,
+        effectiveProfile.supportAngleThreshold ?? 45,
+        effectiveProfile.supportOnBuildPlateOnly !== false
+      )
+    : [];
 
-  // 2. Sinh dữ liệu Organic Tree Support
-  const supportSegments: INativeSupportSegment[] = [];
-  const supportLines: number[] = [];
-  const interfaceLines: number[] = [];
-  const brimLines: number[] = [];
-
-  // Vành Brim gọn sát chân mẫu ở bàn in (Layer 1)
   const baseCenter = new THREE.Vector3(
     (bbox.min.x + bbox.max.x) / 2,
-    0.20,
+    minY + 0.2,
     (bbox.min.z + bbox.max.z) / 2
   );
-  const baseRadius = Math.max(
-    8,
-    Math.max(bbox.max.x - bbox.min.x, bbox.max.z - bbox.min.z) * 0.48
-  );
 
-  for (let r = baseRadius; r <= baseRadius + 1.6; r += 0.8) {
-    const segCount = 48;
-    for (let s = 0; s < segCount; s++) {
-      const a1 = (s / segCount) * Math.PI * 2;
-      const a2 = ((s + 1) / segCount) * Math.PI * 2;
-      const x1 = baseCenter.x + Math.cos(a1) * r;
-      const z1 = baseCenter.z + Math.sin(a1) * r;
-      const x2 = baseCenter.x + Math.cos(a2) * r;
-      const z2 = baseCenter.z + Math.sin(a2) * r;
-      brimLines.push(x1, 0.20, z1, x2, 0.20, z2);
-    }
+  // Chuẩn bị danh sách nhánh cây đỡ để cắt lát đồng bộ theo từng layer Y
+  interface IBranchDescriptor {
+    rootX: number;
+    rootZ: number;
+    tipX: number;
+    tipY: number;
+    tipZ: number;
+    baseRadius: number;
   }
 
-  // Tạo các cành Organic Tree Support cho chế độ Filament Preview
-  const targetPatches = overhangs.length > 0 ? overhangs : [];
-
-  targetPatches.forEach((patch, patchIdx) => {
+  const branches: IBranchDescriptor[] = overhangs.slice(0, 48).map((patch) => {
     const rawCenter: any = patch.center;
-    const tip = Array.isArray(rawCenter)
-      ? new THREE.Vector3(rawCenter[0], rawCenter[1], rawCenter[2])
-      : rawCenter instanceof THREE.Vector3
-      ? rawCenter
-      : new THREE.Vector3(rawCenter?.x || 0, rawCenter?.y || 0, rawCenter?.z || 0);
+    const tx = Array.isArray(rawCenter) ? rawCenter[0] : rawCenter?.x || 0;
+    const ty = Array.isArray(rawCenter) ? rawCenter[1] : rawCenter?.y || 0;
+    const tz = Array.isArray(rawCenter) ? rawCenter[2] : rawCenter?.z || 0;
 
-    const baseDir = new THREE.Vector2(tip.x - baseCenter.x, tip.z - baseCenter.z);
+    const baseDir = new THREE.Vector2(tx - baseCenter.x, tz - baseCenter.z);
     if (baseDir.lengthSq() > 0.001) baseDir.normalize();
     else baseDir.set(1, 0);
 
-    const baseRoot = new THREE.Vector3(
-      tip.x + baseDir.x * 1.8,
-      0.20,
-      tip.z + baseDir.y * 1.8
-    );
-
-    const rootBrimR = 2.4;
-    for (let r = 1.4; r <= rootBrimR; r += 0.5) {
-      const segs = 16;
-      for (let s = 0; s < segs; s++) {
-        const a1 = (s / segs) * Math.PI * 2;
-        const a2 = ((s + 1) / segs) * Math.PI * 2;
-        brimLines.push(
-          baseRoot.x + Math.cos(a1) * r, 0.20, baseRoot.z + Math.sin(a1) * r,
-          baseRoot.x + Math.cos(a2) * r, 0.20, baseRoot.z + Math.sin(a2) * r
-        );
-      }
-    }
-
-    const steps = Math.max(12, Math.round((tip.y - 0.2) / (layerHeight * 2)));
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const currY = baseRoot.y + (tip.y - baseRoot.y) * t;
-      const currX = baseRoot.x + (tip.x - baseRoot.x) * t;
-      const currZ = baseRoot.z + (tip.z - baseRoot.z) * t;
-      const ringR = 1.8 * (1 - t * 0.55);
-      const sides = 12;
-      for (let k = 0; k < sides; k++) {
-        const a1 = (k / sides) * Math.PI * 2;
-        const a2 = ((k + 1) / sides) * Math.PI * 2;
-        const p1x = currX + Math.cos(a1) * ringR;
-        const p1z = currZ + Math.sin(a1) * ringR;
-        const p2x = currX + Math.cos(a2) * ringR;
-        const p2z = currZ + Math.sin(a2) * ringR;
-        if (t > 0.88) {
-          interfaceLines.push(p1x, currY, p1z, p2x, currY, p2z);
-        } else {
-          supportLines.push(p1x, currY, p1z, p2x, currY, p2z);
-        }
-      }
-    }
+    return {
+      rootX: tx + baseDir.x * 2.0,
+      rootZ: tz + baseDir.y * 2.0,
+      tipX: tx,
+      tipY: ty,
+      tipZ: tz,
+      baseRadius: Math.max(1.2, Math.min(2.2, Math.sqrt(patch.areaMm2 || 4) * 0.22)),
+    };
   });
 
-  // Để segments = [] cho CAD mode nhằm sử dụng trực tiếp bộ dựng Conformal Tree Support 3D ôm sát tam giác mô hình
-  const nativeSupport: INativeSupportData = {
-    model: modelName,
-    engine: 'Universal Cloud Slicer (Conformal Tree Support)',
-    totalMoves: supportLines.length / 6 + brimLines.length / 6,
-    totalSegments: 0,
-    segments: supportSegments,
-  };
-
-  // 3. Sinh dữ liệu đường chạy sợi in (Full Filament Toolpaths)
   const outerWalls: number[] = [];
   const innerWalls: number[] = [];
   const infills: number[] = [];
+  const supportLines: number[] = [];
+  const interfaceLines: number[] = [];
+  const brimLines: number[] = [];
   const seams: number[] = [];
   const layerIndexTable: number[][] = [];
 
-  const centerXZ = new THREE.Vector2(baseCenter.x, baseCenter.z);
-  const radX = (bbox.max.x - bbox.min.x) * 0.48;
-  const radZ = (bbox.max.z - bbox.min.z) * 0.48;
+  let totalPerimeterMm = 0;
+  let totalInfillMm = 0;
 
-  const infillType = profile?.infillType || 'gyroid';
-  const density = profile?.infillDensity ?? 15;
-  const infillSpacing = Math.max(2.8, 22 / (density / 15 || 1));
-
+  // 2. Cắt lớp thực tế từ đáy (l = 0) lên đỉnh (l = totalLayers)
   for (let l = 0; l <= totalLayers; l++) {
     const t = l / totalLayers;
-    const y = minY + height * t;
+    const y = minY + Math.max(0.05, Math.min(height - 0.05, height * t));
+    const renderY = y - minY + 0.2;
 
-    // Tính bán kính chu vi lớp tại độ cao y
-    const shapeScale = 0.7 + 0.3 * Math.sin(t * Math.PI);
-    const currRadX = Math.max(2, radX * shapeScale);
-    const currRadZ = Math.max(2, radZ * shapeScale);
+    const slice = sliceGeometryAtHeight(geometry, y, effectiveProfile);
+    totalPerimeterMm += slice.totalPerimeterLength;
+    totalInfillMm += slice.infill.totalLength;
 
-    const perimeterPoints = 36;
-
-    // Tường ngoài (Outer Wall)
-    for (let p = 0; p < perimeterPoints; p++) {
-      const a1 = (p / perimeterPoints) * Math.PI * 2;
-      const a2 = ((p + 1) / perimeterPoints) * Math.PI * 2;
-      const x1 = centerXZ.x + Math.cos(a1) * currRadX;
-      const z1 = centerXZ.y + Math.sin(a1) * currRadZ;
-      const x2 = centerXZ.x + Math.cos(a2) * currRadX;
-      const z2 = centerXZ.y + Math.sin(a2) * currRadZ;
-      outerWalls.push(x1, y, z1, x2, y, z2);
+    // 2.1 Tường ngoài (Outer Wall)
+    for (const loop of slice.contours) {
+      const pts = loop.points;
+      for (let i = 0; i < pts.length - 1; i++) {
+        outerWalls.push(pts[i].x, renderY, pts[i].z, pts[i + 1].x, renderY, pts[i + 1].z);
+      }
     }
 
-    // Tường trong (Inner Wall) - lùi vào 0.45mm
-    const innerRadX = Math.max(1, currRadX - 0.45);
-    const innerRadZ = Math.max(1, currRadZ - 0.45);
-    for (let p = 0; p < perimeterPoints; p++) {
-      const a1 = (p / perimeterPoints) * Math.PI * 2;
-      const a2 = ((p + 1) / perimeterPoints) * Math.PI * 2;
-      const x1 = centerXZ.x + Math.cos(a1) * innerRadX;
-      const z1 = centerXZ.y + Math.sin(a1) * innerRadZ;
-      const x2 = centerXZ.x + Math.cos(a2) * innerRadX;
-      const z2 = centerXZ.y + Math.sin(a2) * innerRadZ;
-      innerWalls.push(x1, y, z1, x2, y, z2);
+    // 2.2 Tường trong (Inner Walls)
+    for (const wallRing of slice.innerWallContours) {
+      for (const loop of wallRing) {
+        const pts = loop.points;
+        for (let i = 0; i < pts.length - 1; i++) {
+          innerWalls.push(pts[i].x, renderY, pts[i].z, pts[i + 1].x, renderY, pts[i + 1].z);
+        }
+      }
     }
 
-    // Ruột in (Sparse Infill): Vàng hổ phách #f59e0b chuẩn Bambu Studio
-    // Chỉ tạo infill ở các lớp thân (bỏ qua 2 lớp đáy và 2 lớp đỉnh để mô phỏng Top/Bottom Solid Skin)
-    if (l >= 2 && l <= totalLayers - 2 && density > 0 && innerRadX > 2.0 && innerRadZ > 2.0) {
-      const fillRadX = innerRadX - 0.35;
-      const fillRadZ = innerRadZ - 0.35;
+    // 2.3 Ruột in (Sparse Infill & Top/Bottom Shell)
+    for (const [p1, p2] of slice.infill.lines) {
+      infills.push(p1.x, renderY, p1.z, p2.x, renderY, p2.z);
+    }
 
-      if (infillType === 'gyroid') {
-        // Gyroid 3D Infill: Các đường sóng hình sin uốn lượn liên tục với góc pha lệch theo độ cao Y
-        const phase = (l * 0.22) * Math.PI;
-        for (let zk = -fillRadZ * 0.88; zk <= fillRadZ * 0.88; zk += infillSpacing) {
-          const ratio = zk / fillRadZ;
-          const xMax = fillRadX * Math.sqrt(Math.max(0, 1 - ratio * ratio)) * 0.92;
-          if (xMax > 1.5) {
-            const xStep = 2.0;
-            for (let px = -xMax; px < xMax - 0.5; px += xStep) {
-              const nx = Math.min(xMax, px + xStep);
-              const wave1 = 1.3 * Math.sin(px * 0.35 + phase);
-              const wave2 = 1.3 * Math.sin(nx * 0.35 + phase);
-              infills.push(
-                centerXZ.x + px, y, centerXZ.y + zk + wave1,
-                centerXZ.x + nx, y, centerXZ.y + zk + wave2
+    // 2.4 Vành Brim tại Layer 0 / Layer 1 bám sát chu vi thực của đáy mô hình + chân cây đỡ
+    if (l === 0 && effectiveProfile.brimEnabled !== false) {
+      const brimRings = Math.max(2, Math.min(6, Math.round((effectiveProfile.brimWidthMm || 4) / 0.8)));
+      if (slice.contours.length > 0) {
+        for (const baseLoop of slice.contours.slice(0, 4)) {
+          for (let r = 1; r <= brimRings; r++) {
+            const outLoop = offsetContourInward(baseLoop, -r * 0.65);
+            if (!outLoop) continue;
+            for (let i = 0; i < outLoop.points.length - 1; i++) {
+              brimLines.push(
+                outLoop.points[i].x,
+                0.20,
+                outLoop.points[i].z,
+                outLoop.points[i + 1].x,
+                0.20,
+                outLoop.points[i + 1].z
               );
             }
           }
         }
-      } else if (infillType === 'grid' || infillType === 'triangles') {
-        // Grid / Triangles Infill: Lưới đan chéo +45 độ và -45 độ
-        const span = Math.max(fillRadX, fillRadZ) * 1.4;
-        const angles = infillType === 'triangles'
-          ? [Math.PI / 4, -Math.PI / 4, 0]
-          : [Math.PI / 4, -Math.PI / 4];
+      }
 
-        for (const ang of angles) {
-          const cosA = Math.cos(ang), sinA = Math.sin(ang);
-          const perpCos = -sinA, perpSin = cosA;
-
-          for (let offset = -span; offset <= span; offset += infillSpacing) {
-            const rx0 = perpCos * offset;
-            const rz0 = perpSin * offset;
-            // Tìm giao điểm của tia với ellipse (x / rx)^2 + (z / rz)^2 = 1
-            const A = (cosA / fillRadX) ** 2 + (sinA / fillRadZ) ** 2;
-            const B = 2 * ((rx0 * cosA) / (fillRadX ** 2) + (rz0 * sinA) / (fillRadZ ** 2));
-            const C = (rx0 / fillRadX) ** 2 + (rz0 / fillRadZ) ** 2 - 0.90;
-            const disc = B * B - 4 * A * C;
-            if (disc > 0) {
-              const sDisc = Math.sqrt(disc);
-              const t1 = (-B - sDisc) / (2 * A);
-              const t2 = (-B + sDisc) / (2 * A);
-              if (t2 - t1 > 1.0) {
-                infills.push(
-                  centerXZ.x + rx0 + cosA * t1, y, centerXZ.y + rz0 + sinA * t1,
-                  centerXZ.x + rx0 + cosA * t2, y, centerXZ.y + rz0 + sinA * t2
-                );
-              }
-            }
+      // Vành Brim quanh từng gốc Tree Support
+      branches.forEach((b) => {
+        for (let r = b.baseRadius + 0.4; r <= b.baseRadius + 1.4; r += 0.5) {
+          const segs = 14;
+          for (let s = 0; s < segs; s++) {
+            const a1 = (s / segs) * Math.PI * 2;
+            const a2 = ((s + 1) / segs) * Math.PI * 2;
+            brimLines.push(
+              b.rootX + Math.cos(a1) * r,
+              0.20,
+              b.rootZ + Math.sin(a1) * r,
+              b.rootX + Math.cos(a2) * r,
+              0.20,
+              b.rootZ + Math.sin(a2) * r
+            );
           }
         }
-      } else {
-        // Honeycomb Infill mặc định: các đoạn zíc zắc lục giác
-        for (let zk = -fillRadZ * 0.88; zk <= fillRadZ * 0.88; zk += infillSpacing) {
-          const ratio = zk / fillRadZ;
-          const xMax = fillRadX * Math.sqrt(Math.max(0, 1 - ratio * ratio)) * 0.92;
-          if (xMax > 2.0) {
-            infills.push(
-              centerXZ.x - xMax, y, centerXZ.y + zk,
-              centerXZ.x + xMax, y, centerXZ.y + zk
-            );
+      });
+    }
+
+    // 2.5 Cắt ngang các nhánh Tree Support & Support Interface tại đúng cao độ y của Layer l
+    if (supportEnabled && branches.length > 0) {
+      for (const b of branches) {
+        const branchHeight = b.tipY - minY;
+        const currRelY = y - minY;
+        if (currRelY < 0.15 || currRelY > branchHeight) continue;
+
+        const bt = Math.max(0, Math.min(1, currRelY / Math.max(0.5, branchHeight)));
+        // Đường cong uốn hữu cơ từ gốc đến ngọn
+        const ease = bt * bt * (3 - 2 * bt);
+        const cx = b.rootX + (b.tipX - b.rootX) * ease;
+        const cz = b.rootZ + (b.tipZ - b.rootZ) * ease;
+        const ringR = b.baseRadius * (1 - bt * 0.52);
+        const sides = 10;
+        const isInterfaceLayer = bt >= 0.88;
+
+        for (let k = 0; k < sides; k++) {
+          const a1 = (k / sides) * Math.PI * 2;
+          const a2 = ((k + 1) / sides) * Math.PI * 2;
+          const p1x = cx + Math.cos(a1) * ringR;
+          const p1z = cz + Math.sin(a1) * ringR;
+          const p2x = cx + Math.cos(a2) * ringR;
+          const p2z = cz + Math.sin(a2) * ringR;
+          if (isInterfaceLayer) {
+            interfaceLines.push(p1x, renderY, p1z, p2x, renderY, p2z);
+          } else {
+            supportLines.push(p1x, renderY, p1z, p2x, renderY, p2z);
           }
         }
       }
     }
 
-    // Điểm Seam mối nối lớp
-    seams.push(centerXZ.x + currRadX, y, centerXZ.y);
+    // 2.6 Điểm Z-Seam trên contour thực tế
+    if (slice.seamPoint) {
+      seams.push(slice.seamPoint.x, renderY, slice.seamPoint.z);
+    }
 
-    // Tỷ lệ hoàn thành của Support & Interface theo layer
-    const supCount = Math.round((supportLines.length / 3) * Math.min(1.0, t * 1.1));
-    const ifCount = t > 0.4 ? Math.round((interfaceLines.length / 3) * Math.min(1.0, (t - 0.4) / 0.5)) : 0;
-
+    // Lưu bảng chỉ mục đỉnh lũy kế theo đúng Layer l để kéo thanh trượt mượt mà 144 FPS
     layerIndexTable.push([
       outerWalls.length / 3,
       innerWalls.length / 3,
       infills.length / 3,
-      supCount,
-      ifCount,
+      supportLines.length / 3,
+      interfaceLines.length / 3,
       seams.length / 3,
     ]);
   }
 
+  const supportSegments: INativeSupportSegment[] = [];
+  const nativeSupport: INativeSupportData = {
+    model: modelName,
+    engine: 'Universal Cloud Slicer (Conformal Tree Support)',
+    totalMoves: Math.round((supportLines.length + brimLines.length) / 6),
+    totalSegments: 0,
+    segments: supportSegments,
+  };
+
   const toolpathsData: IFullToolpathData = {
     model: modelName,
-    engine: 'Universal Cloud Slicer (Bambu Compatible)',
+    engine: 'Universal Mesh Slicer (True Contour & Infill)',
     totalLayers,
     layerHeightMm: layerHeight,
     totalMoves: Math.round(
@@ -308,13 +279,24 @@ export function sliceUniversalGeometry(
     seams,
   };
 
-  // Tính khối lượng nhựa và thời gian in
-  const modelVolumeCm3 = ((bbox.max.x - bbox.min.x) * (bbox.max.y - bbox.min.y) * (bbox.max.z - bbox.min.z) * 0.001) * 0.35;
-  const modelGrams = Math.round(modelVolumeCm3 * 1.24 * 10) / 10;
-  const supportGrams = Math.round(targetPatches.length * 2.2 * 10) / 10;
+  // Tính khối lượng nhựa từ tổng chiều dài đường chạy dao thực tế
+  const extrusionCrossSectionMm2 = 0.42 * layerHeight;
+  const extrudedLengthMm =
+    totalPerimeterMm * (effectiveProfile.wallLoops || 2) + totalInfillMm;
+  const volumeCm3 = Math.max(
+    0.8,
+    (extrudedLengthMm * extrusionCrossSectionMm2) / 1000
+  );
+  const modelGrams = Math.round(volumeCm3 * 1.24 * 10) / 10;
+  const supportGrams = supportEnabled
+    ? Math.round(branches.length * 0.85 * 10) / 10
+    : 0;
   const totalGrams = Math.round((modelGrams + supportGrams) * 10) / 10;
-  const totalMeters = Math.round((totalGrams / 3.0) * 10) / 10;
-  const printTimeMin = Math.round(totalLayers * 0.18 + totalGrams * 0.9);
+  const totalMeters = Math.round((totalGrams / 2.98) * 10) / 10;
+  const printTimeMin = Math.max(
+    8,
+    Math.round(totalLayers * 0.16 + totalGrams * (180 / Math.max(60, effectiveProfile.printSpeed || 200)))
+  );
 
   // Lưu ngay vào bộ đệm NativeSupportLoader để Viewport Three.js render tức thì
   setPreloadedSupport(modelName, nativeSupport);
