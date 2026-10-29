@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { SupportType } from '@/backend/domain/slicing';
 import { SampleModelId } from '@/backend/domain/sample-models';
 
+interface SupportSubTwigSpec {
+  x: number;
+  y: number;
+  z: number;
+  normal?: [number, number, number];
+}
+
 interface SupportBranchSpec {
   bedX: number;
   bedZ: number;
@@ -10,6 +17,8 @@ interface SupportBranchSpec {
   targetZ: number;
   trunkRadius: number;
   padRadius?: number;
+  targetNormal?: [number, number, number];
+  subTargets?: SupportSubTwigSpec[];
 }
 
 export class SupportBuilder {
@@ -67,8 +76,103 @@ export class SupportBuilder {
   }
 
   /**
-   * 1. Realistic Organic Tree Support (Bambu Studio / OrcaSlicer Style)
-   * Hugs the exact underside overhangs from the build plate (Y=0) without touching print-in-place joints.
+   * Sweeps a smooth, watertight, continuously tapered organic branch mesh along a 3D curve
+   * using Parallel-Transport frames (no constant-radius pipe look, zero SphereGeometry ball joints).
+   */
+  private static createTaperedOrganicBranchGeometry(
+    curve: THREE.Curve<THREE.Vector3>,
+    tubularSegments: number,
+    radialSegments: number,
+    radiusStart: number,
+    radiusEnd: number,
+    flareRoot: boolean
+  ): THREE.BufferGeometry {
+    const frames = curve.computeFrenetFrames(tubularSegments, false);
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
+    const pt = new THREE.Vector3();
+    const normalVec = new THREE.Vector3();
+
+    for (let i = 0; i <= tubularSegments; i++) {
+      const t = i / tubularSegments;
+      curve.getPointAt(t, pt);
+
+      // Area-preserving smooth organic taper + optional root flare near build plate
+      const smoothT = t * t * (3 - 2 * t);
+      let radius = radiusStart * (1 - smoothT) + radiusEnd * smoothT;
+      if (flareRoot && t < 0.16) {
+        const flareFactor = 1 - t / 0.16;
+        radius += radiusStart * 0.42 * flareFactor * flareFactor;
+      }
+
+      const N = frames.normals[i];
+      const B = frames.binormals[i];
+
+      for (let j = 0; j <= radialSegments; j++) {
+        const theta = (j / radialSegments) * Math.PI * 2;
+        const cosT = Math.cos(theta);
+        const sinT = Math.sin(theta);
+
+        normalVec.set(
+          cosT * N.x + sinT * B.x,
+          cosT * N.y + sinT * B.y,
+          cosT * N.z + sinT * B.z
+        ).normalize();
+
+        positions.push(
+          pt.x + radius * normalVec.x,
+          pt.y + radius * normalVec.y,
+          pt.z + radius * normalVec.z
+        );
+        normals.push(normalVec.x, normalVec.y, normalVec.z);
+      }
+    }
+
+    const stride = radialSegments + 1;
+    for (let i = 0; i < tubularSegments; i++) {
+      for (let j = 0; j < radialSegments; j++) {
+        const a = i * stride + j;
+        const b = (i + 1) * stride + j;
+        const c = (i + 1) * stride + (j + 1);
+        const d = i * stride + (j + 1);
+        indices.push(a, b, d);
+        indices.push(b, c, d);
+      }
+    }
+
+    // Cap tip cleanly
+    const tipCenterIdx = positions.length / 3;
+    curve.getPointAt(1, pt);
+    const endTan = frames.tangents[tubularSegments];
+    positions.push(pt.x, pt.y, pt.z);
+    normals.push(endTan.x, endTan.y, endTan.z);
+    const lastRingOffset = tubularSegments * stride;
+    for (let j = 0; j < radialSegments; j++) {
+      indices.push(lastRingOffset + j, lastRingOffset + j + 1, tipCenterIdx);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setIndex(indices);
+    return geo;
+  }
+
+  /**
+   * Conforms the support interface roof slightly to the overhang surface normal (clamped <= 26 deg).
+   */
+  private static orientInterfacePad(pad: THREE.Mesh, normal?: [number, number, number]): void {
+    if (!normal) return;
+    const up = new THREE.Vector3(0, 1, 0);
+    // Support roof faces opposite to the downward overhang normal
+    const targetDir = new THREE.Vector3(-normal[0] * 0.42, Math.max(0.86, -normal[1]), -normal[2] * 0.42).normalize();
+    pad.quaternion.setFromUnitVectors(up, targetDir);
+  }
+
+  /**
+   * 1. Realistic Organic Tree Support 2.0 (Bambu Studio / OrcaSlicer Style)
+   * Tapered root-to-capillary organic trunks with tangent-continuous Y-merges (zero sphere ball joints).
    */
   private static buildRealisticTreeSupport(
     modelId: SampleModelId,
@@ -81,90 +185,118 @@ export class SupportBuilder {
     const branches = this.getBranchSpecs(modelId, customGroup);
 
     branches.forEach((b) => {
-      // 1. Bed Brim Disc (Đế bám bàn in rộng chống bong mép - Brim 5mm)
-      const brimRadius = b.trunkRadius * 3.0;
-      const brimGeo = new THREE.CylinderGeometry(brimRadius, brimRadius * 1.1, 0.02, 24);
+      const subCount = b.subTargets ? b.subTargets.length : b.targetY > 0.36 ? 2 : 0;
+      const rootBoost = 1 + Math.min(0.45, subCount * 0.14);
+      const rootRadius = b.trunkRadius * 1.38 * rootBoost;
+      const tipRadius = Math.max(0.024, b.trunkRadius * 0.46);
+
+      // 1. Concentric First-Layer Brim Disc (Đế bám bàn rộng mỏng chuẩn Bambu Layer 0)
+      const brimRadius = rootRadius * 2.35;
+      const brimGeo = new THREE.CylinderGeometry(brimRadius * 0.96, brimRadius, 0.014, 28);
       const brim = new THREE.Mesh(brimGeo, brimMat);
-      brim.position.set(b.bedX, 0.01, b.bedZ);
+      brim.position.set(b.bedX, 0.007, b.bedZ);
       group.add(brim);
 
-      // 2. Flared Trunk Foot (Chân trụ mở rộng)
-      const footGeo = new THREE.CylinderGeometry(b.trunkRadius * 1.3, brimRadius * 0.8, 0.06, 24);
-      const foot = new THREE.Mesh(footGeo, trunkMat);
-      foot.position.set(b.bedX, 0.04, b.bedZ);
-      group.add(foot);
-
-      // 3. Smooth Organic Curving Trunk (Thân cây hữu cơ uốn lượn tự nhiên)
-      const p0 = new THREE.Vector3(b.bedX, 0.06, b.bedZ);
+      // 2. Smooth Tapered Organic Trunk (Thân cây vuốt thon tự nhiên từ gốc phình lên ngọn mao dẫn)
+      const p0 = new THREE.Vector3(b.bedX, 0.012, b.bedZ);
       const p1 = new THREE.Vector3(
-        b.bedX * 0.8 + b.targetX * 0.2,
-        b.targetY * 0.25,
-        b.bedZ * 0.8 + b.targetZ * 0.2
+        b.bedX * 0.84 + b.targetX * 0.16,
+        b.targetY * 0.24,
+        b.bedZ * 0.84 + b.targetZ * 0.16
       );
       const p2 = new THREE.Vector3(
-        b.bedX * 0.45 + b.targetX * 0.55,
-        b.targetY * 0.6,
-        b.bedZ * 0.45 + b.targetZ * 0.55
+        b.bedX * 0.48 + b.targetX * 0.52,
+        b.targetY * 0.58,
+        b.bedZ * 0.48 + b.targetZ * 0.52
       );
       const p3 = new THREE.Vector3(
-        b.bedX * 0.15 + b.targetX * 0.85,
-        b.targetY * 0.88,
-        b.bedZ * 0.15 + b.targetZ * 0.85
+        b.bedX * 0.14 + b.targetX * 0.86,
+        b.targetY * 0.86,
+        b.bedZ * 0.14 + b.targetZ * 0.86
       );
-      const p4 = new THREE.Vector3(b.targetX, b.targetY - 0.02, b.targetZ);
+      const p4 = new THREE.Vector3(b.targetX, Math.max(0.06, b.targetY - 0.014), b.targetZ);
 
       const curve = new THREE.CatmullRomCurve3([p0, p1, p2, p3, p4]);
-      const tubeGeo = new THREE.TubeGeometry(curve, 32, b.trunkRadius, 14, false);
-      const tube = new THREE.Mesh(tubeGeo, trunkMat);
-      tube.castShadow = true;
-      tube.receiveShadow = true;
-      group.add(tube);
+      const trunkGeo = this.createTaperedOrganicBranchGeometry(
+        curve,
+        34,
+        14,
+        rootRadius,
+        tipRadius,
+        true
+      );
+      const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      group.add(trunkMesh);
 
-      // 4. Support Interface Contact Pad (Đệm tiếp xúc phẳng màu xanh sáng ôm sát đáy chi tiết)
-      const padR = b.padRadius || b.trunkRadius * 1.8;
-      const padGeo = new THREE.CylinderGeometry(padR, padR * 0.85, 0.03, 20);
+      // 3. Fine Conformal Support Interface Roof (Đệm lưới tiếp xúc mỏng ôm sát mặt dưới chi tiết)
+      const padR = Math.min(b.padRadius || b.trunkRadius * 1.45, tipRadius * 2.25);
+      const padGeo = new THREE.CylinderGeometry(padR, tipRadius * 1.05, 0.018, 18);
       const pad = new THREE.Mesh(padGeo, interfaceMat);
-      pad.position.set(b.targetX, b.targetY - 0.015, b.targetZ);
+      pad.position.set(b.targetX, Math.max(0.05, b.targetY - 0.009), b.targetZ);
+      this.orientInterfacePad(pad, b.targetNormal);
       group.add(pad);
 
-      // 5. Bifurcated Organic Secondary Twigs (Chạc cây phân nhánh chữ Y đỡ vùng lân cận)
-      if (b.targetY > 0.36) {
-        const splitPt = curve.getPoint(0.56);
-        const jointGeo = new THREE.SphereGeometry(b.trunkRadius * 1.08, 12, 10);
-        const joint = new THREE.Mesh(jointGeo, trunkMat);
-        joint.position.copy(splitPt);
-        group.add(joint);
-
+      // 4. Tangent-Continuous Capillary Twigs (Nhánh con tách mượt theo tiếp tuyến thân mẹ — KHÔNG dùng khối cầu nối)
+      let twigs: SupportSubTwigSpec[] = b.subTargets ? [...b.subTargets] : [];
+      if (twigs.length === 0 && b.targetY > 0.36) {
         const rdx = b.targetX - b.bedX;
         const rdz = b.targetZ - b.bedZ;
         const rLen = Math.hypot(rdx, rdz) || 1;
         const tanX = -rdz / rLen;
         const tanZ = rdx / rLen;
-        const spread = Math.max(0.12, Math.min(0.24, b.targetY * 0.16));
-
-        for (const side of [-1, 1]) {
-          const subTargetX = b.targetX + tanX * spread * side;
-          const subTargetZ = b.targetZ + tanZ * spread * side;
-          const subTargetY = Math.max(0.22, b.targetY - 0.025);
-
-          const midSub = new THREE.Vector3(
-            splitPt.x * 0.45 + subTargetX * 0.55,
-            splitPt.y + (subTargetY - splitPt.y) * 0.55,
-            splitPt.z * 0.45 + subTargetZ * 0.55
-          );
-          const subEnd = new THREE.Vector3(subTargetX, subTargetY - 0.015, subTargetZ);
-          const subCurve = new THREE.CatmullRomCurve3([splitPt.clone(), midSub, subEnd]);
-          const subTubeGeo = new THREE.TubeGeometry(subCurve, 18, b.trunkRadius * 0.68, 10, false);
-          const subTube = new THREE.Mesh(subTubeGeo, trunkMat);
-          subTube.castShadow = true;
-          group.add(subTube);
-
-          const subPadGeo = new THREE.CylinderGeometry(padR * 0.72, padR * 0.6, 0.025, 16);
-          const subPad = new THREE.Mesh(subPadGeo, interfaceMat);
-          subPad.position.set(subTargetX, subTargetY - 0.01, subTargetZ);
-          group.add(subPad);
-        }
+        const spread = Math.max(0.11, Math.min(0.22, b.targetY * 0.15));
+        twigs = [-1, 1].map((side) => ({
+          x: b.targetX + tanX * spread * side,
+          y: Math.max(0.22, b.targetY - 0.022),
+          z: b.targetZ + tanZ * spread * side,
+          normal: b.targetNormal,
+        }));
       }
+
+      twigs.forEach((sub, idx) => {
+        // Fork height adapts naturally below the twig tip so branches always grow strictly upward
+        const ratioY = Math.min(0.72, Math.max(0.36, (sub.y / Math.max(0.25, b.targetY)) * 0.58 - idx * 0.04));
+        const splitPt = curve.getPointAt(ratioY);
+        const splitTan = curve.getTangentAt(ratioY);
+
+        // Exact parent radius at split point -> seamless biological Y-crotch inside parent bark
+        const sT = ratioY * ratioY * (3 - 2 * ratioY);
+        const parentRadiusAtSplit = rootRadius * (1 - sT) + tipRadius * sT;
+        const subStartRadius = parentRadiusAtSplit * 0.84;
+        const subTipRadius = Math.max(0.021, tipRadius * 0.88);
+
+        const spanY = Math.max(0.08, sub.y - splitPt.y);
+        const c1 = splitPt.clone().addScaledVector(splitTan, spanY * 0.32);
+        const c2 = new THREE.Vector3(
+          splitPt.x * 0.25 + sub.x * 0.75,
+          splitPt.y + spanY * 0.72,
+          splitPt.z * 0.25 + sub.z * 0.75
+        );
+        const subEnd = new THREE.Vector3(sub.x, Math.max(0.06, sub.y - 0.012), sub.z);
+
+        const subCurve = new THREE.CatmullRomCurve3([splitPt, c1, c2, subEnd]);
+        const subGeo = this.createTaperedOrganicBranchGeometry(
+          subCurve,
+          22,
+          11,
+          subStartRadius,
+          subTipRadius,
+          false
+        );
+        const subMesh = new THREE.Mesh(subGeo, trunkMat);
+        subMesh.castShadow = true;
+        subMesh.receiveShadow = true;
+        group.add(subMesh);
+
+        const subPadR = subTipRadius * 2.05;
+        const subPadGeo = new THREE.CylinderGeometry(subPadR, subTipRadius * 1.04, 0.016, 16);
+        const subPad = new THREE.Mesh(subPadGeo, interfaceMat);
+        subPad.position.set(sub.x, Math.max(0.05, sub.y - 0.008), sub.z);
+        this.orientInterfacePad(subPad, sub.normal);
+        group.add(subPad);
+      });
     });
 
     return group;
@@ -219,8 +351,9 @@ export class SupportBuilder {
   }
 
   /**
-   * Quét hình học 3D thực tế của mô hình tải lên (custom .3MF / .STL / .OBJ) để sinh các nhánh
-   * Organic Tree Support ôm sát đúng vùng Overhang và biên dạng của mô hình.
+   * Quét hình học 3D thực tế của mô hình tải lên (custom .3MF / .STL / .OBJ):
+   * - Lọc đúng mặt Overhang hướng xuống (norm.y < -0.34, tương đương góc vượt ngưỡng tự đỡ)
+   * - Gom cụm không gian thành tối đa 42 nhánh mao dẫn phân bổ trên 10–14 gốc cây hữu cơ ngoài biên dạng đáy.
    */
   private static extractCustomGroupBranchSpecs(customGroup?: THREE.Group): SupportBranchSpec[] {
     if (customGroup) {
@@ -236,10 +369,23 @@ export class SupportBuilder {
       const halfX = Math.max(0.35, isFinite(size.x) && size.x > 0.05 ? size.x * 0.5 : 0.75);
       const halfZ = Math.max(0.35, isFinite(size.z) && size.z > 0.05 ? size.z * 0.5 : 0.75);
 
-      const sectors = 10;
-      const bestTargets: Array<{ x: number; y: number; z: number; score: number } | null> =
-        new Array(sectors).fill(null);
-      const sectorHullRadius = new Float32Array(sectors);
+      const hullBins = 36;
+      const sectorHullRadius = new Float32Array(hullBins);
+
+      // Spatial voxel map for fine overhang patches
+      const cellSize = Math.max(0.11, Math.min(halfX, halfZ) * 0.24);
+      const patchMap = new Map<
+        string,
+        {
+          x: number;
+          y: number;
+          z: number;
+          nx: number;
+          ny: number;
+          nz: number;
+          weight: number;
+        }
+      >();
 
       const pA = new THREE.Vector3();
       const pB = new THREE.Vector3();
@@ -256,7 +402,7 @@ export class SupportBuilder {
           const pos = geom.attributes.position;
           const idx = geom.index;
           const triCount = Math.floor((idx ? idx.count : pos.count) / 3);
-          const stride = Math.max(1, Math.floor(triCount / 8000));
+          const stride = Math.max(1, Math.floor(triCount / 16000));
           const mat = mesh.matrixWorld;
 
           for (let t = 0; t < triCount; t += stride) {
@@ -271,9 +417,9 @@ export class SupportBuilder {
             e1.subVectors(pB, pA);
             e2.subVectors(pC, pA);
             norm.crossVectors(e1, e2);
-            const len = norm.length();
-            if (len < 1e-6) continue;
-            norm.divideScalar(len);
+            const doubleArea = norm.length();
+            if (doubleArea < 1e-6) continue;
+            norm.divideScalar(doubleArea);
 
             const mx = (pA.x + pB.x + pC.x) / 3;
             const my = (pA.y + pB.y + pC.y) / 3 - minY;
@@ -282,71 +428,152 @@ export class SupportBuilder {
             const dx = mx - center.x;
             const dz = mz - center.z;
             const distR = Math.hypot(dx, dz);
-            if (distR < 0.06) continue;
 
-            let sIdx = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * sectors);
-            sIdx = Math.max(0, Math.min(sectors - 1, sIdx));
-
-            if (distR > sectorHullRadius[sIdx]) {
-              sectorHullRadius[sIdx] = distR;
+            let hBin = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * hullBins);
+            hBin = Math.max(0, Math.min(hullBins - 1, hBin));
+            // Track lower-body hull radius so tree roots always plant outside the model footprint
+            if (my < height * 0.72 && distR > sectorHullRadius[hBin]) {
+              sectorHullRadius[hBin] = distR;
             }
 
-            if (my < height * 0.14 || my > height * 0.9) continue;
-            if (norm.y > 0.25) continue;
+            // Ignore bed contact layer and upward/vertical self-supporting walls
+            if (my < Math.max(0.08, height * 0.08) || my > height * 0.96) continue;
+            if (norm.y > -0.34) continue;
 
-            const overhangBonus = norm.y < -0.25 ? (-norm.y) * 3.2 : 0.4;
-            const score = overhangBonus + distR * 0.85;
-            const cur = bestTargets[sIdx];
-            if (!cur || score > cur.score) {
-              bestTargets[sIdx] = { x: mx, y: my, z: mz, score };
+            const key = `${Math.round(mx / cellSize)}_${Math.round(my / (cellSize * 1.15))}_${Math.round(mz / cellSize)}`;
+            const w = (-norm.y) * Math.sqrt(doubleArea) * (1 + distR * 0.35);
+            const existing = patchMap.get(key);
+            if (!existing) {
+              patchMap.set(key, {
+                x: mx * w,
+                y: my * w,
+                z: mz * w,
+                nx: norm.x * w,
+                ny: norm.y * w,
+                nz: norm.z * w,
+                weight: w,
+              });
+            } else {
+              existing.x += mx * w;
+              existing.y += my * w;
+              existing.z += mz * w;
+              existing.nx += norm.x * w;
+              existing.ny += norm.y * w;
+              existing.nz += norm.z * w;
+              existing.weight += w;
             }
           }
         }
       });
 
-      const foundSpecs: SupportBranchSpec[] = [];
-      for (let s = 0; s < sectors; s++) {
-        const tgt = bestTargets[s];
-        if (!tgt) continue;
-        const dx = tgt.x - center.x;
-        const dz = tgt.z - center.z;
-        const dist = Math.hypot(dx, dz) || 1;
-        const nx = dx / dist;
-        const nz = dz / dist;
-        const bedOffset = Math.max(0.16, Math.min(0.32, tgt.y * 0.25));
-        const safeBedR = dist + bedOffset;
-        foundSpecs.push({
-          bedX: center.x + nx * safeBedR,
-          bedZ: center.z + nz * safeBedR,
-          targetX: tgt.x,
-          targetY: Math.max(0.22, tgt.y),
-          targetZ: tgt.z,
-          trunkRadius: 0.068,
-          padRadius: 0.135,
-        });
+      const patches = Array.from(patchMap.values())
+        .map((p) => {
+          const inv = 1 / Math.max(1e-6, p.weight);
+          const nx = p.nx * inv;
+          const ny = p.ny * inv;
+          const nz = p.nz * inv;
+          const nLen = Math.hypot(nx, ny, nz) || 1;
+          return {
+            x: p.x * inv,
+            y: p.y * inv,
+            z: p.z * inv,
+            normal: [nx / nLen, ny / nLen, nz / nLen] as [number, number, number],
+            weight: p.weight,
+          };
+        })
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 42);
+
+      if (patches.length > 0) {
+        // Group up to 42 fine overhang patches onto 14 shared organic multi-twig trunks
+        const used = new Uint8Array(patches.length);
+        const clusterMergeDist = Math.max(0.22, Math.min(halfX, halfZ) * 0.46);
+        const foundSpecs: SupportBranchSpec[] = [];
+
+        for (let i = 0; i < patches.length && foundSpecs.length < 14; i++) {
+          if (used[i]) continue;
+          used[i] = 1;
+          const primary = patches[i];
+          const subTargets: SupportSubTwigSpec[] = [];
+
+          for (let j = i + 1; j < patches.length && subTargets.length < 3; j++) {
+            if (used[j]) continue;
+            const cand = patches[j];
+            const dXZ = Math.hypot(cand.x - primary.x, cand.z - primary.z);
+            const dY = Math.abs(cand.y - primary.y);
+            if (dXZ <= clusterMergeDist && dY <= height * 0.28) {
+              used[j] = 1;
+              subTargets.push({
+                x: cand.x,
+                y: Math.max(0.16, cand.y),
+                z: cand.z,
+                normal: cand.normal,
+              });
+            }
+          }
+
+          // Compute escape direction to exterior build plate beyond lower-body hull
+          let dx = primary.x - center.x;
+          let dz = primary.z - center.z;
+          let dist = Math.hypot(dx, dz);
+          if (dist < 0.04) {
+            const fallbackAngle = (foundSpecs.length / 8) * Math.PI * 2;
+            dx = Math.cos(fallbackAngle);
+            dz = Math.sin(fallbackAngle);
+            dist = 1;
+          }
+          const dirX = dx / dist;
+          const dirZ = dz / dist;
+
+          let hBin = Math.floor(((Math.atan2(dirZ, dirX) + Math.PI) / (Math.PI * 2)) * hullBins);
+          hBin = Math.max(0, Math.min(hullBins - 1, hBin));
+          const prevBin = (hBin + hullBins - 1) % hullBins;
+          const nextBin = (hBin + 1) % hullBins;
+          const localHullR = Math.max(
+            dist,
+            sectorHullRadius[hBin],
+            sectorHullRadius[prevBin] * 0.92,
+            sectorHullRadius[nextBin] * 0.92
+          );
+
+          const clearance = Math.max(0.14, Math.min(0.28, primary.y * 0.22));
+          const safeBedR = localHullR + clearance;
+
+          foundSpecs.push({
+            bedX: center.x + dirX * safeBedR,
+            bedZ: center.z + dirZ * safeBedR,
+            targetX: primary.x,
+            targetY: Math.max(0.18, primary.y),
+            targetZ: primary.z,
+            trunkRadius: Math.max(0.046, Math.min(0.068, Math.min(halfX, halfZ) * 0.085)),
+            padRadius: 0.11,
+            targetNormal: primary.normal,
+            subTargets,
+          });
+        }
+
+        if (foundSpecs.length > 0) {
+          return foundSpecs;
+        }
       }
 
-      if (foundSpecs.length >= 4) {
-        return foundSpecs;
-      }
-
-      // Fallback theo đúng kích thước Bounding Box của customGroup
-      const targetH = Math.max(0.32, height * 0.52);
+      // Mô hình hoàn toàn thẳng đứng không có mặt Overhang > 40 độ:
+      // Chỉ đặt 4 nhánh cân bằng mảnh quanh biên khi người dùng chủ động bật chế độ Tree Support
+      const targetH = Math.max(0.28, height * 0.46);
+      const slimR = Math.max(0.045, Math.min(0.06, Math.min(halfX, halfZ) * 0.075));
       return [
-        { bedX: 0, bedZ: halfZ + 0.28, targetX: 0, targetY: targetH, targetZ: halfZ * 0.88, trunkRadius: 0.068, padRadius: 0.135 },
-        { bedX: 0, bedZ: -(halfZ + 0.28), targetX: 0, targetY: targetH, targetZ: -halfZ * 0.88, trunkRadius: 0.068, padRadius: 0.135 },
-        { bedX: halfX + 0.28, bedZ: 0, targetX: halfX * 0.88, targetY: targetH, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
-        { bedX: -(halfX + 0.28), bedZ: 0, targetX: -halfX * 0.88, targetY: targetH, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
-        { bedX: halfX * 0.85, bedZ: halfZ * 0.85, targetX: halfX * 0.65, targetY: targetH * 1.15, targetZ: halfZ * 0.65, trunkRadius: 0.062, padRadius: 0.125 },
-        { bedX: -halfX * 0.85, bedZ: -halfZ * 0.85, targetX: -halfX * 0.65, targetY: targetH * 1.15, targetZ: -halfZ * 0.65, trunkRadius: 0.062, padRadius: 0.125 },
+        { bedX: center.x, bedZ: center.z + halfZ + 0.22, targetX: center.x, targetY: targetH, targetZ: center.z + halfZ * 0.94, trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x, bedZ: center.z - (halfZ + 0.22), targetX: center.x, targetY: targetH, targetZ: center.z - halfZ * 0.94, trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x + halfX + 0.22, bedZ: center.z, targetX: center.x + halfX * 0.94, targetY: targetH, targetZ: center.z, trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x - (halfX + 0.22), bedZ: center.z, targetX: center.x - halfX * 0.94, targetY: targetH, targetZ: center.z, trunkRadius: slimR, padRadius: slimR * 1.7 },
       ];
     }
 
     return [
-      { bedX: 0, bedZ: 0.92, targetX: 0, targetY: 0.58, targetZ: 0.68, trunkRadius: 0.068, padRadius: 0.135 },
-      { bedX: 0, bedZ: -0.92, targetX: 0, targetY: 0.58, targetZ: -0.68, trunkRadius: 0.068, padRadius: 0.135 },
-      { bedX: 0.92, bedZ: 0, targetX: 0.68, targetY: 0.58, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
-      { bedX: -0.92, bedZ: 0, targetX: -0.68, targetY: 0.58, targetZ: 0, trunkRadius: 0.068, padRadius: 0.135 },
+      { bedX: 0, bedZ: 0.92, targetX: 0, targetY: 0.58, targetZ: 0.68, trunkRadius: 0.06, padRadius: 0.115 },
+      { bedX: 0, bedZ: -0.92, targetX: 0, targetY: 0.58, targetZ: -0.68, trunkRadius: 0.06, padRadius: 0.115 },
+      { bedX: 0.92, bedZ: 0, targetX: 0.68, targetY: 0.58, targetZ: 0, trunkRadius: 0.06, padRadius: 0.115 },
+      { bedX: -0.92, bedZ: 0, targetX: -0.68, targetY: 0.58, targetZ: 0, trunkRadius: 0.06, padRadius: 0.115 },
     ];
   }
 

@@ -24,7 +24,14 @@ import {
   loadFullBambuToolpaths,
   buildFullFilamentPreviewMesh,
 } from '@/services/nativeSupportLoader';
-import { sliceUniversalGeometry } from '@/services/universalSlicerEngine';
+import {
+  sliceUniversalGeometry,
+  sliceUniversalGeometryAsync,
+} from '@/services/universalSlicerEngine';
+import type {
+  FilamentColorScheme,
+  IActiveMoveTelemetry,
+} from '@/services/volumetricFilamentRenderer';
 import { BuildPlateToolbar } from './BuildPlateToolbar';
 import { ProSlicerTelemetryPanel } from '@/components/controls/ProSlicerTelemetryPanel';
 import {
@@ -138,11 +145,76 @@ export function PrintSimulatorViewport({
   const raycasterRef = useRef(new THREE.Raycaster());
   const mousePosRef = useRef(new THREE.Vector2());
 
-  // Drag & Drop State
+  // Drag & Drop & Bambu Preview State
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [fixedNotice, setFixedNotice] = useState<string | null>(null);
   const [isDefectDismissed, setIsDefectDismissed] = useState(false);
   const [showSlicingLegend, setShowSlicingLegend] = useState(true);
+  const [filamentColorScheme, setFilamentColorScheme] = useState<FilamentColorScheme>('line_type');
+  const [intraLayerProgress, setIntraLayerProgress] = useState<number>(1.0);
+  const [slicingProgressPct, setSlicingProgressPct] = useState<number | null>(null);
+  const [activeMoveTelemetry, setActiveMoveTelemetry] = useState<IActiveMoveTelemetry | null>(null);
+  const sliceJobTokenRef = useRef<number>(0);
+
+  // Khi chuyển sang lớp dọc mới, đặt lại thanh kéo ngang của lớp đó về 100% giống Bambu Studio
+  useEffect(() => {
+    setIntraLayerProgress(1.0);
+  }, [simulationState.currentLayer]);
+
+  // Đồng bộ chế độ phổ màu (Line Type / Speed / Flow / Layer Time) xuống GPU Shader tức thì (0ms)
+  useEffect(() => {
+    if (fullFilamentGroupRef.current?.userData?.setColorScheme) {
+      fullFilamentGroupRef.current.userData.setColorScheme(filamentColorScheme);
+    }
+  }, [filamentColorScheme]);
+
+  // Đồng bộ thanh kéo ngang từng bước chạy đầu phun trong lớp hiện tại + dẫn hướng đầu phun 3D
+  useEffect(() => {
+    const fg = fullFilamentGroupRef.current;
+    if (!fg?.userData) return;
+    if (fg.userData.setIntraLayerProgress) {
+      fg.userData.setIntraLayerProgress(intraLayerProgress);
+    }
+    if (fg.userData.getActiveMoveTelemetry && viewMode === 'filament_preview') {
+      const tel: IActiveMoveTelemetry | null = fg.userData.getActiveMoveTelemetry(
+        simulationState.currentLayer,
+        intraLayerProgress
+      );
+      setActiveMoveTelemetry(tel);
+
+      if (tel && intraLayerProgress < 0.998 && toolheadGroupRef.current && showToolhead) {
+        const localPt = new THREE.Vector3(tel.position[0], tel.position[1], tel.position[2]);
+        if (
+          modelTransform.rotation[0] !== 0 ||
+          modelTransform.rotation[1] !== 0 ||
+          modelTransform.rotation[2] !== 0
+        ) {
+          localPt.applyEuler(
+            new THREE.Euler(
+              modelTransform.rotation[0],
+              modelTransform.rotation[1],
+              modelTransform.rotation[2]
+            )
+          );
+        }
+        const wx = localPt.x * modelTransform.scale + modelTransform.position[0];
+        const wy = localPt.y * modelTransform.scale + modelTransform.position[1];
+        const wz = localPt.z * modelTransform.scale + modelTransform.position[2];
+        toolheadGroupRef.current.visible = true;
+        toolheadGroupRef.current.position.set(wx, wy, wz);
+        if (gantryBarRef.current) {
+          gantryBarRef.current.visible = true;
+          gantryBarRef.current.position.set(0, wy + 20, wz - 7);
+        }
+      }
+    }
+  }, [
+    intraLayerProgress,
+    simulationState.currentLayer,
+    viewMode,
+    showToolhead,
+    modelTransform,
+  ]);
 
   // Live Defect Alert at current layer
   const activeDefect = useMemo(() => {
@@ -644,47 +716,73 @@ export function PrintSimulatorViewport({
     // Chỉ cắt toàn bộ sợi in ngay lập tức nếu đang ở chế độ 'filament_preview'
     // (Nếu đang ở chế độ 'cad' hoặc 'prepare', việc cắt 200 lớp sẽ được thực hiện tức thì khi bấm sang tab 'Sợi In')
     if (viewMode === 'filament_preview') {
+      const token = ++sliceJobTokenRef.current;
       const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
-      const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.seamPosition}`;
-      loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
-        if (!sceneRef.current || !parentGroup) return;
-        const toolpathsData =
-          loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
-            ? loadedToolpaths
-            : sliceUniversalGeometry(clonedGeom, sliceKey, profile, supportGroup).toolpathsData;
+      const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.treeStyle}_${profile.seamPosition}_${profile.brimEnabled}`;
+      setSlicingProgressPct(8);
 
-        if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
-          removeExistingFilament();
-          const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
-          filamentGroup.visible = viewMode === 'filament_preview';
-          parentGroup.add(filamentGroup);
-          fullFilamentGroupRef.current = filamentGroup;
-
-          if (filamentGroup.userData?.updateVisibility) {
-            filamentGroup.userData.updateVisibility({
-              showSupport: showSupport && profile.supportMode !== 'none',
-              brimEnabled: profile.brimEnabled,
-              infillDensity: profile.infillDensity,
-            });
+      loadFullBambuToolpaths(modelKey, (currentModel as any)?.path)
+        .then(async (loadedToolpaths) => {
+          if (
+            loadedToolpaths &&
+            loadedToolpaths.outerWalls &&
+            loadedToolpaths.outerWalls.length > 0
+          ) {
+            return loadedToolpaths;
           }
+          const asyncRes = await sliceUniversalGeometryAsync(
+            clonedGeom,
+            sliceKey,
+            profile,
+            supportGroup,
+            (pct) => {
+              if (sliceJobTokenRef.current === token) setSlicingProgressPct(pct);
+            }
+          );
+          return asyncRes.toolpathsData;
+        })
+        .then((toolpathsData) => {
+          if (sliceJobTokenRef.current === token) setSlicingProgressPct(null);
+          if (!sceneRef.current || !parentGroup || sliceJobTokenRef.current !== token) return;
 
-          if (filamentGroup.userData?.updateLayer) {
-            filamentGroup.userData.updateLayer(
-              simulationState.currentLayer,
-              simulationState.currentProgress,
-              clippingPlaneRef.current || undefined
-            );
+          if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
+            removeExistingFilament();
+            const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData, profile);
+            filamentGroup.visible = viewMode === 'filament_preview';
+            parentGroup.add(filamentGroup);
+            fullFilamentGroupRef.current = filamentGroup;
+
+            filamentGroup.userData?.setColorScheme?.(filamentColorScheme);
+            filamentGroup.userData?.setIntraLayerProgress?.(intraLayerProgress);
+
+            if (filamentGroup.userData?.updateVisibility) {
+              filamentGroup.userData.updateVisibility({
+                showSupport: showSupport && profile.supportMode !== 'none',
+                brimEnabled: profile.brimEnabled,
+                infillDensity: profile.infillDensity,
+              });
+            }
+
+            if (filamentGroup.userData?.updateLayer) {
+              filamentGroup.userData.updateLayer(
+                simulationState.currentLayer,
+                simulationState.currentProgress,
+                clippingPlaneRef.current || undefined
+              );
+            }
+
+            if (modelMeshRef.current) modelMeshRef.current.visible = false;
+            if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+            if (supportGroupRef.current) supportGroupRef.current.visible = false;
+            if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
+          } else {
+            removeExistingFilament();
+            if (modelMeshRef.current) modelMeshRef.current.visible = true;
           }
-
-          if (modelMeshRef.current) modelMeshRef.current.visible = false;
-          if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-          if (supportGroupRef.current) supportGroupRef.current.visible = false;
-          if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
-        } else {
-          removeExistingFilament();
-          if (modelMeshRef.current) modelMeshRef.current.visible = true;
-        }
-      });
+        })
+        .catch(() => {
+          if (sliceJobTokenRef.current === token) setSlicingProgressPct(null);
+        });
     }
 
     // 2.5 Vòng định vị chân đế mô hình trên bàn in (Bed Footprint Highlight)
@@ -823,10 +921,12 @@ export function PrintSimulatorViewport({
             }
           });
         }
-        const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
+        const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData, profile);
         filamentGroup.visible = viewMode === 'filament_preview';
         modelRootGroupRef.current.add(filamentGroup);
         fullFilamentGroupRef.current = filamentGroup;
+        filamentGroup.userData?.setColorScheme?.(filamentColorScheme);
+        filamentGroup.userData?.setIntraLayerProgress?.(intraLayerProgress);
 
         if (filamentGroup.userData?.updateLayer) {
           filamentGroup.userData.updateLayer(
@@ -1047,62 +1147,91 @@ export function PrintSimulatorViewport({
     const isPrepare = viewMode === 'prepare';
 
     if (isFilament && (!fullFilamentGroupRef.current || fullFilamentGroupRef.current.children.length === 0)) {
+      const token = ++sliceJobTokenRef.current;
       const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
-      const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.seamPosition}`;
-      loadFullBambuToolpaths(modelKey, (currentModel as any)?.path).then((loadedToolpaths) => {
-        if (!modelRootGroupRef.current) return;
-        const clonedGeom = geometry.clone();
-        clonedGeom.computeBoundingBox();
-        const minY = clonedGeom.boundingBox?.min.y || 0;
-        clonedGeom.translate(0, -minY, 0);
+      const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.treeStyle}_${profile.seamPosition}_${profile.brimEnabled}`;
+      setSlicingProgressPct(10);
 
-        const toolpathsData =
-          loadedToolpaths && loadedToolpaths.outerWalls && loadedToolpaths.outerWalls.length > 0
-            ? loadedToolpaths
-            : sliceUniversalGeometry(
-                clonedGeom,
-                sliceKey,
-                profile,
-                supportGroupRef.current
-              ).toolpathsData;
+      loadFullBambuToolpaths(modelKey, (currentModel as any)?.path)
+        .then(async (loadedToolpaths) => {
+          if (
+            loadedToolpaths &&
+            loadedToolpaths.outerWalls &&
+            loadedToolpaths.outerWalls.length > 0
+          ) {
+            return loadedToolpaths;
+          }
+          const clonedGeom = geometry.clone();
+          clonedGeom.computeBoundingBox();
+          const minY = clonedGeom.boundingBox?.min.y || 0;
+          clonedGeom.translate(0, -minY, 0);
 
-        if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
-          let old: THREE.Object3D | undefined;
-          while ((old = modelRootGroupRef.current.getObjectByName('full_filament_preview_group')) !== undefined) {
-            modelRootGroupRef.current.remove(old);
-            old.traverse((c) => {
-              if (c instanceof THREE.LineSegments || c instanceof THREE.Points || c instanceof THREE.Mesh) {
-                c.geometry.dispose();
-                if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-                else c.material.dispose();
-              }
-            });
-          }
+          const asyncRes = await sliceUniversalGeometryAsync(
+            clonedGeom,
+            sliceKey,
+            profile,
+            supportGroupRef.current,
+            (pct) => {
+              if (sliceJobTokenRef.current === token) setSlicingProgressPct(pct);
+            }
+          );
+          clonedGeom.dispose();
+          return asyncRes.toolpathsData;
+        })
+        .then((toolpathsData) => {
+          if (sliceJobTokenRef.current === token) setSlicingProgressPct(null);
+          if (!modelRootGroupRef.current || sliceJobTokenRef.current !== token) return;
 
-          const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData);
-          filamentGroup.visible = true;
-          modelRootGroupRef.current.add(filamentGroup);
-          fullFilamentGroupRef.current = filamentGroup;
-          if (filamentGroup.userData?.updateVisibility) {
-            filamentGroup.userData.updateVisibility({
-              showSupport: showSupport && profile.supportMode !== 'none',
-              brimEnabled: profile.brimEnabled,
-              infillDensity: profile.infillDensity,
-            });
+          if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
+            let old: THREE.Object3D | undefined;
+            while (
+              (old = modelRootGroupRef.current.getObjectByName('full_filament_preview_group')) !==
+              undefined
+            ) {
+              modelRootGroupRef.current.remove(old);
+              old.traverse((c) => {
+                if (
+                  c instanceof THREE.LineSegments ||
+                  c instanceof THREE.Points ||
+                  c instanceof THREE.Mesh
+                ) {
+                  c.geometry.dispose();
+                  if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+                  else c.material.dispose();
+                }
+              });
+            }
+
+            const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData, profile);
+            filamentGroup.visible = true;
+            modelRootGroupRef.current.add(filamentGroup);
+            fullFilamentGroupRef.current = filamentGroup;
+            filamentGroup.userData?.setColorScheme?.(filamentColorScheme);
+            filamentGroup.userData?.setIntraLayerProgress?.(intraLayerProgress);
+
+            if (filamentGroup.userData?.updateVisibility) {
+              filamentGroup.userData.updateVisibility({
+                showSupport: showSupport && profile.supportMode !== 'none',
+                brimEnabled: profile.brimEnabled,
+                infillDensity: profile.infillDensity,
+              });
+            }
+            if (filamentGroup.userData?.updateLayer) {
+              filamentGroup.userData.updateLayer(
+                simulationState.currentLayer,
+                simulationState.currentProgress,
+                clippingPlaneRef.current || undefined
+              );
+            }
+            if (modelMeshRef.current) modelMeshRef.current.visible = false;
+            if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+            if (supportGroupRef.current) supportGroupRef.current.visible = false;
+            if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
           }
-          if (filamentGroup.userData?.updateLayer) {
-            filamentGroup.userData.updateLayer(
-              simulationState.currentLayer,
-              simulationState.currentProgress,
-              clippingPlaneRef.current || undefined
-            );
-          }
-          if (modelMeshRef.current) modelMeshRef.current.visible = false;
-          if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-          if (supportGroupRef.current) supportGroupRef.current.visible = false;
-          if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
-        }
-      });
+        })
+        .catch(() => {
+          if (sliceJobTokenRef.current === token) setSlicingProgressPct(null);
+        });
     }
 
     const hasFilamentData = !!(fullFilamentGroupRef.current && fullFilamentGroupRef.current.children.length > 0);
@@ -1491,13 +1620,13 @@ export function PrintSimulatorViewport({
         {viewMode !== 'prepare' && (
           <>
             {showSlicingLegend ? (
-              <div className="w-64 rounded-2xl glass-panel p-3 text-xs space-y-2 animate-in fade-in duration-150 shrink-0">
+              <div className="w-68 rounded-2xl glass-panel p-3 text-xs space-y-2 animate-in fade-in duration-150 shrink-0">
                 <div className="flex items-center justify-between border-b studio-border pb-1.5">
                   <div className="flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-gold)]" />
                     <span className="font-bold text-[var(--text-primary)] text-[10px] uppercase tracking-wider">Slicing Result</span>
                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded studio-gold-badge font-semibold">
-                      {viewMode === 'filament_preview' ? 'G-Code' : 'CAD Slice'}
+                      {viewMode === 'filament_preview' ? '3D Bead GPU' : 'CAD Slice'}
                     </span>
                   </div>
                   <button
@@ -1509,35 +1638,122 @@ export function PrintSimulatorViewport({
                   </button>
                 </div>
 
-                {/* Color Scheme Legend */}
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] font-medium">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-[#00e050] shrink-0" />
-                    <span className="text-[var(--text-primary)] font-semibold truncate">Tường ngoài</span>
+                {/* Bambu 4-Mode Color Scheme Switcher (Filament Preview Mode) */}
+                {viewMode === 'filament_preview' && (
+                  <div className="grid grid-cols-4 gap-0.5 p-0.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-hairline)]">
+                    {(
+                      [
+                        { id: 'line_type', label: 'Loại nét' },
+                        { id: 'speed', label: 'Tốc độ' },
+                        { id: 'flow', label: 'Lưu lượng' },
+                        { id: 'layer_time', label: 'TG Lớp' },
+                      ] as const
+                    ).map((scheme) => (
+                      <button
+                        key={scheme.id}
+                        type="button"
+                        onClick={() => setFilamentColorScheme(scheme.id)}
+                        className={`py-1 px-1 rounded-md text-[9px] font-bold transition-all cursor-pointer truncate ${
+                          filamentColorScheme === scheme.id
+                            ? 'studio-pill-active shadow-xs'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                        title={`Chế độ phổ màu: ${scheme.label}`}
+                      >
+                        {scheme.label}
+                      </button>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-[#047857] shrink-0" />
-                    <span className="text-[var(--text-secondary)] truncate">Tường trong</span>
+                )}
+
+                {/* Color Scheme Legend (8 Bambu Line Types OR Continuous Thermal Spectrum) */}
+                {viewMode !== 'filament_preview' || filamentColorScheme === 'line_type' ? (
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#00e050] shrink-0" />
+                      <span className="text-[var(--text-primary)] font-semibold truncate">Tường ngoài</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#047857] shrink-0" />
+                      <span className="text-[var(--text-secondary)] truncate">Tường trong</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#f25429] shrink-0" />
+                      <span className="text-[var(--text-primary)] font-semibold truncate">Đỉnh/Đáy đặc</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#38bdf8] shrink-0" />
+                      <span className="text-[var(--text-secondary)] truncate">Cầu nối Bridge</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#f59e0b] shrink-0" />
+                      <span className="text-[var(--text-primary)] font-semibold truncate">
+                        Ruột ({profile.infillDensity}%)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#10b981] shrink-0" />
+                      <span className="text-[var(--text-primary)] font-semibold truncate">Tree Support</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#d946ef] shrink-0" />
+                      <span className="text-[var(--text-secondary)] truncate">Đệm tiếp xúc</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-xs bg-[#3b82f6] shrink-0" />
+                      <span className="text-[var(--text-secondary)] truncate">Vành Brim + Seam</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-[#f59e0b] shrink-0" />
-                    <span className="text-[var(--text-primary)] font-semibold truncate">
-                      Ruột ({profile.infillDensity}%)
-                    </span>
+                ) : (
+                  <div className="space-y-1.5 py-0.5">
+                    <div className="flex items-center justify-between text-[10px] font-semibold text-[var(--text-primary)]">
+                      <span>
+                        {filamentColorScheme === 'speed'
+                          ? 'Phổ Tốc Độ Đầu Phun'
+                          : filamentColorScheme === 'flow'
+                          ? 'Lưu Lượng Thể Tích'
+                          : 'Thời Gian In Mỗi Lớp'}
+                      </span>
+                      <span className="font-mono text-[9px] text-[var(--accent-gold)]">
+                        {filamentColorScheme === 'speed'
+                          ? 'mm/s'
+                          : filamentColorScheme === 'flow'
+                          ? 'mm³/s'
+                          : 'giây'}
+                      </span>
+                    </div>
+                    <div
+                      className="h-2.5 w-full rounded-full border border-white/15"
+                      style={{
+                        background:
+                          'linear-gradient(90deg, #1c40d1 0%, #06b6d4 25%, #10b981 50%, #f59e0b 75%, #ef3838 100%)',
+                      }}
+                    />
+                    <div className="flex items-center justify-between font-mono text-[9px] text-[var(--text-secondary)]">
+                      <span>
+                        {filamentColorScheme === 'speed'
+                          ? '25'
+                          : filamentColorScheme === 'flow'
+                          ? '1.5'
+                          : '1.0s'}
+                      </span>
+                      <span>
+                        {filamentColorScheme === 'speed'
+                          ? `${Math.round((profile.printSpeed || 200) * 0.7)}`
+                          : filamentColorScheme === 'flow'
+                          ? '11.0'
+                          : '14s'}
+                      </span>
+                      <span>
+                        {filamentColorScheme === 'speed'
+                          ? `${Math.min(300, Math.round((profile.printSpeed || 200) * 1.35))}`
+                          : filamentColorScheme === 'flow'
+                          ? '24.0'
+                          : '32s+'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-[#10b981] shrink-0" />
-                    <span className="text-[var(--text-primary)] font-semibold truncate">Tree Support</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-[#d946ef] shrink-0" />
-                    <span className="text-[var(--text-secondary)] truncate">Mặt tiếp xúc</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-white ring-1 ring-black/20 shrink-0" />
-                    <span className="text-[var(--text-secondary)] truncate">Mối nối Seam</span>
-                  </div>
-                </div>
+                )}
 
                 {/* Real Dynamic Filament & Support Weight Breakdown */}
                 <div className="border-t studio-border pt-1.5 space-y-0.5 font-mono text-[10px]">
@@ -1562,8 +1778,10 @@ export function PrintSimulatorViewport({
                   <div className="text-[var(--text-muted)]">
                     Z: <strong className="text-[var(--text-primary)]">{currentZMm}mm</strong>
                   </div>
-                  <span className="px-1.5 py-0.5 rounded studio-gold-badge font-bold uppercase text-[9px]">
-                    {simulationState.activeToolpathType === 'perimeter'
+                  <span className="px-1.5 py-0.5 rounded studio-gold-badge font-bold uppercase text-[9px] truncate max-w-[140px]">
+                    {viewMode === 'filament_preview' && activeMoveTelemetry && intraLayerProgress < 0.998
+                      ? `${activeMoveTelemetry.speedMmS}mm/s • ${activeMoveTelemetry.flowMm3S}mm³/s`
+                      : simulationState.activeToolpathType === 'perimeter'
                       ? 'Wall'
                       : simulationState.activeToolpathType === 'infill'
                       ? `Infill (${profile.infillType})`
@@ -1659,6 +1877,74 @@ export function PrintSimulatorViewport({
               >
                 <IconClose className="w-3.5 h-3.5" />
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Bambu Studio Horizontal Intra-Layer Nozzle Move Scrubber (Filament Preview Mode) */}
+      {viewMode === 'filament_preview' && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[min(460px,calc(100vw-160px))] px-3.5 py-2 rounded-2xl glass-panel border border-[var(--border-hairline)] shadow-xl flex flex-col gap-1">
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold truncate">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00e050] shrink-0" />
+              <span>Bước đầu phun L{simulationState.currentLayer}:</span>
+              {activeMoveTelemetry ? (
+                <span className="text-[var(--accent-gold)] truncate">
+                  {activeMoveTelemetry.moveIndex}/{activeMoveTelemetry.totalLayerMoves} •{' '}
+                  {activeMoveTelemetry.featureLabel}
+                </span>
+              ) : (
+                <span className="text-[var(--text-secondary)]">
+                  {Math.round(intraLayerProgress * 100)}% lớp
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIntraLayerProgress(intraLayerProgress < 0.99 ? 1.0 : 0.35)}
+              className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer shrink-0 ml-2"
+              title="Đặt lại 100% lớp hoặc soi cắt ngang 35% lớp"
+            >
+              {Math.round(intraLayerProgress * 100)}%
+            </button>
+          </div>
+
+          <div className="relative flex items-center h-4">
+            <div className="w-full h-1.5 rounded-full bg-[var(--bg-subtle)] border border-[var(--border-hairline)] overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#00e050] via-[var(--accent-gold)] to-[#f59e0b] transition-all duration-75"
+                style={{ width: `${Math.max(1, Math.round(intraLayerProgress * 100))}%` }}
+              />
+            </div>
+            <input
+              data-testid="horizontal-move-slider"
+              type="range"
+              min="0.01"
+              max="1"
+              step="0.002"
+              value={intraLayerProgress}
+              onChange={(e) => setIntraLayerProgress(Number(e.target.value))}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-10"
+              title="Kéo ngang để soi từng bước di chuyển đùn nhựa của đầu phun trong lớp hiện tại"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 6. Async Web Worker Slicing Progress Pill */}
+      {slicingProgressPct !== null && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-2xl glass-panel border border-[var(--accent-gold-border)] shadow-2xl flex items-center gap-3 pointer-events-none animate-in fade-in">
+          <div className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent-gold)] border-t-transparent animate-spin shrink-0" />
+          <div className="text-[11px] font-mono">
+            <div className="font-bold text-[var(--text-primary)]">
+              Đang bóc tách sợi 3D SDF &amp; Tree Support... {slicingProgressPct}%
+            </div>
+            <div className="w-44 h-1 mt-1 rounded-full bg-[var(--bg-subtle)] overflow-hidden">
+              <div
+                className="h-full bg-[var(--accent-gold)] transition-all duration-150"
+                style={{ width: `${Math.max(5, slicingProgressPct)}%` }}
+              />
             </div>
           </div>
         </div>

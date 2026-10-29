@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { unzipSync } from 'three/examples/jsm/libs/fflate.module.js';
+import type { ISimulationProfile } from '@/types/simulator';
+import { buildVolumetricFilamentPreviewGroup } from './volumetricFilamentRenderer';
 
 export interface INativeSupportSegment {
   isInterface: boolean;
@@ -420,12 +422,15 @@ export interface IFullToolpathData {
   totalMoves: number;
   outerWalls: number[];
   innerWalls: number[];
+  topBottomShells?: number[];
+  bridges?: number[];
   infills?: number[];
   supports: number[];
   interfaces: number[];
   brims: number[];
   seams: number[];
-  layerIndexTable: number[][]; // [layerIdx] = [outerVertCount, innerVertCount, infillVertCount, supportVertCount, interfaceVertCount, seamVertCount]
+  layerTimesSec?: number[];
+  layerIndexTable: number[][]; // [layerIdx] = [outer, inner, infill, support, interface, seam, topBottom?, bridge?]
 }
 
 const toolpathsCache = new Map<string, IFullToolpathData>();
@@ -501,148 +506,16 @@ export async function loadFullBambuToolpaths(
 }
 
 /**
- * Dựng Three.js Group mô phỏng chuẩn xác 100% chế độ xem trước sợi in thực tế (Bambu Studio Preview Tab):
- * - Tường ngoài (Outer wall): Xanh lá sáng Bambu Studio #00e050
- * - Tường trong (Inner wall): Xanh sẫm #047857
- * - Tree Support: Cành đỡ hữu cơ Bambu #10b981
- * - Support Interface: Hồng tím #d946ef
- * - Vành Brim bám bàn in: Tím magenta #c026d3
- * - Mối nối Z-Seam: Điểm trắng phát sáng #ffffff
- * Cung cấp cơ chế userData.updateLayer(currentLayer) cập nhật tức thì 144 FPS
+ * Dựng Three.js Group hiển thị Sợi Nhựa 3D Có Thể Tích (GPU Instanced Volumetric Beads) chuẩn Bambu Studio Preview:
+ * - Xóa bỏ hoàn toàn hiện tượng khung dây 1px nhìn xuyên thấu.
+ * - Hỗ trợ đồng thời thanh trượt lớp dọc (Z-Layer), thanh trượt từng bước chạy dao ngang (Intra-layer Scrubber)
+ *   và 4 chế độ màu phân tích vật lý (Line Type / Speed / Flow / Layer Time) ở 60-120 FPS.
  */
-export function buildFullFilamentPreviewMesh(data: IFullToolpathData): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'full_filament_preview_group';
-
-  // 1. Tường ngoài (Outer walls)
-  const outerGeom = new THREE.BufferGeometry();
-  outerGeom.setAttribute('position', new THREE.Float32BufferAttribute(data.outerWalls, 3));
-  const outerMat = new THREE.LineBasicMaterial({
-    color: 0x00e050, // Lime Green đặc trưng Bambu Studio Outer Wall
-  });
-  const outerLines = new THREE.LineSegments(outerGeom, outerMat);
-  outerLines.name = 'preview_outer_walls';
-  group.add(outerLines);
-
-  // 2. Tường trong (Inner walls)
-  const innerGeom = new THREE.BufferGeometry();
-  innerGeom.setAttribute('position', new THREE.Float32BufferAttribute(data.innerWalls, 3));
-  const innerMat = new THREE.LineBasicMaterial({
-    color: 0x047857, // Xanh thẫm Bambu Inner Wall
-    transparent: true,
-    opacity: 0.85,
-  });
-  const innerLines = new THREE.LineSegments(innerGeom, innerMat);
-  innerLines.name = 'preview_inner_walls';
-  group.add(innerLines);
-
-  // 2.5 Ruột in (Sparse Infill): Vàng hổ phách Bambu Studio #f59e0b
-  const infillGeom = new THREE.BufferGeometry();
-  infillGeom.setAttribute('position', new THREE.Float32BufferAttribute(data.infills || [], 3));
-  const infillMat = new THREE.LineBasicMaterial({
-    color: 0xf59e0b, // Màu vàng hổ phách đặc trưng Bambu Studio Infill
-    transparent: true,
-    opacity: 0.88,
-  });
-  const infillLines = new THREE.LineSegments(infillGeom, infillMat);
-  infillLines.name = 'preview_infills';
-  group.add(infillLines);
-
-  // 3. Tree Support
-  const supGeom = new THREE.BufferGeometry();
-  supGeom.setAttribute('position', new THREE.Float32BufferAttribute(data.supports, 3));
-  const supMat = new THREE.LineBasicMaterial({
-    color: 0x10b981, // Xanh lá cây Bambu Tree Support
-  });
-  const supLines = new THREE.LineSegments(supGeom, supMat);
-  supLines.name = 'preview_supports';
-  group.add(supLines);
-
-  // 4. Support Interface
-  const ifGeom = new THREE.BufferGeometry();
-  ifGeom.setAttribute('position', new THREE.Float32BufferAttribute(data.interfaces, 3));
-  const ifMat = new THREE.LineBasicMaterial({
-    color: 0xd946ef, // Hồng tím Bambu Interface
-  });
-  const ifLines = new THREE.LineSegments(ifGeom, ifMat);
-  ifLines.name = 'preview_interfaces';
-  group.add(ifLines);
-
-  // 5. Vành Brim bám bàn in (bám đúng chu vi thực tế Layer 0 của mô hình)
-  const brimGeom = new THREE.BufferGeometry();
-  const brimPositions = data.brims && data.brims.length > 0 ? data.brims : [];
-  brimGeom.setAttribute('position', new THREE.Float32BufferAttribute(brimPositions, 3));
-  const brimMat = new THREE.LineBasicMaterial({
-    color: 0xc026d3, // Màu tím chân đế Brim đặc trưng Bambu Studio
-  });
-  const brimLines = new THREE.LineSegments(brimGeom, brimMat);
-  brimLines.name = 'preview_brims';
-  group.add(brimLines);
-
-  // 6. Mối nối Z-Seam (Điểm tròn phát sáng trắng)
-  const seamGeom = new THREE.BufferGeometry();
-  seamGeom.setAttribute('position', new THREE.Float32BufferAttribute(data.seams, 3));
-  const seamMat = new THREE.PointsMaterial({
-    color: 0xffffff,
-    size: 2.8,
-    sizeAttenuation: false,
-    transparent: true,
-    opacity: 0.95,
-  });
-  const seamPoints = new THREE.Points(seamGeom, seamMat);
-  seamPoints.name = 'preview_seams';
-  group.add(seamPoints);
-
-  // 7. Gắn hàm điều khiển clipping / layer drawRange trực tiếp vào userData
-  group.userData = {
-    totalLayers: data.totalLayers,
-    layerIndexTable: data.layerIndexTable,
-    updateLayer: (currentLayer: number, progressRatio?: number, clippingPlane?: THREE.Plane) => {
-      const tableLen = data.layerIndexTable ? data.layerIndexTable.length : 0;
-      if (tableLen > 0) {
-        const maxTableIdx = tableLen - 1;
-        let idx = currentLayer;
-        if (progressRatio !== undefined) {
-          idx = progressRatio >= 0.999 ? maxTableIdx : Math.round(progressRatio * maxTableIdx);
-        } else if (data.totalLayers > 0) {
-          idx = Math.round((currentLayer / data.totalLayers) * maxTableIdx);
-        }
-        idx = Math.max(0, Math.min(maxTableIdx, idx));
-        const entry = data.layerIndexTable[idx];
-        if (entry) {
-          outerGeom.setDrawRange(0, entry[0]);
-          innerGeom.setDrawRange(0, entry[1]);
-          if (entry.length >= 6) {
-            infillGeom.setDrawRange(0, entry[2]);
-            supGeom.setDrawRange(0, entry[3]);
-            ifGeom.setDrawRange(0, entry[4]);
-            seamGeom.setDrawRange(0, entry[5]);
-          } else {
-            supGeom.setDrawRange(0, entry[2]);
-            ifGeom.setDrawRange(0, entry[3]);
-            seamGeom.setDrawRange(0, entry[4]);
-          }
-        }
-      }
-      if (clippingPlane) {
-        const planes = progressRatio !== undefined && progressRatio >= 0.999 ? [] : [clippingPlane];
-        outerMat.clippingPlanes = planes;
-        innerMat.clippingPlanes = planes;
-        infillMat.clippingPlanes = planes;
-        supMat.clippingPlanes = planes;
-        ifMat.clippingPlanes = planes;
-        seamMat.clippingPlanes = planes;
-      }
-    },
-    updateVisibility: (opts: { showSupport: boolean; brimEnabled: boolean; infillDensity: number }) => {
-      supLines.visible = opts.showSupport;
-      ifLines.visible = opts.showSupport;
-      brimLines.visible = opts.brimEnabled && brimPositions.length > 0;
-      infillLines.visible = opts.infillDensity > 0;
-    },
-  };
-
-  return group;
+export function buildFullFilamentPreviewMesh(
+  data: IFullToolpathData,
+  profile?: Partial<ISimulationProfile>
+): THREE.Group {
+  return buildVolumetricFilamentPreviewGroup(data, profile);
 }
 
 /**
@@ -841,12 +714,14 @@ export function parseBambuGcodeNative(
 
   const outerWalls: number[] = [];
   const innerWalls: number[] = [];
+  const topBottomShells: number[] = [];
+  const bridges: number[] = [];
   const infills: number[] = [];
   const supports: number[] = [];
   const interfaces: number[] = [];
   const brims: number[] = [];
   const seams: number[] = [];
-  const layerIndexTable: number[][] = [[0, 0, 0, 0, 0, 0]];
+  const layerIndexTable: number[][] = [[0, 0, 0, 0, 0, 0, 0, 0]];
 
   const flushSupportLoop = () => {
     const n = curLoopPts.length / 3;
@@ -911,23 +786,26 @@ export function parseBambuGcodeNative(
     if (dist < 0.03 || dist > 65) return;
 
     const fl = curFeature.toLowerCase();
-    if (
-      fl.includes('outer wall') ||
-      fl.includes('overhang wall') ||
-      fl.includes('top surface') ||
-      fl.includes('external perimeter')
-    ) {
+    if (fl.includes('outer wall') || fl.includes('external perimeter')) {
       outerWalls.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
       if (isNewOuterLoop) {
         seams.push(tX1, tY1, tZ1);
         isNewOuterLoop = false;
       }
+    } else if (fl.includes('bridge') || fl.includes('overhang wall')) {
+      bridges.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
+    } else if (
+      fl.includes('top surface') ||
+      fl.includes('bottom surface') ||
+      fl.includes('internal solid infill') ||
+      fl.includes('solid infill')
+    ) {
+      topBottomShells.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
     } else if (
       fl.includes('inner wall') ||
       fl.includes('floating vertical shell') ||
-      fl.includes('bridge') ||
       fl.includes('perimeter') ||
-      fl.includes('bottom surface')
+      fl.includes('gap')
     ) {
       innerWalls.push(tX1, tY1, tZ1, tX2, tY2, tZ2);
     } else if (fl.includes('infill')) {
@@ -969,6 +847,8 @@ export function parseBambuGcodeNative(
         supports.length / 3,
         interfaces.length / 3,
         seams.length / 3,
+        topBottomShells.length / 3,
+        bridges.length / 3,
       ];
       isNewOuterLoop = true;
       continue;
@@ -1127,6 +1007,8 @@ export function parseBambuGcodeNative(
     supports.length / 3,
     interfaces.length / 3,
     seams.length / 3,
+    topBottomShells.length / 3,
+    bridges.length / 3,
   ];
 
   const totalSupportMoves = segments.reduce((sum, s) => sum + s.points.length / 6, 0);
@@ -1147,6 +1029,8 @@ export function parseBambuGcodeNative(
     totalMoves:
       (outerWalls.length +
         innerWalls.length +
+        topBottomShells.length +
+        bridges.length +
         infills.length +
         supports.length +
         interfaces.length +
@@ -1154,6 +1038,8 @@ export function parseBambuGcodeNative(
       6,
     outerWalls,
     innerWalls,
+    topBottomShells,
+    bridges,
     infills,
     supports,
     interfaces,

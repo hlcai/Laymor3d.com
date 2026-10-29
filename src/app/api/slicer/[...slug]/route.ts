@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { unzipSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
+
+const execFileAsync = promisify(execFile);
 
 export interface IDetectedSlicer {
   id: 'bambu_studio' | 'prusa_slicer' | 'orca_slicer' | 'custom';
   name: string;
   path: string;
   isAvailable: boolean;
+  hasNativeBinary?: boolean;
+  executionTier?: 'cloud_docker_cli' | 'local_native_cli' | 'browser_2d_sdf_hybrid';
   version?: string;
   commandExample: string;
 }
@@ -26,49 +34,64 @@ export interface INativeSupportData {
   segments: INativeSupportSegment[];
 }
 
+function getCloudWorkerConfig(): { url: string | null; apiKey: string } {
+  const raw = (process.env.CLOUD_SLICER_WORKER_URL || '').trim().replace(/\/+$/, '');
+  return {
+    url: raw.length > 0 ? raw : null,
+    apiKey: (process.env.CLOUD_SLICER_API_KEY || '').trim(),
+  };
+}
+
 function detectSlicers(): IDetectedSlicer[] {
   const bambuPaths = [
+    process.env.BAMBU_STUDIO_CLI_PATH || '',
     'C:\\Program Files\\Bambu Studio\\bambu-studio.exe',
     'C:\\Program Files (x86)\\Bambu Studio\\bambu-studio.exe',
-  ];
+    '/usr/local/bin/bambu-studio',
+  ].filter(Boolean);
   const prusaPaths = [
+    process.env.PRUSA_SLICER_CLI_PATH || '',
     'C:\\Program Files\\Prusa3D\\PrusaSlicer\\prusa-slicer-console.exe',
     'C:\\Program Files\\Prusa3D\\PrusaSlicer\\prusa-slicer.exe',
-  ];
+    '/usr/bin/prusa-slicer',
+  ].filter(Boolean);
   const orcaPaths = [
+    process.env.ORCA_SLICER_CLI_PATH || '',
     'C:\\Program Files\\OrcaSlicer\\orca-slicer.exe',
     'C:\\Program Files (x86)\\OrcaSlicer\\orca-slicer.exe',
-  ];
+    '/opt/orca-slicer/AppRun',
+    '/usr/local/bin/orca-slicer',
+  ].filter(Boolean);
 
-  const foundBambu = bambuPaths.find((p) => {
+  const safeExists = (p: string) => {
     try {
       return fs.existsSync(p);
     } catch {
       return false;
     }
-  });
-  const foundPrusa = prusaPaths.find((p) => {
-    try {
-      return fs.existsSync(p);
-    } catch {
-      return false;
-    }
-  });
-  const foundOrca = orcaPaths.find((p) => {
-    try {
-      return fs.existsSync(p);
-    } catch {
-      return false;
-    }
-  });
+  };
+
+  const foundBambu = bambuPaths.find(safeExists);
+  const foundPrusa = prusaPaths.find(safeExists);
+  const foundOrca = orcaPaths.find(safeExists);
+  const cloudCfg = getCloudWorkerConfig();
+
+  const resolveTier = (found?: string): IDetectedSlicer['executionTier'] =>
+    cloudCfg.url ? 'cloud_docker_cli' : found ? 'local_native_cli' : 'browser_2d_sdf_hybrid';
 
   return [
     {
       id: 'bambu_studio',
       name: 'Bambu Studio CLI',
-      path: foundBambu || 'C:\\Program Files\\Bambu Studio\\bambu-studio.exe',
+      path: foundBambu || (cloudCfg.url ? `${cloudCfg.url} (Headless Docker)` : 'C:\\Program Files\\Bambu Studio\\bambu-studio.exe'),
       isAvailable: true,
-      version: 'v02.08.02.61 (Bambu Native Core)',
+      hasNativeBinary: Boolean(foundBambu),
+      executionTier: resolveTier(foundBambu),
+      version: cloudCfg.url
+        ? 'v02.08.02 + Cloud Headless Worker'
+        : foundBambu
+        ? 'v02.08.02.61 (Local Native CLI)'
+        : 'v02.08.02 (2D-SDF Hybrid Core)',
       commandExample: '"bambu-studio.exe" --slice 0 --outputdir ./temp_local_slice project.3mf',
     },
     {
@@ -76,18 +99,412 @@ function detectSlicers(): IDetectedSlicer[] {
       name: 'PrusaSlicer CLI',
       path: foundPrusa || 'C:\\Program Files\\Prusa3D\\PrusaSlicer\\prusa-slicer-console.exe',
       isAvailable: true,
-      version: 'v2.8.1 (Organic Tree Core)',
+      hasNativeBinary: Boolean(foundPrusa),
+      executionTier: resolveTier(foundPrusa),
+      version: foundPrusa ? 'v2.8.1 (Local Native CLI)' : 'v2.8.1 (Organic Tree Core)',
       commandExample: '"prusa-slicer-console.exe" --export-gcode --support-material-style organic model.stl',
     },
     {
       id: 'orca_slicer',
       name: 'OrcaSlicer CLI',
-      path: foundOrca || 'C:\\Program Files\\OrcaSlicer\\orca-slicer.exe',
+      path: foundOrca || (cloudCfg.url ? `${cloudCfg.url} (OrcaSlicer v2.2.0 Xvfb)` : 'C:\\Program Files\\OrcaSlicer\\orca-slicer.exe'),
       isAvailable: true,
-      version: 'v2.2.0 (High-Speed Core)',
+      hasNativeBinary: Boolean(foundOrca),
+      executionTier: resolveTier(foundOrca),
+      version: cloudCfg.url
+        ? 'v2.2.0 (Cloud Docker Xvfb Headless)'
+        : foundOrca
+        ? 'v2.2.0 (Local Native CLI)'
+        : 'v2.2.0 (High-Speed SDF Core)',
       commandExample: '"orca-slicer.exe" --slice 0 --outputdir ./temp_local_slice project.3mf',
     },
   ];
+}
+
+/**
+ * Tier 1A: Forward raw uploaded mesh buffer to Docker Headless OrcaSlicer Cloud Worker
+ */
+async function tryForwardBufferToCloudWorker(
+  fileName: string,
+  fileBuffer: Buffer,
+  searchParams?: URLSearchParams
+): Promise<any | null> {
+  const { url, apiKey } = getCloudWorkerConfig();
+  if (!url) return null;
+
+  try {
+    const qs = new URLSearchParams(searchParams ? Object.fromEntries(searchParams.entries()) : {});
+    qs.set('name', fileName);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/octet-stream',
+    };
+    if (apiKey) headers['X-Api-Key'] = apiKey;
+
+    const res = await fetch(`${url}/slice?${qs.toString()}`, {
+      method: 'POST',
+      headers,
+      body: new Uint8Array(fileBuffer),
+      signal: AbortSignal.timeout(55000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json && json.success) {
+      return { ...json, executionTier: 'cloud_docker_cli' };
+    }
+  } catch {
+    // Graceful fallback to Tier 2 / Tier 3
+  }
+  return null;
+}
+
+/**
+ * Tier 1B: Forward remote fileUrl (> 4.5MB Vercel bypass) to Docker Headless Cloud Worker
+ */
+async function tryForwardUrlToCloudWorker(
+  fileUrl: string,
+  fileName: string,
+  settings?: Record<string, unknown>
+): Promise<any | null> {
+  const { url, apiKey } = getCloudWorkerConfig();
+  if (!url || !fileUrl) return null;
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (apiKey) headers['X-Api-Key'] = apiKey;
+
+    const res = await fetch(`${url}/slice-url`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ fileUrl, fileName, settings }),
+      signal: AbortSignal.timeout(55000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json && json.success) {
+      return { ...json, executionTier: 'cloud_docker_cli' };
+    }
+  } catch {
+    // Graceful fallback
+  }
+  return null;
+}
+
+/**
+ * Parses standard Bambu / Orca / Prusa G-code text into compact toolpathData + supportData + factory metrics
+ */
+function parseRealCliGcodeOutput(gcodeText: string, modelName: string, engine: string) {
+  const lines = gcodeText.split(/\r?\n/);
+  const outerWalls: number[] = [];
+  const innerWalls: number[] = [];
+  const topBottomShells: number[] = [];
+  const bridges: number[] = [];
+  const infills: number[] = [];
+  const supports: number[] = [];
+  const interfaces: number[] = [];
+  const brims: number[] = [];
+  const seams: number[] = [];
+  const supportSegments: INativeSupportSegment[] = [];
+
+  let curX = 0;
+  let curY = 0;
+  let curZ = 0.2;
+  let curE = 0;
+  let maxZ = 0.2;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let feature = 'outer';
+  let totalLayersMeta = 0;
+  let weightGramsMeta = 0;
+  let timeSecMeta = 0;
+  let activeSupPts: number[] | null = null;
+  let activeSupIsInterface = false;
+
+  const flushSupportChain = () => {
+    if (activeSupPts && activeSupPts.length >= 6) {
+      supportSegments.push({ isInterface: activeSupIsInterface, points: activeSupPts });
+    }
+    activeSupPts = null;
+  };
+
+  // First pass: bounding box center + metadata comments
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith(';')) {
+      const lower = line.toLowerCase();
+      const layerMatch = lower.match(/total layer number\s*[:=]\s*(\d+)/);
+      if (layerMatch) totalLayersMeta = parseInt(layerMatch[1], 10);
+      const gramMatch = lower.match(/filament used \[g\]\s*[:=]\s*([\d.]+)/);
+      if (gramMatch) weightGramsMeta = parseFloat(gramMatch[1]);
+      const timeMatch = lower.match(/estimated printing time.*?=\s*(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/);
+      if (timeMatch && (timeMatch[1] || timeMatch[2] || timeMatch[3])) {
+        timeSecMeta =
+          (parseInt(timeMatch[1] || '0', 10) * 3600) +
+          (parseInt(timeMatch[2] || '0', 10) * 60) +
+          parseInt(timeMatch[3] || '0', 10);
+      }
+      continue;
+    }
+    if (line.startsWith('G1 ') || line.startsWith('G0 ')) {
+      const xm = line.match(/X([-\d.]+)/);
+      const ym = line.match(/Y([-\d.]+)/);
+      const zm = line.match(/Z([-\d.]+)/);
+      const em = line.match(/E([-\d.]+)/);
+      if (zm) {
+        const zv = parseFloat(zm[1]);
+        if (zv > maxZ && zv < 500) maxZ = zv;
+      }
+      if (em && parseFloat(em[1]) > 0 && xm && ym) {
+        const xv = parseFloat(xm[1]);
+        const yv = parseFloat(ym[1]);
+        if (xv < minX) minX = xv;
+        if (xv > maxX) maxX = xv;
+        if (yv < minY) minY = yv;
+        if (yv > maxY) maxY = yv;
+      }
+    }
+  }
+
+  const cx = isFinite(minX) && isFinite(maxX) ? (minX + maxX) * 0.5 : 128;
+  const cy = isFinite(minY) && isFinite(maxY) ? (minY + maxY) * 0.5 : 128;
+  let prevLayerOuterAdded = false;
+
+  // Second pass: extract 3D toolpath segments (X -> X, Z_gcode -> Y_three, -Y_gcode -> Z_three)
+  const maxTotalCoords = 900000; // Safety cap for JSON payload
+  let totalCoords = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (line.startsWith(';')) {
+      const upper = line.toUpperCase();
+      if (upper.startsWith(';TYPE:') || upper.startsWith('; FEATURE:')) {
+        flushSupportChain();
+        if (upper.includes('OUTER') || upper.includes('EXTERNAL')) feature = 'outer';
+        else if (upper.includes('OVERHANG') || upper.includes('BRIDGE')) feature = 'bridge';
+        else if (upper.includes('TOP') || upper.includes('BOTTOM') || upper.includes('SOLID')) feature = 'topbottom';
+        else if (upper.includes('INNER') || upper.includes('PERIMETER') || upper.includes('WALL')) feature = 'inner';
+        else if (upper.includes('INTERFACE')) feature = 'interface';
+        else if (upper.includes('SUPPORT')) feature = 'support';
+        else if (upper.includes('BRIM') || upper.includes('SKIRT')) feature = 'brim';
+        else feature = 'infill';
+      } else if (upper.startsWith(';LAYER_CHANGE') || upper.startsWith('; CHANGE_LAYER')) {
+        flushSupportChain();
+        prevLayerOuterAdded = false;
+      }
+      continue;
+    }
+
+    if (line.startsWith('G92')) {
+      const em = line.match(/E([-\d.]+)/);
+      if (em) curE = parseFloat(em[1]);
+      continue;
+    }
+
+    if (line.startsWith('G0 ') || line.startsWith('G1 ')) {
+      const xm = line.match(/X([-\d.]+)/);
+      const ym = line.match(/Y([-\d.]+)/);
+      const zm = line.match(/Z([-\d.]+)/);
+      const em = line.match(/E([-\d.]+)/);
+
+      const nextX = xm ? parseFloat(xm[1]) : curX;
+      const nextY = ym ? parseFloat(ym[1]) : curY;
+      const nextZ = zm ? parseFloat(zm[1]) : curZ;
+      const nextE = em ? parseFloat(em[1]) : curE;
+      const isExtruding = em ? nextE > curE + 1e-5 : false;
+
+      if (isExtruding && totalCoords < maxTotalCoords) {
+        const x1 = Number((curX - cx).toFixed(2));
+        const y1 = Number(curZ.toFixed(2));
+        const z1 = Number((-(curY - cy)).toFixed(2));
+        const x2 = Number((nextX - cx).toFixed(2));
+        const y2 = Number(nextZ.toFixed(2));
+        const z2 = Number((-(nextY - cy)).toFixed(2));
+
+        if (Math.hypot(x2 - x1, y2 - y1, z2 - z1) > 0.02) {
+          let targetArr = outerWalls;
+          if (feature === 'inner') targetArr = innerWalls;
+          else if (feature === 'topbottom') targetArr = topBottomShells;
+          else if (feature === 'bridge') targetArr = bridges;
+          else if (feature === 'infill') targetArr = infills;
+          else if (feature === 'support') targetArr = supports;
+          else if (feature === 'interface') targetArr = interfaces;
+          else if (feature === 'brim') targetArr = brims;
+
+          targetArr.push(x1, y1, z1, x2, y2, z2);
+          totalCoords += 6;
+
+          if (feature === 'outer' && !prevLayerOuterAdded) {
+            seams.push(x1, y1, z1);
+            prevLayerOuterAdded = true;
+          }
+
+          if (feature === 'support' || feature === 'interface') {
+            const isIntf = feature === 'interface';
+            if (!activeSupPts || activeSupIsInterface !== isIntf) {
+              flushSupportChain();
+              activeSupIsInterface = isIntf;
+              activeSupPts = [x1, y1, z1, x2, y2, z2];
+            } else {
+              activeSupPts.push(x2, y2, z2);
+            }
+          }
+        }
+      } else {
+        flushSupportChain();
+      }
+
+      curX = nextX;
+      curY = nextY;
+      curZ = nextZ;
+      curE = nextE;
+    }
+  }
+  flushSupportChain();
+
+  const totalLayers = totalLayersMeta || Math.max(1, Math.round(maxZ / 0.2));
+  const supportMoves = Math.floor((supports.length + interfaces.length) / 6);
+
+  return {
+    totalLayers,
+    layerHeightMm: Number((maxZ / Math.max(1, totalLayers)).toFixed(3)) || 0.2,
+    filamentWeightGrams: weightGramsMeta || Number(((totalCoords / 6) * 0.0018).toFixed(1)),
+    estimatedTimeSec: timeSecMeta || Math.max(300, Math.round((totalCoords / 6) * 0.045)),
+    supportLinesCount: supportMoves,
+    supportData: {
+      model: modelName,
+      engine: `${engine}_native_cli`,
+      totalMoves: supportMoves,
+      totalSegments: supportSegments.length,
+      segments: supportSegments,
+    } satisfies INativeSupportData,
+    toolpathData: {
+      model: modelName,
+      totalLayers,
+      maxHeight: Number(maxZ.toFixed(2)),
+      layerHeightMm: Number((maxZ / Math.max(1, totalLayers)).toFixed(3)) || 0.2,
+      counts: {
+        outerWall: outerWalls.length / 6,
+        innerWall: innerWalls.length / 6,
+        topBottom: topBottomShells.length / 6,
+        bridge: bridges.length / 6,
+        infill: infills.length / 6,
+        support: supports.length / 6,
+        interface: interfaces.length / 6,
+        brim: brims.length / 6,
+        seams: seams.length / 3,
+      },
+      outerWalls,
+      innerWalls,
+      topBottomShells,
+      bridges,
+      infills,
+      supports,
+      interfaces,
+      brims,
+      seams,
+    },
+    gcodeLines: lines,
+  };
+}
+
+/**
+ * Tier 2: Execute real local Bambu Studio / OrcaSlicer / PrusaSlicer CLI binary if installed on host OS
+ */
+async function tryExecuteLocalNativeCli(
+  exePath: string,
+  engineId: string,
+  fileName: string,
+  inputBuffer?: Buffer,
+  existingModelPath?: string,
+  supportEnabled = true,
+  angleThreshold = 45
+): Promise<ReturnType<typeof parseRealCliGcodeOutput> | null> {
+  try {
+    if (!exePath || !fs.existsSync(exePath)) return null;
+  } catch {
+    return null;
+  }
+
+  const jobDir = path.join(os.tmpdir(), `laymor-cli-${crypto.randomUUID()}`);
+  try {
+    fs.mkdirSync(jobDir, { recursive: true });
+    const safeBase = path.basename(fileName || 'model.stl').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const inputPath = path.join(jobDir, safeBase);
+
+    if (inputBuffer && inputBuffer.length > 0) {
+      fs.writeFileSync(inputPath, inputBuffer);
+    } else if (existingModelPath && fs.existsSync(existingModelPath)) {
+      fs.copyFileSync(existingModelPath, inputPath);
+    } else {
+      return null;
+    }
+
+    const outDir = path.join(jobDir, 'out');
+    fs.mkdirSync(outDir, { recursive: true });
+
+    let args: string[] = [];
+    if (engineId === 'prusa_slicer' || exePath.toLowerCase().includes('prusa')) {
+      const outGcode = path.join(outDir, 'output.gcode');
+      args = [
+        '--export-gcode',
+        '--layer-height',
+        '0.2',
+        ...(supportEnabled
+          ? [
+              '--support-material',
+              '--support-material-auto',
+              '--support-material-style',
+              'organic',
+              '--support-material-threshold',
+              String(angleThreshold),
+            ]
+          : []),
+        '--output',
+        outGcode,
+        inputPath,
+      ];
+    } else {
+      args = ['--slice', '0', '--outputdir', outDir, inputPath];
+    }
+
+    await execFileAsync(exePath, args, { timeout: 45000, windowsHide: true });
+
+    // Locate generated .gcode or extracted Metadata/plate_1.gcode inside .gcode.3mf
+    const outFiles = fs.readdirSync(outDir);
+    let gcodeContent = '';
+
+    for (const f of outFiles) {
+      const full = path.join(outDir, f);
+      if (f.toLowerCase().endsWith('.gcode')) {
+        gcodeContent = fs.readFileSync(full, 'utf8');
+        break;
+      }
+      if (f.toLowerCase().endsWith('.3mf')) {
+        const zipped = new Uint8Array(fs.readFileSync(full));
+        const unzipped = unzipSync(zipped);
+        const gcodeEntry = Object.keys(unzipped).find((k) => k.toLowerCase().endsWith('.gcode'));
+        if (gcodeEntry) {
+          gcodeContent = strFromU8(unzipped[gcodeEntry]);
+          break;
+        }
+      }
+    }
+
+    if (!gcodeContent || gcodeContent.length < 128) return null;
+    return parseRealCliGcodeOutput(gcodeContent, fileName, engineId);
+  } catch {
+    return null;
+  } finally {
+    try {
+      fs.rmSync(jobDir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup error
+    }
+  }
 }
 
 function resolvePreCachedAssetPath(modelHint: string, kind: 'support' | 'toolpaths'): string | null {
@@ -624,6 +1041,44 @@ export async function GET(
     return NextResponse.json({ error: 'No pre-cached toolpaths for this model' }, { status: 404 });
   }
 
+  // 6. GET /api/slicer/cloud-status (Kiểm tra trạng thái Docker Headless OrcaSlicer/Bambu Worker + Local CLI)
+  if (endpoint === 'cloud-status') {
+    const cloudCfg = getCloudWorkerConfig();
+    const slicers = detectSlicers();
+    let cloudWorkerReachable = false;
+    let cloudWorkerHealth: any = null;
+
+    if (cloudCfg.url) {
+      try {
+        const res = await fetch(`${cloudCfg.url}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok) {
+          cloudWorkerReachable = true;
+          cloudWorkerHealth = await res.json().catch(() => ({ ok: true }));
+        }
+      } catch {
+        cloudWorkerReachable = false;
+      }
+    }
+
+    const hasAnyLocalCli = slicers.some((s) => s.hasNativeBinary);
+    return NextResponse.json({
+      status: 'ok',
+      activeExecutionTier: cloudWorkerReachable
+        ? 'cloud_docker_cli'
+        : hasAnyLocalCli
+        ? 'local_native_cli'
+        : 'browser_2d_sdf_hybrid',
+      cloudWorkerConfigured: Boolean(cloudCfg.url),
+      cloudWorkerReachable,
+      cloudWorkerHealth,
+      localSlicers: slicers,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   return NextResponse.json({ status: 'ok', endpoint });
 }
 
@@ -641,6 +1096,46 @@ export async function POST(
       const arrayBuf = await req.arrayBuffer();
       const fileBuffer = Buffer.from(arrayBuf);
 
+      // Tier 1: Forward to Docker Headless OrcaSlicer / Bambu Cloud Worker if configured
+      const cloudResult = await tryForwardBufferToCloudWorker(
+        rawFileName,
+        fileBuffer,
+        req.nextUrl.searchParams
+      );
+      if (cloudResult) {
+        return NextResponse.json({
+          ...cloudResult,
+          modelPath: rawFileName,
+        });
+      }
+
+      // Tier 2: Execute real local installed Bambu Studio / OrcaSlicer / PrusaSlicer CLI if binary exists on host
+      const slicers = detectSlicers();
+      const nativeCandidate = slicers.find((s) => s.hasNativeBinary);
+      if (nativeCandidate) {
+        const localCliResult = await tryExecuteLocalNativeCli(
+          nativeCandidate.path,
+          nativeCandidate.id,
+          rawFileName,
+          fileBuffer
+        );
+        if (localCliResult) {
+          return NextResponse.json({
+            success: true,
+            executionTier: 'local_native_cli',
+            engine: nativeCandidate.id,
+            modelPath: rawFileName,
+            supportData: localCliResult.supportData,
+            toolpathData: localCliResult.toolpathData,
+            totalLayers: localCliResult.totalLayers,
+            estimatedTimeSec: localCliResult.estimatedTimeSec,
+            filamentWeightGrams: localCliResult.filamentWeightGrams,
+            supportLinesCount: localCliResult.supportLinesCount,
+          });
+        }
+      }
+
+      // Tier 3: Pre-cached Bambu JSON or Browser Web-Worker 2D-SDF Hybrid Fallback
       let supportData: INativeSupportData = {
         model: rawFileName,
         modelPath: rawFileName,
@@ -674,6 +1169,7 @@ export async function POST(
 
       return NextResponse.json({
         success: true,
+        executionTier: preCachedToolpaths ? 'precached_bambu_native' : 'browser_2d_sdf_hybrid',
         modelPath: rawFileName,
         supportData,
         toolpathData,
@@ -699,6 +1195,7 @@ export async function POST(
         slicerPath,
         modelName = '3D Benchy (Calibration Ship)',
         modelPath,
+        fileUrl,
         supportSettings = {},
       } = data;
 
@@ -712,7 +1209,107 @@ export async function POST(
       const topZDistance = Number(supportSettings.topZDistance || 0.2);
       const branchDiameter = Number(supportSettings.branchDiameter || 2.2);
 
-      // Load pre-cached native support & toolpaths if available for the model
+      // Tier 1A: Remote URL direct cloud worker slice (bypasses Vercel 4.5MB body limit)
+      if (typeof fileUrl === 'string' && fileUrl.startsWith('http')) {
+        const cloudUrlResult = await tryForwardUrlToCloudWorker(fileUrl, modelName, {
+          engine,
+          supportEnabled,
+          treeStyle,
+          angleThreshold,
+          topZDistance,
+          branchDiameter,
+        });
+        if (cloudUrlResult) {
+          return NextResponse.json({
+            ...cloudUrlResult,
+            engine,
+            modelName,
+            timestamp: new Date().toLocaleTimeString('vi-VN'),
+          });
+        }
+      }
+
+      // Resolve server-side model file path if present
+      let resolvedModelFile: string | undefined;
+      if (typeof modelPath === 'string' && modelPath.length > 0) {
+        if (fs.existsSync(modelPath)) {
+          resolvedModelFile = modelPath;
+        } else {
+          const candidate = path.join(
+            process.cwd(),
+            'public',
+            '3dsim',
+            'models',
+            path.basename(modelPath)
+          );
+          if (fs.existsSync(candidate)) resolvedModelFile = candidate;
+        }
+      }
+
+      // Tier 1B: Forward existing server model file to Docker Cloud Worker if configured
+      if (resolvedModelFile && getCloudWorkerConfig().url) {
+        try {
+          const buf = fs.readFileSync(resolvedModelFile);
+          const qs = new URLSearchParams({
+            support: supportEnabled ? 'tree' : 'none',
+            angle: String(angleThreshold),
+          });
+          const cloudBufResult = await tryForwardBufferToCloudWorker(
+            path.basename(resolvedModelFile),
+            buf,
+            qs
+          );
+          if (cloudBufResult) {
+            return NextResponse.json({
+              ...cloudBufResult,
+              engine,
+              modelName,
+              timestamp: new Date().toLocaleTimeString('vi-VN'),
+            });
+          }
+        } catch {
+          // fallback to Tier 2 / Tier 3
+        }
+      }
+
+      // Tier 2: Execute real local CLI binary if installed on host OS
+      if (resolvedModelFile && targetSlicer.hasNativeBinary) {
+        const localCliResult = await tryExecuteLocalNativeCli(
+          exePath,
+          engine,
+          modelName,
+          undefined,
+          resolvedModelFile,
+          supportEnabled,
+          angleThreshold
+        );
+        if (localCliResult) {
+          const cliLogs = [
+            `[Pro Slicer Native CLI] Đã thực thi trực tiếp binary gốc: ${exePath}`,
+            `[Support Config] Enabled=${supportEnabled}, Style=${treeStyle.toUpperCase()}, Threshold=${angleThreshold}°`,
+            `[G-Code Parser] Bóc tách thành công ${localCliResult.totalLayers} lớp thật (${localCliResult.filamentWeightGrams}g, ${Math.round(localCliResult.estimatedTimeSec / 60)} phút)`,
+          ];
+          return NextResponse.json({
+            success: true,
+            executionTier: 'local_native_cli',
+            engine,
+            modelName,
+            totalLayers: localCliResult.totalLayers,
+            estimatedTimeSec: localCliResult.estimatedTimeSec,
+            filamentWeightGrams: localCliResult.filamentWeightGrams,
+            supportLinesCount: localCliResult.supportLinesCount,
+            supportData: localCliResult.supportData,
+            toolpathData: localCliResult.toolpathData,
+            gcodeHeader: localCliResult.gcodeLines.slice(0, 35).join('\n'),
+            gcodeTail: localCliResult.gcodeLines.slice(-30).join('\n'),
+            rawGcodeSnippet: localCliResult.gcodeLines.slice(0, 180).join('\n'),
+            logs: cliLogs.join('\n'),
+            timestamp: new Date().toLocaleTimeString('vi-VN'),
+          });
+        }
+      }
+
+      // Tier 3: Load pre-cached native support & toolpaths or Hybrid Browser 2D-SDF metrics
       const hint = `${modelName} ${modelPath || ''}`;
       let parsedSupportData: any = null;
       let parsedToolpathData: any = null;
@@ -803,18 +1400,19 @@ export async function POST(
       const gcodeLines = gcodeResult.split('\n');
 
       const logLines: string[] = [
-        `[Pro Slicer Local Bridge] Khởi động tiến trình Slicing (${targetSlicer.name})...`,
-        `[Binary Check] Đã xác nhận engine: ${exePath} (${targetSlicer.version})`,
+        `[Pro Slicer Bridge] Khởi động tiến trình Slicing (${targetSlicer.name} — Tier: ${targetSlicer.executionTier})...`,
+        `[Binary / Cloud Check] Engine: ${exePath} (${targetSlicer.version})`,
         `[Support Config] Enabled=${supportEnabled}, Style=${treeStyle.toUpperCase()}, Threshold=${angleThreshold}°, TopZ=${topZDistance}mm, BranchDia=${branchDiameter}mm`,
         `[Mesh Analyzer] Đã phân tích lưới tam giác 3D của "${modelName}" — Quét các mặt nghiêng > ${angleThreshold}°`,
         supportEnabled
-          ? `[Tree Support Generator] Đã sinh cấu trúc Tree Support (${treeStyle.toUpperCase()}) với ${supportLinesCount.toLocaleString()} đoạn đường chạy dao & lớp đệm Top Z = ${topZDistance}mm`
+          ? `[Tree Support 2.0] Đã sinh cấu trúc Tree Support (${treeStyle.toUpperCase()}) với ${supportLinesCount.toLocaleString()} đoạn đường chạy dao & lớp đệm Top Z = ${topZDistance}mm`
           : `[Support Notice] Chế độ Support đang TẮT — Cắt lát trực tiếp thân mẫu 3D`,
         `[G-Code Compiler] Đã biên dịch thành công ${totalLayers} lớp in CNC (Khối lượng: ${filamentWeightGrams}g, Thời gian: ${Math.round(estimatedTimeSec / 60)} phút)`,
       ];
 
       return NextResponse.json({
         success: true,
+        executionTier: preCachedToolpath ? 'precached_bambu_native' : 'browser_2d_sdf_hybrid',
         engine,
         modelName,
         totalLayers,

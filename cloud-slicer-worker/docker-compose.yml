@@ -1,0 +1,19 @@
+services:
+  laymor-cloud-slicer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laymor3d-headless-slicer
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - PORT=8090
+      - MAX_CONCURRENT_SLICES=2
+      - CLOUD_SLICER_API_KEY=${CLOUD_SLICER_API_KEY:-}
+    shm_size: "512mb"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4G
