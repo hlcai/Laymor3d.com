@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseCloudService, LAYMOR3D_SUPABASE_SQL_SCHEMA } from '@/backend/db/supabaseClient';
 import { orderRepository } from '@/backend/repositories/OrderRepository';
 import { userRepository } from '@/backend/repositories/UserRepository';
+import {
+  runSelfImprovingPhysicsAudit,
+  getRuntimeLearningDataset,
+  addRuntimeLearningCase,
+  IHistoricalLearningCase,
+} from '@/backend/services/slicing/SelfImprovingAiAdvisor';
+import {
+  googleDriveSheetsBridge,
+  GoogleDriveSheetsBridge,
+} from '@/backend/services/slicing/GoogleDriveSheetsBridge';
 
 /**
  * Native Vercel Serverless implementation of /api/v1/* endpoints for Laymor3d.com & /3dsim.
@@ -122,6 +132,20 @@ export async function GET(
     return NextResponse.json(supabaseCloudService.getStatus());
   }
 
+  if (pathKey === 'storage/status') {
+    return NextResponse.json({
+      googleDriveSheets: googleDriveSheetsBridge.getStatus(),
+      learningCasesCount: getRuntimeLearningDataset().length,
+    });
+  }
+
+  if (pathKey === 'ai/learning-dataset') {
+    return NextResponse.json({
+      total: getRuntimeLearningDataset().length,
+      cases: getRuntimeLearningDataset(),
+    });
+  }
+
   if (pathKey === 'supabase/sql-schema') {
     return new NextResponse(LAYMOR3D_SUPABASE_SQL_SCHEMA, {
       status: 200,
@@ -204,7 +228,138 @@ export async function POST(
 
   if (pathKey === 'physics/sanity-check') {
     const check = runPhysicsSanityCheck(body.profile || {});
+    if (body.fingerprint) {
+      const ragAudit = runSelfImprovingPhysicsAudit(body.fingerprint, {
+        material: body.profile?.material || 'PLA',
+        layerHeightMm: Number(body.profile?.layerHeight || 0.2),
+        infillDensityPct: Number(body.profile?.infillDensity ?? 15),
+        infillPattern: body.profile?.infillType || 'gyroid',
+        wallLoops: Number(body.profile?.wallLoops || 2),
+        supportMode: body.profile?.supportMode || 'tree',
+        brimEnabled: Boolean(body.profile?.brimEnabled ?? true),
+        brimWidthMm: Number(body.profile?.brimWidthMm ?? 5),
+        printSpeedMmS: Number(body.profile?.printSpeed || 200),
+        outerWallSpeedMmS: Number(body.profile?.outerWallSpeed || 120),
+        firstLayerSpeedMmS: Number(body.profile?.firstLayerSpeed || 30),
+        nozzleTempC: Number(body.profile?.nozzleTemp || 215),
+        bedTempC: Number(body.profile?.bedTemp || 60),
+        coolingFanPct: Number(body.profile?.coolingFanSpeed ?? 100),
+        retractionMm: Number(body.profile?.retractionDistanceMm ?? 0.8),
+      });
+      return NextResponse.json({
+        ...check,
+        geometry_rag_audit: ragAudit,
+      });
+    }
     return NextResponse.json(check);
+  }
+
+  if (pathKey === 'ai/geometry-rag-audit') {
+    const fp = body.fingerprint;
+    const rawProfile = body.profile || {};
+    const ragAudit = runSelfImprovingPhysicsAudit(fp, {
+      material: rawProfile.material || 'PLA',
+      layerHeightMm: Number(rawProfile.layerHeightMm || rawProfile.layerHeight || 0.2),
+      infillDensityPct: Number(rawProfile.infillDensityPct ?? rawProfile.infillDensity ?? 15),
+      infillPattern: rawProfile.infillPattern || rawProfile.infillType || 'gyroid',
+      wallLoops: Number(rawProfile.wallLoops || 2),
+      supportMode: rawProfile.supportMode || 'tree',
+      brimEnabled: Boolean(rawProfile.brimEnabled ?? true),
+      brimWidthMm: Number(rawProfile.brimWidthMm ?? 5),
+      printSpeedMmS: Number(rawProfile.printSpeedMmS || rawProfile.printSpeed || 200),
+      outerWallSpeedMmS: Number(rawProfile.outerWallSpeedMmS || rawProfile.outerWallSpeed || 120),
+      firstLayerSpeedMmS: Number(rawProfile.firstLayerSpeedMmS || rawProfile.firstLayerSpeed || 30),
+      nozzleTempC: Number(rawProfile.nozzleTempC || rawProfile.nozzleTemp || 215),
+      bedTempC: Number(rawProfile.bedTempC || rawProfile.bedTemp || 60),
+      coolingFanPct: Number(rawProfile.coolingFanPct ?? rawProfile.coolingFanSpeed ?? 100),
+      retractionMm: Number(rawProfile.retractionMm ?? rawProfile.retractionDistanceMm ?? 0.8),
+    });
+    return NextResponse.json(ragAudit);
+  }
+
+  if (pathKey === 'storage/gdrive-init') {
+    const modelId = body.modelId || `mdl_${Date.now().toString(36)}`;
+    const fp = body.fingerprint;
+    let sheetResult: any = null;
+    if (fp) {
+      const row = GoogleDriveSheetsBridge.formatModelRegistryRow(
+        {
+          modelId,
+          fileName: body.fileName || 'uploaded_model.stl',
+          fileFormat: body.fileFormat || 'STL',
+          fileSizeMb: Number(body.fileSizeMb || 1.0),
+          sha256Hash: body.sha256Hash || modelId,
+          gdriveFileId: body.gdriveFileId || 'pending_drive_sync',
+          gdriveViewUrl: body.gdriveViewUrl || '',
+        },
+        fp
+      );
+      sheetResult = await googleDriveSheetsBridge
+        .appendSheetRow('01_models_registry', row)
+        .catch(() => null);
+    }
+    return NextResponse.json({
+      success: true,
+      modelId,
+      sheetSync: sheetResult,
+      status: googleDriveSheetsBridge.getStatus(),
+    });
+  }
+
+  if (pathKey === 'storage/log-simulation') {
+    const row = GoogleDriveSheetsBridge.formatSimulationSessionRow({
+      sessionId: body.sessionId || `session_${Date.now().toString(36)}`,
+      timestamp: new Date().toISOString(),
+      modelId: body.modelId || 'mdl_default',
+      modelName: body.modelName || '3D Model',
+      printerId: body.printerId || 'bambu_x1c',
+      material: body.material || 'PLA',
+      layerHeightMm: Number(body.layerHeightMm || 0.2),
+      infillSpec: body.infillSpec || 'gyroid_15%',
+      supportSpec: body.supportSpec || 'tree',
+      brimSpec: body.brimSpec || '5mm',
+      speedsMmS: body.speedsMmS || '200',
+      tempsC: body.tempsC || '215/60',
+      estFilamentGrams: Number(body.estFilamentGrams || 0),
+      estTimeMinutes: Number(body.estTimeMinutes || 0),
+      qcHealthScore: Number(body.qcHealthScore ?? 95),
+      detectedDefects: body.detectedDefects || 'NONE',
+      userChurnHistory: body.userChurnHistory || '',
+    });
+    const sheetResult = await googleDriveSheetsBridge
+      .appendSheetRow('02_simulation_sessions', row)
+      .catch(() => null);
+    return NextResponse.json({ success: true, sheetSync: sheetResult });
+  }
+
+  if (pathKey === 'ai/record-learning-case') {
+    const newCase: IHistoricalLearningCase = {
+      caseId: body.caseId || `case_${Date.now().toString(36)}`,
+      modelId: body.modelId || 'mdl_custom',
+      modelName: body.modelName || 'Custom 3D Model',
+      material: body.material || 'PLA',
+      fingerprint: body.fingerprint,
+      goldenProfile: body.goldenProfile || {},
+      outcome: body.outcome || 'SIM_GOLDEN_PROFILE',
+      aiInsightLesson:
+        body.aiInsightLesson || 'Cấu hình đã được kiểm chứng qua giả lập vật lý 12 chiều.',
+      recordedAt: new Date().toISOString(),
+    };
+    if (newCase.fingerprint) {
+      addRuntimeLearningCase(newCase);
+      const row = GoogleDriveSheetsBridge.formatAiLearningRow(
+        body.sessionId || 'session_manual',
+        newCase
+      );
+      await googleDriveSheetsBridge
+        .appendSheetRow('03_ai_learning_dataset', row)
+        .catch(() => null);
+    }
+    return NextResponse.json({
+      success: true,
+      caseId: newCase.caseId,
+      totalCases: getRuntimeLearningDataset().length,
+    });
   }
 
   if (pathKey === 'telemetry') {

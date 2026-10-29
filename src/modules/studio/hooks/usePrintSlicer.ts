@@ -41,13 +41,17 @@ export function usePrintSlicer() {
 
   // Tính toán thông số in và kiểm tra khổ in
   const estimation: IPrintEstimation = useMemo(() => {
+    const scaleFactorVol = Math.pow(scalePercent / 100, 3);
+    const scaledTrueVol = customModel ? customModel.volumeCm3 * scaleFactorVol : undefined;
     return printSimulationEngine.calculateEstimation(
       selectedPrinter,
       dimensionsMm,
       supportConfig,
-      layerHeightMm
+      layerHeightMm,
+      scaledTrueVol,
+      customModel?.geometryFingerprint
     );
-  }, [selectedPrinter, dimensionsMm, supportConfig, layerHeightMm]);
+  }, [selectedPrinter, dimensionsMm, supportConfig, layerHeightMm, customModel, scalePercent]);
 
   // Trạng thái mô phỏng in 3D (Simulation)
   const [currentLayer, setCurrentLayer] = useState<number>(estimation.totalLayers);

@@ -14,6 +14,10 @@ import {
   sliceLayerFastForPreview,
   sliceAuxiliaryMeshAtHeightFast,
 } from './meshSlicer';
+import {
+  IGeometryFingerprint,
+  extractFingerprintFromThreeObject,
+} from './geometryFingerprintEngine';
 
 export interface IUniversalSliceResult {
   engine: 'cloud_universal' | 'bambu_cli';
@@ -25,6 +29,7 @@ export interface IUniversalSliceResult {
   estimatedPrintTimeMinutes: number;
   supportData: INativeSupportData;
   toolpathsData: IFullToolpathData;
+  geometryFingerprint?: IGeometryFingerprint;
 }
 
 /**
@@ -335,6 +340,12 @@ export function sliceUniversalGeometry(
   // Lưu ngay vào bộ đệm Toolpaths theo đúng khóa modelName
   setPreloadedToolpaths(modelName, toolpathsData);
 
+  const geometryFingerprint = extractFingerprintFromThreeObject(
+    geometry,
+    [],
+    effectiveProfile.outerWallSpeed || 120
+  );
+
   return {
     engine: 'cloud_universal',
     totalLayers,
@@ -345,5 +356,6 @@ export function sliceUniversalGeometry(
     estimatedPrintTimeMinutes: printTimeMin,
     supportData: nativeSupport,
     toolpathsData,
+    geometryFingerprint,
   };
 }

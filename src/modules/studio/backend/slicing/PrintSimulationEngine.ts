@@ -1,11 +1,14 @@
 import { IPrinterProfile, ISupportConfig, IPrintEstimation, SupportType } from '@/backend/domain/slicing';
+import { IGeometryFingerprint } from './GeometryFingerprintEngine';
 
 export class PrintSimulationEngine {
   calculateEstimation(
     printer: IPrinterProfile,
     dimensionsMm: { x: number; y: number; z: number },
     supportConfig: ISupportConfig,
-    layerHeightMm: number = 0.20
+    layerHeightMm: number = 0.20,
+    trueVolumeCm3?: number,
+    geometryFingerprint?: IGeometryFingerprint
   ): IPrintEstimation {
     // 1. Kiểm tra kích thước xem có vượt khổ in của bàn in không
     const outOfBoundsAxes: ('X' | 'Y' | 'Z')[] = [];
@@ -17,12 +20,15 @@ export class PrintSimulationEngine {
     // 2. Tính số lớp in (Layers = Height / Layer Height)
     const totalLayers = Math.max(1, Math.round(dimensionsMm.z / layerHeightMm));
 
-    // 3. Thể tích hình học ước lượng (x * y * z với fill factor xấp xỉ 25% gồm thành tường + 15% infill)
+    // 3. Ưu tiên sử dụng Thể tích lưới thực tế (Signed Tetrahedron Volume) nếu có
     const boundingBoxCm3 = (dimensionsMm.x * dimensionsMm.y * dimensionsMm.z) / 1000;
-    const solidVolumeCm3 = boundingBoxCm3 * 0.22;
+    const effectiveMeshVolumeCm3 =
+      trueVolumeCm3 && trueVolumeCm3 > 0.1
+        ? trueVolumeCm3 * 0.42
+        : boundingBoxCm3 * 0.22;
 
     // Trọng lượng nhựa tiêu hao (PLA density ~ 1.24 g/cm3)
-    let baseWeightGrams = Math.max(8, solidVolumeCm3 * 1.24);
+    let baseWeightGrams = Math.max(8, effectiveMeshVolumeCm3 * 1.24);
 
     // Tính toán thêm lượng nhựa làm Support nếu bật Support
     let supportWeightGrams = 0;
@@ -50,9 +56,10 @@ export class PrintSimulationEngine {
     const costPerGram = 260; // VND
     const estimatedCostVnd = Math.round(totalWeightGrams * costPerGram);
 
-    // 6. Phát hiện nguy cơ Overhang và đưa ra đề xuất Support
-    // Nếu mô hình cao và có bề ngang rộng -> khả năng cao có overhangs
-    const hasOverhangRisk = dimensionsMm.z > 40 && (dimensionsMm.x > 30 || dimensionsMm.y > 30);
+    // 6. Phát hiện nguy cơ Overhang từ Geometry Fingerprint 12 chiều (nếu có) hoặc kích thước
+    const hasOverhangRisk = geometryFingerprint
+      ? geometryFingerprint.overhangArea45Mm2 > 180 || geometryFingerprint.severeOverhangArea60Mm2 > 45
+      : dimensionsMm.z > 40 && (dimensionsMm.x > 30 || dimensionsMm.y > 30);
     
     let suggestedType: SupportType = 'none';
     let reason = 'Mô hình có hình học dốc tự đỡ tốt (< 45°), không cần bật Support.';

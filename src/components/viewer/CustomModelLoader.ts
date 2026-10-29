@@ -6,6 +6,10 @@ import { ThreeMFLoader } from 'three/examples/jsm/loaders/3MFLoader.js';
 import { unzipSync, zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { ModelBuilder } from './ModelBuilder';
 import { SampleModelId } from '@/backend/domain/sample-models';
+import {
+  IGeometryFingerprint,
+  extractFingerprintFromThreeObject,
+} from '@/backend/services/slicing/GeometryFingerprintEngine';
 
 export interface ILoadedCustomModel {
   group: THREE.Group;
@@ -16,6 +20,7 @@ export interface ILoadedCustomModel {
   fileName: string;
   fileSizeBytes: number;
   height: number;
+  geometryFingerprint?: IGeometryFingerprint;
 }
 
 interface IParsedMeshResult {
@@ -626,6 +631,24 @@ export class CustomModelLoader {
     const realY = Math.max(1, Math.round(size.z * 10) / 10); // Slicer Y là chiều sâu
     const realZ = Math.max(1, Math.round(size.y * 10) / 10); // Slicer Z là chiều cao
 
+    // Trích xuất 12 chỉ số hình học vật lý thực (12-Point Geometry Fingerprint) ở hệ tọa độ mm
+    const geometryFingerprint = extractFingerprintFromThreeObject(rootGroup);
+
+    // Tự động đồng bộ ngầm Model + Geometry Fingerprint lên Google Drive / Google Sheets Registry
+    if (typeof window !== 'undefined') {
+      fetch('/api/v1/storage/gdrive-init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: `mdl_${file.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}_${file.size}`,
+          fileName: file.name,
+          fileFormat: ext.toUpperCase(),
+          fileSizeMb: Number((file.size / (1024 * 1024)).toFixed(2)),
+          fingerprint: geometryFingerprint,
+        }),
+      }).catch(() => {});
+    }
+
     // 5. Chuẩn hóa tỷ lệ hiển thị trên 3D Studio Canvas
     const maxDim = Math.max(size.x, size.y, size.z, 0.001);
     const displayScale = 2.0 / maxDim;
@@ -660,11 +683,12 @@ export class CustomModelLoader {
       group: finalContainer,
       dimensionsMm: initialDims,
       originalDimensionsMm: initialDims,
-      volumeCm3: Math.max(0.1, Math.round(finalVolume * 10) / 10),
+      volumeCm3: Math.max(0.1, Math.round((geometryFingerprint.trueVolumeCm3 || finalVolume) * 10) / 10),
       triangleCount: Math.round(totalTriangles),
       fileName: file.name,
       fileSizeBytes: file.size,
       height: finalHeight,
+      geometryFingerprint,
     };
   }
 

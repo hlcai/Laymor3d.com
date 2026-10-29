@@ -1,6 +1,25 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { NextConfig } from "next";
 
+function resolveLocalLinkedRoot(): string | undefined {
+  try {
+    const cwd = process.cwd();
+    const nmPath = path.join(cwd, "node_modules");
+    const realNm = fs.realpathSync(nmPath);
+    if (realNm.toLowerCase() !== path.resolve(nmPath).toLowerCase()) {
+      return path.resolve(cwd, "..");
+    }
+  } catch {
+    // Default to standard Next.js project root on Vercel / regular installs
+  }
+  return undefined;
+}
+
+const linkedRoot = resolveLocalLinkedRoot();
+
 const nextConfig: NextConfig = {
+  ...(linkedRoot ? { turbopack: { root: linkedRoot } } : {}),
   images: {
     dangerouslyAllowSVG: true,
     contentDispositionType: 'attachment',

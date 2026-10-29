@@ -98,60 +98,60 @@ const PROJECT_PHASES: ProjectPhase[] = [
   {
     id: 'phase-2',
     phaseNumber: 'Phase 02',
-    title: 'Phát Triển Khung Không Gian 3D & Mô Phỏng Cơ Bản (Alpha)',
-    subtitle: 'Xây dựng bộ khung hiển thị mô hình 3D trực tuyến và cơ chế cắt lớp thử nghiệm',
-    timeline: 'Giai đoạn 2 • Đang thử nghiệm & hiệu chỉnh',
-    progressPercent: 65,
+    title: 'Phát Triển Khung Không Gian 3D & Mô Phỏng Cắt Lớp Chuyên Sâu',
+    subtitle: 'Xây dựng bộ khung hiển thị 3D WebGL, thuật toán cắt sợi O(S) Zero-Drop, Voxel 3D Tree Support và tải tệp lớn',
+    timeline: 'Giai đoạn 2 • Đã hoàn tất cắt sợi O(S), Voxel Tree Support & đồng bộ /studio ↔ /3dsim',
+    progressPercent: 85,
     status: 'active',
-    statusLabel: 'Đạt 65% (Đang thử nghiệm)',
+    statusLabel: 'Đạt 85% (Đã tối ưu lõi cắt lớp & tệp lớn)',
     businessValue:
-      'Kiểm chứng khả năng hiển thị mô hình 3D trên trình duyệt và thử nghiệm các thao tác điều khiển trước khi ghép nối dữ liệu chuẩn.',
+      'Đảm bảo khả năng nạp mượt mà các mô hình 3MF/STL lưới dày (>120.000 tam giác), hiển thị chính xác 100% sợi in theo từng lớp và định tuyến cây chống thông minh không xuyên qua thân mẫu.',
     steps: [
       {
         code: 'Bước 2.1',
-        title: 'Xây dựng khung quan sát mô hình 3D trực tuyến',
+        title: 'Xây dựng khung quan sát 3D trực tuyến & đồng bộ hai chiều /studio ↔ /3dsim',
         description:
-          'Hỗ trợ xoay 360°, phóng đại chi tiết, hiển thị lưới bàn in và đo kích thước bao ngoài của phôi mẫu ở mức cơ bản.',
+          'Hỗ trợ xoay 360°, phóng đại chi tiết, hiển thị lưới bàn in, đo kích thước bao ngoài và chuyển tiếp trực tiếp mô hình kèm thông số giữa 3D Studio và Buồng giả lập.',
         status: 'completed',
-        deliverable: 'Khung hiển thị 3D (/studio & /3dsim)',
+        deliverable: 'Khung hiển thị & Cầu nối 3D (/studio ↔ /3dsim)',
       },
       {
         code: 'Bước 2.2',
-        title: 'Thử nghiệm cơ chế tua lớp cắt (Layer Scrubbing)',
+        title: 'Thuật toán cắt sợi tuyến tính O(S) Zero-Drop & Tua lớp (Layer Scrubbing)',
         description:
-          'Mô phỏng hiệu ứng sản phẩm hình thành theo từng lớp từ đáy lên đỉnh và điều chỉnh tốc độ tua trên dữ liệu mẫu.',
+          'Cắt trực tiếp 100% tam giác của mô hình thành tường ngoài, tường trong, ruột in Scanline (Gyroid, Honeycomb, Grid...) và mối nối Z-Seam mượt mà theo từng lớp mà không bỏ sót chi tiết.',
         status: 'completed',
-        deliverable: 'Thanh điều khiển tiến độ thử nghiệm',
+        deliverable: 'Bộ cắt sợi O(S) & Xem Sợi In Bambu thời gian thực',
       },
       {
         code: 'Bước 2.3',
         title: 'Điều chỉnh lại bố cục vùng điều khiển 3D theo góp ý UI/UX',
         description:
-          'Sắp xếp lại vị trí các thanh công cụ, bảng thông số và nút chức năng trong buồng 3D để không gây rối mắt và dễ thao tác hơn.',
+          'Sắp xếp lại vị trí các thanh công cụ, HUD cảnh báo và bảng thông số trong buồng 3D không chồng chéo, dễ thao tác trên nhiều kích thước màn hình.',
         status: 'in_progress',
         deliverable: 'Giao diện buồng 3D tối ưu mới',
       },
       {
         code: 'Bước 2.4',
-        title: 'Tối ưu hóa hiệu năng khi tải các tệp mô hình dung lượng lớn',
+        title: 'Tối ưu hóa tải tệp 3MF/STL dung lượng lớn & Lưới Voxel 3D Tree Support',
         description:
-          'Xử lý tình trạng chậm và nặng trình duyệt khi người dùng tải lên các tệp 3D có cấu trúc lưới phức tạp.',
-        status: 'upcoming',
-        deliverable: 'Cơ chế xử lý tệp 3D dung lượng lớn',
+          'Giải mã nhanh tệp .3MF nhiều lưới không gây treo trình duyệt, kết hợp lưới Voxel 3D Bitmask (100×100×30) kiểm tra va chạm toàn chiều cao giúp cây chống mọc vòng bên ngoài thân mẫu.',
+        status: 'completed',
+        deliverable: 'Voxel 3D Tree Support & Bộ đọc 3MF tốc độ cao',
       },
     ],
   },
   {
     id: 'phase-3',
     phaseNumber: 'Phase 03',
-    title: 'Bổ Sung & Hoàn Thiện Bộ Dữ Liệu Đầu Vào Chuẩn Bambu Studio & Huấn Luyện Lỗi Thực Tế',
-    subtitle: 'Đồng bộ thông số điều chỉnh lên hình ảnh mẫu 3D tức thì, xuất file .3MF kèm đầy đủ Profile in ngay và học dữ liệu lỗi từ người dùng',
-    timeline: 'Giai đoạn 3 • Đã nâng cấp lõi thông số & xuất file .3MF',
-    progressPercent: 55,
+    title: 'Bộ Dữ Liệu Chuẩn Bambu Studio, Đặc Trưng Hình Học 12D & AI Tự Học Lỗi Thực Tế',
+    subtitle: 'Đồng bộ thông số lên mẫu 3D tức thì, xuất .3MF in ngay, trích xuất Geometry Fingerprint 12 chiều và tự học RAG + Google Sheets/Supabase',
+    timeline: 'Giai đoạn 3 • Đã tích hợp Đặc trưng hình học 12D, AI Tự học RAG & Đồng bộ Cloud',
+    progressPercent: 75,
     status: 'active',
-    statusLabel: 'Đang thực hiện (55%)',
+    statusLabel: 'Đạt 75% (Đã tích hợp Fingerprint 12D & AI RAG)',
     businessValue:
-      'Mọi thông số điều chỉnh bản in đều được thể hiện trực tiếp ngay trên mẫu 3D giả lập, xuất ra file .3MF có sẵn toàn bộ Profile để đưa vào Bambu Studio in luôn, đồng thời mở rộng kho lỗi thực tế có khả năng tự học.',
+      'Mọi thông số điều chỉnh bản in đều thể hiện trực tiếp trên mẫu 3D, xuất .3MF sẵn Profile cho Bambu Studio, đồng thời lượng hóa hình học 12 chiều để AI tự đối chiếu lịch sử in và lưu sổ dữ liệu lên Cloud.',
     steps: [
       {
         code: 'Bước 3.1',
@@ -165,24 +165,24 @@ const PROJECT_PHASES: ProjectPhase[] = [
         code: 'Bước 3.2',
         title: 'Nạp trực tiếp Tree Support gốc từ Bambu Studio (.gcode.3mf / .gcode) & Xuất .3MF kèm Profile',
         description:
-          'Hỗ trợ nạp trực tiếp tệp đã cắt lớp (.gcode.3mf hoặc .gcode) từ Bambu Studio / OrcaSlicer ngay trên trình duyệt (cả trên Cloud/Vercel và Local) để trích xuất 100% cấu trúc Tree Support chính gốc áp vào mô hình, kết hợp thuật toán dựng nhánh cành thẳng đứng bám bậc nền và xuất tệp .3MF kèm đầy đủ Profile in ngay.',
+          'Hỗ trợ nạp trực tiếp tệp đã cắt lớp (.gcode.3mf hoặc .gcode) từ Bambu Studio / OrcaSlicer ngay trên trình duyệt để trích xuất 100% cấu trúc Tree Support chính gốc và xuất tệp .3MF kèm đầy đủ Profile in ngay.',
         status: 'completed',
         deliverable: 'Bộ nạp Support gốc Bambu Studio & Xuất .3MF chuẩn',
       },
       {
         code: 'Bước 3.3',
-        title: 'Triển khai Chuyên gia AI Tư vấn In 3D Toàn diện, Chẩn đoán Ảnh lỗi & Kho Tri thức Thực tế',
+        title: 'Đặc trưng hình học 12 chiều (Geometry Fingerprint), AI Tự học RAG & Đồng bộ Cloud',
         description:
-          'Xây dựng trợ lý AI chuyên gia tư vấn đồng bộ 6 nhóm thông số chuẩn Bambu Studio theo mục đích sử dụng (Tượng mỹ thuật, Cơ khí chịu lực, Khớp động, In nhanh...), hỗ trợ hỏi-đáp kỹ thuật đa lượt, chẩn đoán lỗi qua ảnh chụp thực tế và tự động học kinh nghiệm từ Kho Tri thức Lỗi của Quản trị viên.',
+          'Trích xuất thể tích tứ diện có dấu chuẩn xác, diện tích bám bàn, trọng tâm và điểm thắt cổ chai; kết hợp AI Tư vấn đối chiếu độ tương đồng Cosine với các ca in lịch sử, đồng bộ lên Supabase Cloud và Google Drive/Sheets.',
         status: 'completed',
-        deliverable: 'Chuyên gia AI Tư vấn In 3D & Học dữ liệu lỗi thực tế',
+        deliverable: 'Geometry Fingerprint 12D, AI RAG & Cloud Sync',
       },
       {
         code: 'Bước 3.4',
         title: 'Đồng bộ hóa sai số giữa tính toán phần mềm và thực nghiệm đa dòng máy',
         description:
-          'Tiếp tục hiệu chuẩn hệ số thời gian di chuyển đầu in và lượng nhựa xả thực tế trên nhiều dòng vật liệu kỹ thuật khác nhau.',
-        status: 'upcoming',
+          'Đã tích hợp thể tích lưới thực tế (Signed Tetrahedron Volume) thay cho hộp bao thô; tiếp tục hiệu chuẩn hệ số gia tốc đầu in và hao hụt xả nhựa trên các dòng vật liệu kỹ thuật.',
+        status: 'in_progress',
         deliverable: 'Bảng hiệu chuẩn độ chính xác dữ liệu',
       },
     ],
@@ -191,36 +191,36 @@ const PROJECT_PHASES: ProjectPhase[] = [
     id: 'phase-4',
     phaseNumber: 'Phase 04',
     title: 'Xây Dựng Tính Năng Đối Chiếu Thông Số & Kiểm Định Chéo',
-    subtitle: 'So sánh trực tiếp giữa các cấu hình, đối chiếu thông số trước – sau và kiểm soát chất lượng phiên in',
-    timeline: 'Giai đoạn 4 • Đang phát triển',
-    progressPercent: 20,
+    subtitle: 'So sánh trực tiếp giữa các cấu hình, kiểm định vật lý FDM 12 chiều và kiểm soát chất lượng phiên in',
+    timeline: 'Giai đoạn 4 • Đang phát triển (Đã có Physics Audit & RAG Check)',
+    progressPercent: 30,
     status: 'active',
-    statusLabel: 'Đang phát triển (20%)',
+    statusLabel: 'Đang phát triển (30%)',
     businessValue:
-      'Giúp đối chiếu rõ ràng sự khác biệt khi thay đổi thông số in, phát hiện ngay các thông số lệch chuẩn và đánh giá hiệu quả tối ưu.',
+      'Giúp đối chiếu rõ ràng sự khác biệt khi thay đổi thông số in, phát hiện ngay các thông số vượt ngưỡng lưu lượng/nhiệt độ an toàn và đánh giá hiệu quả tối ưu.',
     steps: [
       {
         code: 'Bước 4.1',
         title: 'Phát triển công cụ đối chiếu đa phiên (Session Comparison)',
         description:
-          'Cho phép đặt 2 hoặc nhiều cấu hình in cạnh nhau để đối chiếu trực tiếp sự thay đổi về thời gian, lượng nhựa, điểm an toàn và chi phí.',
+          'Đã có bảng Nhật ký phiên chạy (Simulation Run Logs) lưu trữ và khôi phục nhanh cấu hình; đang mở rộng chế độ đặt 2+ cấu hình song song để so sánh trực quan.',
         status: 'in_progress',
         deliverable: 'Tính năng đối chiếu cấu hình trực quan',
       },
       {
         code: 'Bước 4.2',
-        title: 'Đối chiếu thông số tùy chỉnh với hồ sơ chuẩn Bambu Studio',
+        title: 'Kiểm định vật lý FDM & Đối chiếu ngưỡng chuẩn Bambu Studio',
         description:
-          'Tự động rà soát và làm nổi bật các thông số đang bị điều chỉnh lệch khỏi ngưỡng khuyến nghị an toàn của Bambu Studio.',
-        status: 'in_progress',
-        deliverable: 'Bộ kiểm tra & đối chiếu sai lệch',
+          'Tự động kiểm tra giới hạn lưu lượng đùn Hotend (Volumetric Flow), nhiệt độ chuyển thủy tinh, độ mảnh lật mẫu và đối chiếu với hồ sơ chuẩn qua API /api/v1/physics/sanity-check.',
+        status: 'completed',
+        deliverable: 'Bộ kiểm định vật lý FDM & Cảnh báo sai lệch',
       },
       {
         code: 'Bước 4.3',
         title: 'Theo dõi lịch sử biến động thông số & khóa cấu hình chuẩn',
         description:
-          'Ghi nhận chi tiết từng lần tinh chỉnh thông số, thống kê các thông số hay bị thay đổi và khóa biên bản cấu hình tối ưu.',
-        status: 'upcoming',
+          'Ghi nhận chi tiết từng lần tinh chỉnh thông số lên Supabase & Google Sheets, thống kê các thông số hay bị thay đổi (Churn) và khóa biên bản cấu hình tối ưu.',
+        status: 'in_progress',
         deliverable: 'Hệ thống nhật ký & khóa hồ sơ đối chiếu',
       },
       {
@@ -428,16 +428,16 @@ const CURRENT_FOCUS_AREAS = [
     badgeColor: 'bg-rose-50 text-rose-800 border-rose-200',
   },
   {
-    title: '2. Hoàn Thiện Thông Số Bambu Studio, Xuất .3MF In Ngay & Học Lỗi Thực Tế',
-    status: 'Đang thực hiện (55%)',
-    desc: 'Đã bổ sung bộ thông số hiển thị trực tiếp trên mẫu 3D giả lập, xuất file .3MF có sẵn đầy đủ Profile để đưa vào Bambu Studio in luôn, mở rộng 17+ nhóm lỗi thực tế và cổng cho người dùng đóng góp lỗi kèm giải thích về cơ sở dữ liệu.',
+    title: '2. Lõi Cắt Sợi O(S), Voxel Tree Support, Đặc Trưng 12D & AI Tự Học',
+    status: 'Đạt 75% – 85%',
+    desc: 'Đã nâng cấp bộ cắt sợi O(S) Zero-Drop, Voxel 3D Tree Support không xuyên mẫu, trích xuất Geometry Fingerprint 12 chiều, AI tự học đối chiếu ca in lịch sử (RAG) và đồng bộ sổ dữ liệu lên Supabase & Google Drive/Sheets.',
     icon: Database,
-    badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
+    badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   },
   {
-    title: '3. Xây Dựng Tính Năng Đối Chiếu & So Sánh Thông Số',
-    status: 'Đang phát triển (25%)',
-    desc: 'Phát triển công cụ đối chiếu trực tiếp giữa các cấu hình in, so sánh thông số người dùng tinh chỉnh với thông số gốc của Bambu Studio để đánh giá mức độ chênh lệch chi phí, thời gian và chất lượng.',
+    title: '3. Xây Dựng Tính Năng Đối Chiếu & Kiểm Định Vật Lý Chéo',
+    status: 'Đang phát triển (30%)',
+    desc: 'Đã tích hợp kiểm định vật lý FDM (lưu lượng Hotend, nhiệt độ, độ mảnh lật mẫu) và nhật ký phiên chạy; đang tiếp tục hoàn thiện giao diện đặt 2+ cấu hình song song và xuất biên bản nghiệm thu QC.',
     icon: GitCompare,
     badgeColor: 'bg-cyan-50 text-cyan-800 border-cyan-200',
   },
@@ -468,28 +468,28 @@ const BUSINESS_MODULES = [
     icon: Palette,
   },
   {
-    name: 'Không Gian 3D Studio & Dự Toán Sơ Bộ (/studio)',
-    role: 'Đã có khung xem 3D cơ bản; cần hiệu chỉnh lại giao diện điều khiển và đồng bộ công thức tính giá thực tế',
-    progress: 50,
-    status: 'Đang thử nghiệm',
-    statusStyle: 'bg-amber-50 text-amber-800 border-amber-200',
+    name: 'Không Gian 3D Studio & Dự Toán Thể Tích Thực (/studio)',
+    role: 'Đã đồng bộ hai chiều với /3dsim, tính thể tích thực Signed Tetrahedron & trích xuất đặc trưng hình học 12 chiều',
+    progress: 70,
+    status: 'Đã nâng cấp lõi 3D',
+    statusStyle: 'bg-cyan-50 text-cyan-800 border-cyan-200',
     href: '/studio',
     icon: Sparkles,
   },
   {
-    name: 'Bộ Giả Lập, Xuất .3MF & Học Lỗi Chuẩn Bambu Studio (/3dsim)',
-    role: 'Thể hiện thông số ngay trên mẫu 3D, xuất .3MF đầy đủ Profile in luôn, cảnh báo 17+ lỗi thực tế & học kiến thức lỗi từ người dùng',
-    progress: 55,
-    status: 'Đang hoàn thiện',
-    statusStyle: 'bg-amber-50 text-amber-800 border-amber-200',
+    name: 'Bộ Giả Lập Cắt Sợi O(S), Voxel Tree Support & AI RAG (/3dsim)',
+    role: 'Cắt sợi O(S) Zero-Drop, Voxel 3D Tree Support chống xuyên mẫu, xuất .3MF in ngay, AI Tự học RAG 12D & đồng bộ Supabase / Google Sheets',
+    progress: 80,
+    status: 'Hoạt động ổn định',
+    statusStyle: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     href: '/3dsim',
     icon: Cpu,
     isExternalSpa: true,
   },
   {
     name: 'Tính Năng Đối Chiếu Thông Số & Kiểm Định Chéo',
-    role: 'Đối chiếu trực tiếp thông số giữa các phiên chạy và so sánh với tiêu chuẩn gốc Bambu Studio',
-    progress: 25,
+    role: 'Đã có kiểm định vật lý FDM, đối chiếu tương đồng RAG 12D & nhật ký phiên chạy; đang mở rộng so sánh song song đa phiên',
+    progress: 30,
     status: 'Đang phát triển',
     statusStyle: 'bg-cyan-50 text-cyan-800 border-cyan-200',
     href: '/3dsim',
@@ -552,12 +552,12 @@ export default function InvestorOverviewPage() {
             </h1>
 
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-              Dự án hiện đang ở <strong>Giai đoạn Thử nghiệm (Prototype / Beta)</strong>. Nhiều hạng mục quan trọng vẫn
-              đang trong quá trình xây dựng và chưa hoàn thiện: đội ngũ cần{' '}
-              <strong>làm việc lại với phía khách hàng để điều chỉnh thiết kế UI/UX</strong>, tiếp tục{' '}
-              <strong>bổ sung &amp; chuẩn hóa bộ dữ liệu đầu vào theo Bambu Studio</strong>, phát triển{' '}
-              <strong>tính năng đối chiếu thông số</strong>, đồng thời xây dựng hoàn chỉnh{' '}
-              <strong>hệ thống tài khoản thực tế cho Admin, Nhân viên và Khách hàng</strong>.
+              Dự án hiện đang ở <strong>Giai đoạn Thử nghiệm Nâng cao (Beta ~50%)</strong>. Đợt nâng cấp mới nhất đã hoàn
+              thiện <strong>bộ cắt sợi tuyến tính O(S) Zero-Drop, lưới Voxel 3D Tree Support chống đâm xuyên mẫu</strong>,{' '}
+              <strong>trích xuất Đặc trưng hình học 12 chiều (Geometry Fingerprint), AI Tự học RAG</strong> và{' '}
+              <strong>cầu nối lưu trữ Supabase + Google Drive/Sheets</strong>. Trọng tâm kế tiếp là{' '}
+              <strong>rà soát điều chỉnh UI/UX cùng khách hàng</strong>, mở rộng{' '}
+              <strong>so sánh song song đa cấu hình QC</strong> và hoàn thiện kho vật tư/thanh toán thực tế.
             </p>
 
             <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -589,7 +589,7 @@ export default function InvestorOverviewPage() {
           {/* Executive KPI Summary Grid */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4 shrink-0 lg:w-[370px]">
             <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 text-center">
-              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700">~44%</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700">~50%</div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-amber-900/70 mt-1">
                 Tiến Độ Toàn Lộ Trình
               </div>
@@ -607,7 +607,7 @@ export default function InvestorOverviewPage() {
               </div>
             </div>
             <div className="p-4 rounded-2xl bg-slate-50/90 border border-slate-200/80 text-center">
-              <div className="text-2xl sm:text-3xl font-extrabold text-slate-800">Thử Nghiệm</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-slate-800">Beta v2.3</div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mt-1">
                 Trạng Thái Hiện Tại
               </div>
@@ -620,13 +620,13 @@ export default function InvestorOverviewPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-bold text-slate-700 mb-2">
             <span>TIẾN ĐỘ TỔNG THỂ TRÊN TOÀN BỘ 8 GIAI ĐOẠN PHÁT TRIỂN (PHASE 01 – PHASE 08)</span>
             <span className="text-amber-700 font-mono">
-              Đạt ~44% • Đã nâng cấp thông số 3D, xuất .3MF, học lỗi &amp; hệ thống tài khoản Admin
+              Đạt ~50% • Đã tích hợp Cắt sợi O(S), Voxel Tree Support, Fingerprint 12D, AI RAG &amp; Google Drive/Sheets
             </span>
           </div>
           <div className="w-full h-3 rounded-full bg-slate-100 border border-slate-200/80 overflow-hidden p-0.5">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-cyan-600 via-sky-500 to-amber-500 transition-all duration-500"
-              style={{ width: '44%' }}
+              className="h-full rounded-full bg-gradient-to-r from-cyan-600 via-sky-500 to-emerald-500 transition-all duration-500"
+              style={{ width: '50%' }}
             />
           </div>
         </div>
@@ -638,14 +638,13 @@ export default function InvestorOverviewPage() {
           <div>
             <div className="flex items-center gap-2 text-amber-700 text-xs font-bold uppercase tracking-wider">
               <AlertCircle className="w-4 h-4" />
-              <span>Các Hạng Mục Chưa Hoàn Thiện &amp; Đang Tập Trung Xử Lý</span>
+              <span>Các Hạng Mục Trọng Tâm &amp; Tiến Trình Hoàn Thiện</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1">
-              5 Công Việc Trọng Tâm Cần Hoàn Thiện Trong Giai Đoạn Tới
+              5 Công Việc Trọng Tâm Đang Triển Khai &amp; Kế Tiếp
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mt-1">
-              Hiện tại website mới dừng ở mức khung thử nghiệm ban đầu, dưới đây là các phần việc lớn đang được thực
-              hiện tiếp:
+              Tổng hợp các mũi công việc kỹ thuật vừa nâng cấp và các hạng mục nghiệp vụ đang tiếp tục hoàn thiện:
             </p>
           </div>
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold shrink-0">
@@ -812,7 +811,7 @@ export default function InvestorOverviewPage() {
                         {step.status === 'completed' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Đã dựng khung</span>
+                            <span>Đã hoàn thành</span>
                           </span>
                         ) : step.status === 'in_progress' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700">
@@ -853,8 +852,8 @@ export default function InvestorOverviewPage() {
             Bảng Tổng Hợp Mức Độ Hoàn Thiện Các Phân Hệ Hiện Tại
           </h2>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Các phân hệ hiện đang ở giai đoạn bản nháp thử nghiệm (Beta), cần tiếp tục điều chỉnh UI/UX, nạp dữ liệu
-            Bambu Studio và xây dựng luồng tài khoản thực tế:
+            Cập nhật mức độ hoàn thiện mới nhất sau khi nâng cấp bộ cắt sợi O(S), Voxel Tree Support, Đặc trưng hình
+            học 12D và cầu nối đồng bộ Cloud:
           </p>
         </div>
 
@@ -888,9 +887,11 @@ export default function InvestorOverviewPage() {
                         <div className="w-24 h-2 rounded-full bg-slate-100 overflow-hidden">
                           <div
                             className={`h-full rounded-full ${
-                              mod.progress >= 60
+                              mod.progress >= 75
+                                ? 'bg-emerald-500'
+                                : mod.progress >= 60
                                 ? 'bg-cyan-600'
-                                : mod.progress >= 35
+                                : mod.progress >= 30
                                 ? 'bg-amber-500'
                                 : 'bg-slate-400'
                             }`}
@@ -945,10 +946,10 @@ export default function InvestorOverviewPage() {
               Lưu Ý Về Giai Đoạn Thử Nghiệm &amp; Bảo Mật Thông Tin Dự Án
             </h3>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-              Website hiện đang trong <strong>Giai đoạn Thử nghiệm (Beta)</strong>. Giao diện UI/UX sẽ tiếp tục được điều
-              chỉnh sau các buổi làm việc với phía khách hàng; bộ dữ liệu Bambu Studio, công cụ đối chiếu và hệ thống tài
-              khoản (Admin – Nhân viên – Khách hàng) đang trong tiến trình xây dựng. Toàn bộ thông tin kỹ thuật, mã
-              nguồn và kết nối hệ thống được ẩn nhằm bảo mật tuyệt đối tài sản dự án.
+              Website hiện đang trong <strong>Giai đoạn Thử nghiệm Nâng cao (Beta v2.3)</strong>. Giao diện UI/UX sẽ
+              tiếp tục được điều chỉnh sau các buổi làm việc với phía khách hàng; bộ dữ liệu Bambu Studio, công cụ đối
+              chiếu QC và hệ thống tài khoản (Admin – Nhân viên – Khách hàng) đang tiếp tục hoàn thiện. Toàn bộ thông tin
+              kỹ thuật, mã nguồn và kết nối hệ thống được ẩn nhằm bảo mật tuyệt đối tài sản dự án.
             </p>
           </div>
         </div>
