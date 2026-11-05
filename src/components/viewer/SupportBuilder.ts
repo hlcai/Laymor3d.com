@@ -33,8 +33,7 @@ export class SupportBuilder {
     customGroup?: THREE.Group
   ): THREE.Group {
     const group = new THREE.Group();
-    // Không tự sinh Tree Support giả cho mô hình người dùng tải lên (Tree Support được lấy nguyên bản từ Bambu Studio trong /3dsim)
-    if (type === 'none' || customGroup || (modelId as string) === 'custom') return group;
+    if (type === 'none') return group;
 
     // A. Main Slicer Trunk Material (Translucent emerald green for tree, cyan for normal)
     const trunkMat = new THREE.MeshStandardMaterial({

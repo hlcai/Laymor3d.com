@@ -16,6 +16,7 @@ import {
 import { ISlicingMetrics } from '@/services/slicingEngine';
 import { generateDefect3DGroup, getActiveDefectAlert } from '@/services/defectSimulation';
 import { layerSliceCache, createSliceToolpathMeshes } from '@/services/meshSlicer';
+import { generateBambuSupportStructures } from '@/services/supportGenerator';
 import {
   loadNativeBambuSupport,
   getCachedNativeSupport,
@@ -748,7 +749,7 @@ export function PrintSimulatorViewport({
             clonedGeom,
             sliceKey,
             profile,
-            null,
+            supportGroup,
             (pct) => {
               if (sliceJobTokenRef.current === token) setSlicingProgressPct(pct);
             }
@@ -1184,7 +1185,7 @@ export function PrintSimulatorViewport({
             clonedGeom,
             sliceKey,
             profile,
-            null,
+            supportGroupRef.current,
             (pct) => {
               if (sliceJobTokenRef.current === token) setSlicingProgressPct(pct);
             }
@@ -1512,18 +1513,18 @@ export function PrintSimulatorViewport({
           </div>
         )}
 
-        {/* Cảnh báo / Nút nạp nhanh khi bật Support nhưng chưa nạp file .gcode.3mf từ Bambu Studio */}
+        {/* Nút nạp nhanh file .gcode.3mf / .gcode từ Bambu Studio để đồng bộ 100% G-code Tree Support gốc */}
         {profile.supportMode !== 'none' && showSupport && !hasNativeBambuSupport && (
           <div
             onClick={onImportBambuGcode}
-            className="px-3 py-1.5 rounded-xl glass-panel border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 flex items-center gap-2 cursor-pointer transition-all shadow-lg"
-            title="App không tự sinh Tree Support giả. Nhấn để nạp file .gcode.3mf hoặc .gcode đã cắt từ Bambu Studio"
+            className="px-3 py-1 rounded-xl glass-panel border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all shadow-lg"
+            title="Nhấn để đính kèm file .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio"
           >
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-[10px] font-mono text-amber-300">
-              Tree Support lấy nguyên bản từ Bambu Studio —{' '}
-              <strong className="underline text-amber-200">
-                Nhấn nạp file .gcode.3mf / .gcode
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] font-mono text-emerald-300">
+              Tree Support đang bật —{' '}
+              <strong className="underline text-emerald-200">
+                Nhấn nạp .gcode.3mf / .gcode từ Bambu Studio
               </strong>
             </span>
           </div>
@@ -2515,8 +2516,9 @@ function updateSupportStructures(
     });
   };
 
-  // 2. Cấu trúc Tree Support 3D nguyên bản 100% từ Bambu Studio (.gcode.3mf / .gcode / CLI)
-  // Lưu ý: Không tự sinh Tree Support giả trong trình duyệt để đảm bảo độ chính xác tuyệt đối với Bambu Studio
+  // 2. Cấu trúc Tree Support 3D:
+  // - Ưu tiên số 1: Dựng nguyên bản 100% Tree Support từ Bambu Studio (.gcode.3mf / .gcode / CLI) nếu có
+  // - Ưu tiên số 2: Dựng ngay Tree Support 2.0 (tách riêng theo từng chi tiết bambuParts) cho các file .3MF / .STL chưa kèm G-code
   if (profile.supportMode !== 'none' && visible) {
     const supportGroup = new THREE.Group();
     supportGroup.name = 'support_structures_group';
@@ -2530,6 +2532,15 @@ function updateSupportStructures(
       supportGroup.add(nativeMesh);
       return supportGroup;
     }
+
+    // Dựng ngay Tree Support 2.0 ôm sát từng chi tiết trên bàn in khi file chưa có G-code từ Bambu Studio
+    const conformalFallback = generateBambuSupportStructures(geometry, profile);
+    supportGroup.userData.treeVolume = conformalFallback.userData?.treeVolume;
+    supportGroup.userData.treeVolumes = conformalFallback.userData?.treeVolumes;
+    while (conformalFallback.children.length > 0) {
+      supportGroup.add(conformalFallback.children[0]);
+    }
+    applyClipPlane(supportGroup);
 
     loadNativeBambuSupport(modelIdentifier, modelPath).then((nativeData) => {
       if (parent.getObjectByName('support_structures_group') !== supportGroup) return;

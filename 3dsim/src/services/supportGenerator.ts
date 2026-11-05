@@ -1703,6 +1703,8 @@ export function extractTreeSupportHollowLayerToolpaths(
 
 /**
  * 5. Hàm giao diện chính tạo cấu trúc Three.js Tree Support 2.0 cho /3dsim Viewport
+ * - Nếu dự án .3MF có nhiều chi tiết lẻ (`bambuParts`), tự động tính toán Tree Support độc lập
+ *   cho từng chi tiết tại đúng vị trí trên bàn in (không nối chập cành giữa các chi tiết rời).
  */
 export function generateBambuSupportStructures(
   geometry: THREE.BufferGeometry,
@@ -1715,15 +1717,6 @@ export function generateBambuSupportStructures(
   if (profile.supportMode === 'none') {
     return supportGroup;
   }
-
-  const computed = computeTreeSupport2DVolume(geometry, profile, overhangThreshold);
-  if (!computed) {
-    return supportGroup;
-  }
-
-  const { volume, patches } = computed;
-  // Gắn trực tiếp trường thể tích 2D vào userData để Slicer View trích xuất vòng sợi rỗng 1:1 tức thì!
-  supportGroup.userData.treeVolume = volume;
 
   const isTree = profile.supportMode === 'tree';
 
@@ -1748,51 +1741,98 @@ export function generateBambuSupportStructures(
     side: THREE.DoubleSide,
   });
 
-  // 5.1 Dựng thân cây hữu cơ bằng Sparse Surface Nets (0 khớp bi cầu, gộp chạc mượt sinh học!)
-  const organicBarkGeom = buildSparseSurfaceNetsTreeMesh(volume);
-  if (organicBarkGeom) {
-    const branchMesh = new THREE.Mesh(organicBarkGeom, supportMat);
+  const bambuParts = Array.isArray(geometry.userData?.bambuParts)
+    ? (geometry.userData.bambuParts as Array<{ id: string; name: string; positions: Float32Array }>)
+    : [];
+
+  const targetGeoms: THREE.BufferGeometry[] = [];
+  const tempGeomsToDispose: THREE.BufferGeometry[] = [];
+
+  if (bambuParts.length > 1 && bambuParts.length <= 24) {
+    for (const part of bambuParts) {
+      if (!part.positions || part.positions.length < 9) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+      g.computeBoundingBox();
+      targetGeoms.push(g);
+      tempGeomsToDispose.push(g);
+    }
+  }
+
+  if (targetGeoms.length === 0) {
+    targetGeoms.push(geometry);
+  }
+
+  const branchGeoms: (THREE.BufferGeometry | null)[] = [];
+  const capGeoms: (THREE.BufferGeometry | null)[] = [];
+  const brimGeoms: THREE.BufferGeometry[] = [];
+  const volumes: ITreeSupport2DVolume[] = [];
+
+  const topZDist = profile.supportTopZDistance ?? 0.2;
+  const interfaceLayers = profile.supportInterfaceLayers ?? 2;
+
+  for (const partGeom of targetGeoms) {
+    const computed = computeTreeSupport2DVolume(partGeom, profile, overhangThreshold);
+    if (!computed) continue;
+
+    const { volume, patches } = computed;
+    volumes.push(volume);
+
+    const organicBarkGeom = buildSparseSurfaceNetsTreeMesh(volume);
+    if (organicBarkGeom) {
+      branchGeoms.push(organicBarkGeom);
+    }
+
+    if (interfaceLayers > 0) {
+      for (let i = 0; i < patches.length; i++) {
+        const p = patches[i];
+        const padRadius = Math.max(1.15, Math.min(3.2, Math.sqrt(p.areaMm2) * 0.58));
+        capGeoms.push(buildPatchConformalCapGeometry(p, padRadius, topZDist, interfaceLayers));
+      }
+    }
+
+    if (volume.groundedRoots.length > 0) {
+      for (const root of volume.groundedRoots) {
+        const brimR = root.r + 1.65;
+        const disc = new THREE.CylinderGeometry(brimR * 0.96, brimR, 0.14, 20);
+        disc.translate(root.x, volume.minY + 0.07, root.z);
+        brimGeoms.push(disc.toNonIndexed());
+      }
+    }
+  }
+
+  for (const tg of tempGeomsToDispose) {
+    tg.dispose();
+  }
+
+  if (volumes.length > 0) {
+    supportGroup.userData.treeVolume = volumes[0];
+    supportGroup.userData.treeVolumes = volumes;
+  }
+
+  const mergedBranches = safeMergeGeometries(branchGeoms);
+  if (mergedBranches) {
+    const branchMesh = new THREE.Mesh(mergedBranches, supportMat);
     branchMesh.name = 'conformal_tree_branches';
     branchMesh.castShadow = true;
     branchMesh.receiveShadow = true;
     supportGroup.add(branchMesh);
   }
 
-  // 5.2 Dựng lớp đệm tiếp xúc Conformal Support Roof (#d946ef) ôm sát 100% tam giác Overhang
-  const topZDist = profile.supportTopZDistance ?? 0.2;
-  const interfaceLayers = profile.supportInterfaceLayers ?? 2;
-  if (interfaceLayers > 0) {
-    const capGeoms: (THREE.BufferGeometry | null)[] = [];
-    for (let i = 0; i < patches.length; i++) {
-      const p = patches[i];
-      const padRadius = Math.max(1.15, Math.min(3.2, Math.sqrt(p.areaMm2) * 0.58));
-      capGeoms.push(buildPatchConformalCapGeometry(p, padRadius, topZDist, interfaceLayers));
-    }
-    const mergedInterfaces = safeMergeGeometries(capGeoms);
-    if (mergedInterfaces) {
-      const interfaceMesh = new THREE.Mesh(mergedInterfaces, interfaceMat);
-      interfaceMesh.name = 'conformal_tree_interfaces';
-      interfaceMesh.castShadow = true;
-      supportGroup.add(interfaceMesh);
-    }
+  const mergedInterfaces = safeMergeGeometries(capGeoms);
+  if (mergedInterfaces) {
+    const interfaceMesh = new THREE.Mesh(mergedInterfaces, interfaceMat);
+    interfaceMesh.name = 'conformal_tree_interfaces';
+    interfaceMesh.castShadow = true;
+    supportGroup.add(interfaceMesh);
   }
 
-  // 5.3 Dựng vành đế Tree Support Brim mỏng sát bàn in PEI hợp nhất quanh từng gốc rễ
-  if (volume.groundedRoots.length > 0) {
-    const brimGeoms: THREE.BufferGeometry[] = [];
-    for (const root of volume.groundedRoots) {
-      const brimR = root.r + 1.65;
-      const disc = new THREE.CylinderGeometry(brimR * 0.96, brimR, 0.14, 20);
-      disc.translate(root.x, volume.minY + 0.07, root.z);
-      brimGeoms.push(disc.toNonIndexed());
-    }
-    const mergedBrim = safeMergeGeometries(brimGeoms);
-    if (mergedBrim) {
-      const brimMesh = new THREE.Mesh(mergedBrim, brimMat);
-      brimMesh.name = 'conformal_tree_brims';
-      brimMesh.receiveShadow = true;
-      supportGroup.add(brimMesh);
-    }
+  const mergedBrim = safeMergeGeometries(brimGeoms);
+  if (mergedBrim) {
+    const brimMesh = new THREE.Mesh(mergedBrim, brimMat);
+    brimMesh.name = 'conformal_tree_brims';
+    brimMesh.receiveShadow = true;
+    supportGroup.add(brimMesh);
   }
 
   return supportGroup;
