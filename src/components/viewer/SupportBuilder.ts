@@ -197,24 +197,24 @@ export class SupportBuilder {
       brim.position.set(b.bedX, 0.007, b.bedZ);
       group.add(brim);
 
-      // 2. Smooth Tapered Organic Trunk (Thân cây vuốt thon tự nhiên từ gốc phình lên ngọn mao dẫn)
+      // 2. Smooth Tapered Organic Trunk (Thân cây mọc bên ngoài biên dạng mẫu rồi mới uốn vào dưới mặt Overhang)
       const p0 = new THREE.Vector3(b.bedX, 0.012, b.bedZ);
       const p1 = new THREE.Vector3(
-        b.bedX * 0.84 + b.targetX * 0.16,
-        b.targetY * 0.24,
-        b.bedZ * 0.84 + b.targetZ * 0.16
+        b.bedX * 0.94 + b.targetX * 0.06,
+        b.targetY * 0.34,
+        b.bedZ * 0.94 + b.targetZ * 0.06
       );
       const p2 = new THREE.Vector3(
-        b.bedX * 0.48 + b.targetX * 0.52,
-        b.targetY * 0.58,
-        b.bedZ * 0.48 + b.targetZ * 0.52
+        b.bedX * 0.84 + b.targetX * 0.16,
+        b.targetY * 0.68,
+        b.bedZ * 0.84 + b.targetZ * 0.16
       );
       const p3 = new THREE.Vector3(
-        b.bedX * 0.14 + b.targetX * 0.86,
-        b.targetY * 0.86,
-        b.bedZ * 0.14 + b.targetZ * 0.86
+        b.bedX * 0.45 + b.targetX * 0.55,
+        b.targetY * 0.89,
+        b.bedZ * 0.45 + b.targetZ * 0.55
       );
-      const p4 = new THREE.Vector3(b.targetX, Math.max(0.06, b.targetY - 0.014), b.targetZ);
+      const p4 = new THREE.Vector3(b.targetX, Math.max(0.06, b.targetY - 0.018), b.targetZ);
 
       const curve = new THREE.CatmullRomCurve3([p0, p1, p2, p3, p4]);
       const trunkGeo = this.createTaperedOrganicBranchGeometry(
@@ -238,22 +238,8 @@ export class SupportBuilder {
       this.orientInterfacePad(pad, b.targetNormal);
       group.add(pad);
 
-      // 4. Tangent-Continuous Capillary Twigs (Nhánh con tách mượt theo tiếp tuyến thân mẹ — KHÔNG dùng khối cầu nối)
-      let twigs: SupportSubTwigSpec[] = b.subTargets ? [...b.subTargets] : [];
-      if (twigs.length === 0 && b.targetY > 0.36) {
-        const rdx = b.targetX - b.bedX;
-        const rdz = b.targetZ - b.bedZ;
-        const rLen = Math.hypot(rdx, rdz) || 1;
-        const tanX = -rdz / rLen;
-        const tanZ = rdx / rLen;
-        const spread = Math.max(0.11, Math.min(0.22, b.targetY * 0.15));
-        twigs = [-1, 1].map((side) => ({
-          x: b.targetX + tanX * spread * side,
-          y: Math.max(0.22, b.targetY - 0.022),
-          z: b.targetZ + tanZ * spread * side,
-          normal: b.targetNormal,
-        }));
-      }
+      // 4. Tangent-Continuous Capillary Twigs (Chỉ tách nhánh con tới các điểm Overhang thực tế đã quét được)
+      const twigs: SupportSubTwigSpec[] = b.subTargets ? [...b.subTargets] : [];
 
       twigs.forEach((sub, idx) => {
         // Fork height adapts naturally below the twig tip so branches always grow strictly upward
@@ -431,8 +417,8 @@ export class SupportBuilder {
 
             let hBin = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * hullBins);
             hBin = Math.max(0, Math.min(hullBins - 1, hBin));
-            // Track lower-body hull radius so tree roots always plant outside the model footprint
-            if (my < height * 0.72 && distR > sectorHullRadius[hBin]) {
+            // Track full-body hull radius so tree roots & trunks always route outside the model footprint
+            if (my < height * 0.96 && distR > sectorHullRadius[hBin]) {
               sectorHullRadius[hBin] = distR;
             }
 
@@ -492,27 +478,9 @@ export class SupportBuilder {
 
         for (let i = 0; i < patches.length && foundSpecs.length < 14; i++) {
           if (used[i]) continue;
-          used[i] = 1;
           const primary = patches[i];
-          const subTargets: SupportSubTwigSpec[] = [];
 
-          for (let j = i + 1; j < patches.length && subTargets.length < 3; j++) {
-            if (used[j]) continue;
-            const cand = patches[j];
-            const dXZ = Math.hypot(cand.x - primary.x, cand.z - primary.z);
-            const dY = Math.abs(cand.y - primary.y);
-            if (dXZ <= clusterMergeDist && dY <= height * 0.28) {
-              used[j] = 1;
-              subTargets.push({
-                x: cand.x,
-                y: Math.max(0.16, cand.y),
-                z: cand.z,
-                normal: cand.normal,
-              });
-            }
-          }
-
-          // Compute escape direction to exterior build plate beyond lower-body hull
+          // Compute escape direction to exterior build plate beyond full-body hull
           let dx = primary.x - center.x;
           let dz = primary.z - center.z;
           let dist = Math.hypot(dx, dz);
@@ -529,22 +497,51 @@ export class SupportBuilder {
           hBin = Math.max(0, Math.min(hullBins - 1, hBin));
           const prevBin = (hBin + hullBins - 1) % hullBins;
           const nextBin = (hBin + 1) % hullBins;
+          const prev2Bin = (hBin + hullBins - 2) % hullBins;
+          const next2Bin = (hBin + 2) % hullBins;
           const localHullR = Math.max(
             dist,
             sectorHullRadius[hBin],
-            sectorHullRadius[prevBin] * 0.92,
-            sectorHullRadius[nextBin] * 0.92
+            sectorHullRadius[prevBin] * 0.96,
+            sectorHullRadius[nextBin] * 0.96,
+            sectorHullRadius[prev2Bin] * 0.90,
+            sectorHullRadius[next2Bin] * 0.90
           );
 
-          const clearance = Math.max(0.14, Math.min(0.28, primary.y * 0.22));
+          // Skip deeply recessed internal cavities that would force a branch through outer model walls
+          if (dist < localHullR * 0.72 && primary.y < height * 0.78) {
+            continue;
+          }
+
+          used[i] = 1;
+          const subTargets: SupportSubTwigSpec[] = [];
+
+          for (let j = i + 1; j < patches.length && subTargets.length < 3; j++) {
+            if (used[j]) continue;
+            const cand = patches[j];
+            const dXZ = Math.hypot(cand.x - primary.x, cand.z - primary.z);
+            const dY = Math.abs(cand.y - primary.y);
+            const cDist = Math.hypot(cand.x - center.x, cand.z - center.z);
+            if (dXZ <= clusterMergeDist && dY <= height * 0.24 && cDist >= localHullR * 0.75) {
+              used[j] = 1;
+              subTargets.push({
+                x: cand.x + dirX * 0.025,
+                y: Math.max(0.16, cand.y),
+                z: cand.z + dirZ * 0.025,
+                normal: cand.normal,
+              });
+            }
+          }
+
+          const clearance = Math.max(0.18, Math.min(0.34, primary.y * 0.26));
           const safeBedR = localHullR + clearance;
 
           foundSpecs.push({
             bedX: center.x + dirX * safeBedR,
             bedZ: center.z + dirZ * safeBedR,
-            targetX: primary.x,
+            targetX: primary.x + dirX * 0.03,
             targetY: Math.max(0.18, primary.y),
-            targetZ: primary.z,
+            targetZ: primary.z + dirZ * 0.03,
             trunkRadius: Math.max(0.046, Math.min(0.068, Math.min(halfX, halfZ) * 0.085)),
             padRadius: 0.11,
             targetNormal: primary.normal,
@@ -558,14 +555,14 @@ export class SupportBuilder {
       }
 
       // Mô hình hoàn toàn thẳng đứng không có mặt Overhang > 40 độ:
-      // Chỉ đặt 4 nhánh cân bằng mảnh quanh biên khi người dùng chủ động bật chế độ Tree Support
+      // Đặt 4 nhánh cân bằng mảnh phía ngoài biên (không xuyên vào thân hộp/trụ)
       const targetH = Math.max(0.28, height * 0.46);
       const slimR = Math.max(0.045, Math.min(0.06, Math.min(halfX, halfZ) * 0.075));
       return [
-        { bedX: center.x, bedZ: center.z + halfZ + 0.22, targetX: center.x, targetY: targetH, targetZ: center.z + halfZ * 0.94, trunkRadius: slimR, padRadius: slimR * 1.7 },
-        { bedX: center.x, bedZ: center.z - (halfZ + 0.22), targetX: center.x, targetY: targetH, targetZ: center.z - halfZ * 0.94, trunkRadius: slimR, padRadius: slimR * 1.7 },
-        { bedX: center.x + halfX + 0.22, bedZ: center.z, targetX: center.x + halfX * 0.94, targetY: targetH, targetZ: center.z, trunkRadius: slimR, padRadius: slimR * 1.7 },
-        { bedX: center.x - (halfX + 0.22), bedZ: center.z, targetX: center.x - halfX * 0.94, targetY: targetH, targetZ: center.z, trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x, bedZ: center.z + halfZ + 0.26, targetX: center.x, targetY: targetH, targetZ: center.z + halfZ + 0.035, trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x, bedZ: center.z - (halfZ + 0.26), targetX: center.x, targetY: targetH, targetZ: center.z - (halfZ + 0.035), trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x + halfX + 0.26, bedZ: center.z, targetX: center.x + halfX + 0.035, targetY: targetH, targetZ: center.z, trunkRadius: slimR, padRadius: slimR * 1.7 },
+        { bedX: center.x - (halfX + 0.26), bedZ: center.z, targetX: center.x - (halfX + 0.035), targetY: targetH, targetZ: center.z, trunkRadius: slimR, padRadius: slimR * 1.7 },
       ];
     }
 

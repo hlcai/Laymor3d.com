@@ -41,12 +41,14 @@ export function ExportProfileModal({
   modelTransform,
 }: ExportProfileModalProps) {
   const [activeTab, setActiveTab] = useState<'3mf_stl' | 'bambu' | 'gcode' | 'summary'>('3mf_stl');
+  const [includeSupportMesh, setIncludeSupportMesh] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isSynced, setIsSynced] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
+  const hasSupportEnabled = profile.supportMode !== 'none';
   const bambuJson = generateBambuOrcaProfileJson(profile, metrics, modelName);
   const gcodeText = generateSampleGcode(profile, metrics, modelName);
 
@@ -80,31 +82,37 @@ export function ExportProfileModal({
 
   const handleDownload3MF = () => {
     if (!geometry) return;
+    const withTree = hasSupportEnabled && includeSupportMesh;
     const file = download3MFProject(
       geometry,
       profile,
       metrics,
       modelName,
       modelTransform,
-      false
+      withTree
     );
     setExportNotice(
-      `Đã đóng gói dự án 3MF sạch (${partCount} chi tiết rời, KHÔNG hàn dính Support vào phôi): ${file}`
+      withTree
+        ? `Đã xuất .3MF kèm Tree Support 3D (đóng gói thành Object riêng biệt, không dính vào phôi): ${file}`
+        : `Đã xuất .3MF phôi gốc sạch (${partCount} chi tiết rời, không kèm Tree Support): ${file}`
     );
     setTimeout(() => setExportNotice(null), 4000);
   };
 
   const handleDownloadSTL = () => {
     if (!geometry) return;
+    const withTree = hasSupportEnabled && includeSupportMesh;
     const file = downloadBinarySTL(
       geometry,
       modelName,
       modelTransform,
       profile,
-      false
+      withTree
     );
     setExportNotice(
-      `Đã xuất mô hình Binary STL phôi gốc chuẩn mm (không dính Support): ${file}`
+      withTree
+        ? `Đã xuất Binary STL kèm lưới Tree Support 3D: ${file}`
+        : `Đã xuất Binary STL phôi gốc sạch (không kèm Tree Support): ${file}`
     );
     setTimeout(() => setExportNotice(null), 4000);
   };
@@ -244,19 +252,66 @@ export function ExportProfileModal({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-                  <div>
-                    <div className="text-xs font-bold text-emerald-300">
-                      Bảo toàn 100% Phôi gốc sạch (Không hàn dính Support vào lưới mẫu)
+                {hasSupportEnabled ? (
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-emerald-300">
+                          Tùy chọn xuất Tree Support 3D khi tải .3MF / .STL
+                        </div>
+                        <div className="text-[11px] studio-text-secondary mt-0.5">
+                          {includeSupportMesh
+                            ? 'Xuất KÈM lưới 3D Tree Support: Trong .3MF, Tree Support được đóng gói thành một Object độc lập (tách rời hoàn toàn, không bao giờ hàn dính làm hỏng mẫu).'
+                            : 'Xuất KHÔNG KÈM Tree Support: Chỉ xuất phôi 3D sạch 100% cùng cấu hình để Bambu Studio tự sinh Support khi Slice.'}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 shrink-0">
+                        {includeSupportMesh ? 'WITH TREE' : 'CLEAN MESH'}
+                      </span>
                     </div>
-                    <div className="text-[11px] studio-text-secondary mt-0.5">
-                      File .3MF xuất ra giữ nguyên từng chi tiết rời và gửi cấu hình sang Bambu Studio để Slice. Sau khi Slice trong Bambu Studio, xuất file <strong>.gcode.3mf</strong> và nạp lại vào App để xem nguyên xi 100% cây Tree Support của Bambu Studio.
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIncludeSupportMesh(false)}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
+                          !includeSupportMesh
+                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 shadow-sm'
+                            : 'bg-black/30 border-white/10 studio-text-secondary hover:border-white/25'
+                        }`}
+                      >
+                        <div>1. Không kèm Tree Support</div>
+                        <div className="text-[10px] font-normal opacity-80 mt-0.5">
+                          Chỉ xuất mô hình gốc sạch ({partCount} part)
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIncludeSupportMesh(true)}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
+                          includeSupportMesh
+                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 shadow-sm'
+                            : 'bg-black/30 border-white/10 studio-text-secondary hover:border-white/25'
+                        }`}
+                      >
+                        <div>2. Xuất kèm Tree Support 3D</div>
+                        <div className="text-[10px] font-normal opacity-80 mt-0.5">
+                          Đính kèm Tree (Tách Object riêng trong .3MF)
+                        </div>
+                      </button>
                     </div>
                   </div>
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 shrink-0">
-                    CLEAN 3MF
-                  </span>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border studio-border">
+                    <div className="text-[11px] studio-text-secondary">
+                      Chế độ Support đang <strong>Tắt</strong> — File xuất ra chỉ chứa phôi 3D gốc sạch ({partCount} chi tiết). Bật Support ở cột phải nếu muốn tùy chọn xuất kèm Tree Support.
+                    </div>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded studio-card studio-text-muted shrink-0">
+                      NO SUPPORT
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

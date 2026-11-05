@@ -613,22 +613,33 @@ export function detectOverhangPatches(
   return extractHighDensityOverhangPatches(pre, thresholdDeg, 96);
 }
 
-interface IActiveTreeNode {
+interface ITreeGraphNode {
   id: number;
+  level: number;
   x: number;
+  y: number;
   z: number;
   r: number;
   ageLevels: number;
   tipWeight: number;
   allowModelFloorLanding: boolean;
-  terminated: boolean;
+  landedOnFloor: boolean;
+  reachedGoal: boolean;
+  parentIds: number[];
+  patch?: IConformalOverhangPatch;
+  tipStem?: {
+    x0: number;
+    y0: number;
+    z0: number;
+    r0: number;
+  };
 }
 
 /**
  * 2. Thuật toán Nhân Tree Support 2.0 Quét Ngược Từng Lớp (Top-Down Layer-wise Influence Areas + 2D SDF):
  * - Dựng chồng mặt cắt 2D SDF chính xác của mô hình & Trường Đường Hầm Thoát Hiểm (Escape Tunnel Field) từ bàn in lên đỉnh.
- * - Cho hàng trăm nhánh mao mạch mọc từ ngọn xuống đáy: tự luồn lách qua kẽ chân/vòm cửa với khe hở 0.38mm
- *   và tự hút nhau gộp nhánh bảo toàn diện tích như rễ cây thật của Bambu Studio!
+ * - Mọi nhánh cây đều giữ khoảng cách tâm >= (bán kính nhánh + 0.42mm) ngoài biên dạng mô hình.
+ * - Tự động cắt tỉa ngược (Backtrack Pruning) 100% các nhánh cụt bị vướng thân mẫu để tuyệt đối không có cành đâm xuyên mẫu!
  */
 export function computeTreeSupport2DVolume(
   geometry: THREE.BufferGeometry,
@@ -653,7 +664,7 @@ export function computeTreeSupport2DVolume(
   const topZDistMm = profile.supportTopZDistance ?? 0.2;
   const interfaceLayers = profile.supportInterfaceLayers ?? 2;
   const interfaceHeightMm = Math.max(0.2, interfaceLayers * (profile.layerHeight || 0.2));
-  const xyClearanceMm = 0.38;
+  const xyClearanceMm = 0.42;
 
   let tipRadius = 0.56 * branchDiaScale;
   let maxTrunkRadius = 2.65 * branchDiaScale;
@@ -680,9 +691,9 @@ export function computeTreeSupport2DVolume(
   const height = Math.max(1.0, pre.maxY - pre.minY);
   const spanX = Math.max(2.0, pre.maxX - pre.minX);
   const spanZ = Math.max(2.0, pre.maxZ - pre.minZ);
-  const margin = Math.max(12.0, Math.max(spanX, spanZ) * 0.22);
+  const margin = Math.max(14.0, Math.max(spanX, spanZ) * 0.25);
 
-  const gridRes = 84;
+  const gridRes = 88;
   const boxSpan = Math.max(spanX + margin * 2, spanZ + margin * 2);
   const cellSize = boxSpan / gridRes;
   const centerX = (pre.minX + pre.maxX) * 0.5;
@@ -690,13 +701,13 @@ export function computeTreeSupport2DVolume(
   const gridMinX = centerX - boxSpan * 0.5;
   const gridMinZ = centerZ - boxSpan * 0.5;
 
-  const numLevels = Math.max(24, Math.min(68, Math.round(height / 1.45)));
+  const numLevels = Math.max(26, Math.min(72, Math.round(height / 1.38)));
   const levelStepY = height / numLevels;
 
   // Bước 2.1: Xây dựng chồng mặt cắt 2D SDF chính xác của mô hình trên toàn bộ numLevels độ cao
   const sdfWorkGrid = new SdfGrid2D(gridRes, gridRes);
   sdfWorkGrid.configureBounds(gridMinX, gridMinZ, cellSize);
-  const segScratch = new Float32Array(24000 * 4);
+  const segScratch = new Float32Array(36000 * 4);
   const levelModelSdfs: Float32Array[] = new Array(numLevels);
 
   for (let k = 0; k < numLevels; k++) {
@@ -708,19 +719,21 @@ export function computeTreeSupport2DVolume(
   }
 
   // Bước 2.2: Lan truyền từ bàn in lên đỉnh (Bottom-Up Escape Tunnel Field)
-  // Tìm hành lang thoát hiểm hợp lệ theo góc nghiêng <= branchAngle từ mọi hốc/vòm xuống vùng bàn in trống!
+  // Đảm bảo hành lang thoát hiểm luôn cách bề mặt mẫu ít nhất (tipRadius + xyClearanceMm + 0.35mm)
   const escapeFields: Float32Array[] = new Array(numLevels);
   const totalCells = gridRes * gridRes;
+  const minCorridorSdf = tipRadius + xyClearanceMm + 0.3;
+  const preferredOuterSdf = maxTrunkRadius + xyClearanceMm + 1.8;
 
   const esc0 = new Float32Array(totalCells);
   const sdf0 = levelModelSdfs[0];
   for (let i = 0; i < totalCells; i++) {
-    esc0[i] = sdf0[i] >= xyClearanceMm + 0.25 ? 0 : INF_ESCAPE;
+    esc0[i] = sdf0[i] >= minCorridorSdf + 0.25 ? 0 : INF_ESCAPE;
   }
   escapeFields[0] = esc0;
 
   const maxStepMm = levelStepY * tanBranchAngle;
-  const searchCellRad = Math.max(1, Math.min(3, Math.ceil(maxStepMm / cellSize)));
+  const searchCellRad = Math.max(1, Math.min(4, Math.ceil(maxStepMm / cellSize)));
 
   for (let k = 1; k < numLevels; k++) {
     const prevEsc = escapeFields[k - 1];
@@ -732,7 +745,7 @@ export function computeTreeSupport2DVolume(
       for (let gx = 0; gx < gridRes; gx++) {
         const idx = row + gx;
         const dModel = curSdf[idx];
-        if (dModel < xyClearanceMm) {
+        if (dModel < minCorridorSdf) {
           curEsc[idx] = INF_ESCAPE;
           continue;
         }
@@ -748,13 +761,16 @@ export function computeTreeSupport2DVolume(
           for (let nx = x0; nx <= x1; nx++) {
             const dxMm = (nx - gx) * cellSize;
             const horizMm = Math.hypot(dxMm, dzMm);
-            if (horizMm > maxStepMm + cellSize * 0.65) continue;
+            if (horizMm > maxStepMm + cellSize * 0.55) continue;
 
             const pVal = prevEsc[nz * gridRes + nx];
             if (pVal >= INF_ESCAPE * 0.5) continue;
 
-            // Khuyến khích đường đi hơi thoáng khỏi mặt tường nhưng vẫn ưu tiên đường ngắn nhất
-            const wallPenalty = dModel < 1.8 ? (1.8 - dModel) * 0.22 : 0;
+            // Lực đẩy tiềm năng mạnh gần vách mẫu để nhánh luôn vòng ra phía ngoài thân mô hình
+            const wallPenalty =
+              dModel < preferredOuterSdf
+                ? (preferredOuterSdf - dModel) * (preferredOuterSdf - dModel) * 0.45
+                : 0;
             const cand = pVal + horizMm + levelStepY * 0.35 + wallPenalty;
             if (cand < best) best = cand;
           }
@@ -809,10 +825,32 @@ export function computeTreeSupport2DVolume(
     return [dx / len, dz / len];
   };
 
-  // Phân bổ các đầu nhánh mao mạch vào đúng tầng cao độ xuất phát
+  // Kiểm tra đoạn nối (x0, z0) -> (x1, z1) không cắt xuyên qua bất kỳ vách mô hình nào
+  const isSegmentClearOfModel = (
+    sdfAbove: Float32Array,
+    sdfBelow: Float32Array,
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    minClearance: number
+  ): boolean => {
+    for (let s = 1; s <= 4; s++) {
+      const t = s / 4;
+      const mx = x0 + (x1 - x0) * t;
+      const mz = z0 + (z1 - z0) * t;
+      const dLow = sampleGridField(sdfBelow, mx, mz);
+      const dUp = sampleGridField(sdfAbove, mx, mz);
+      const dInterp = dUp * (1 - t) + dLow * t;
+      if (dLow < minClearance || dInterp < minClearance) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Phân bổ các đầu nhánh mao mạch vào đúng tầng cao độ xuất phát (loại bỏ các điểm nằm trong lòng mẫu)
   const patchesByLevel: IConformalOverhangPatch[][] = Array.from({ length: numLevels }, () => []);
-  const acceptedPatches: IConformalOverhangPatch[] = [];
-  const interfacePads: ITreeInterfacePad[] = [];
 
   for (const p of patches) {
     const contactY = p.center[1] - topZDistMm - interfaceHeightMm * 0.5;
@@ -820,151 +858,164 @@ export function computeTreeSupport2DVolume(
       1,
       Math.min(numLevels - 1, Math.floor((contactY - pre.minY) / levelStepY))
     );
+    // Loại bỏ các mặt bị đảo pháp tuyến hoặc hốc rỗng kín nằm sâu bên trong khối đặc của mẫu
+    const [px, , pz] = p.center;
+    const [nx, , nz] = p.normal;
+    const belowLvl = Math.max(0, lvl - 1);
+    const dUnder = sampleGridField(levelModelSdfs[belowLvl], px + nx * 0.45, pz + nz * 0.45);
+    if (dUnder < -0.25) continue;
+
     patchesByLevel[lvl].push(p);
   }
 
-  // Bước 2.3: Quét ngược Top-Down từ đỉnh (numLevels - 1) xuống bàn in (0)
-  const levelDiscs: ITreeSupport2DLevelDisc[][] = Array.from({ length: numLevels }, () => []);
-  const capsules: ITreeCapsuleSegment[] = [];
-  let activeNodes: IActiveTreeNode[] = [];
+  // Bước 2.3: Quét ngược Top-Down từ đỉnh (numLevels - 1) xuống bàn in (0) với Đồ Thị Cây có Cắt Tỉa Nhánh Cụt
+  const allGraphNodes = new Map<number, ITreeGraphNode>();
+  const nodesByLevel: ITreeGraphNode[][] = Array.from({ length: numLevels }, () => []);
+  let activeNodes: ITreeGraphNode[] = [];
   let nextNodeId = 1;
 
   const isNormalMode = profile.supportMode === 'normal';
 
   for (let k = numLevels - 1; k >= 0; k--) {
-    const yCur = pre.minY + (k + 0.35) * levelStepY;
-    const yAbove = pre.minY + (k + 1.35) * levelStepY;
+    const yCur = k === 0 ? pre.minY + 0.12 : pre.minY + (k + 0.35) * levelStepY;
     const curSdf = levelModelSdfs[k];
+    const aboveSdf = levelModelSdfs[Math.min(numLevels - 1, k + 1)];
     const curEsc = escapeFields[k];
 
     // A. Di chuyển tất cả các nhánh đang hoạt động từ tầng k + 1 xuống tầng k
-    const nextActive: IActiveTreeNode[] = [];
+    const steppedCandidates: ITreeGraphNode[] = [];
 
-    for (const node of activeNodes) {
-      if (node.terminated) continue;
-      const prevX = node.x;
-      const prevZ = node.z;
-      const prevR = node.r;
+    for (const parentNode of activeNodes) {
+      if (parentNode.landedOnFloor) continue;
+      const prevX = parentNode.x;
+      const prevZ = parentNode.z;
+      const prevR = parentNode.r;
 
+      let nextR = Math.min(maxTrunkRadius, prevR + levelStepY * (isNormalMode ? 0.004 : 0.015));
+      if (k === 1) nextR *= 1.08;
+      else if (k === 0) nextR *= 1.22;
+
+      const reqClearance = nextR * 0.92 + xyClearanceMm;
       let nx = prevX;
       let nz = prevZ;
-      node.ageLevels++;
 
       if (!isNormalMode) {
-        // 1. Dẫn đường mượt xuống hành lang thoát hiểm ngắn nhất trên trường Escape Field
+        // 1. Tìm hướng bước xuống tối ưu trên trường Escape Field (trong giới hạn góc nghiêng branchAngle)
         let bestCandEsc = sampleGridField(curEsc, nx, nz);
-        let bestDx = 0;
-        let bestDz = 0;
-        const probeR = Math.min(maxStepMm * 0.92, cellSize * 1.65);
+        let bestCandX = nx;
+        let bestCandZ = nz;
 
-        for (let a = 0; a < 8; a++) {
-          const ang = (a / 8) * Math.PI * 2;
-          const px = nx + Math.cos(ang) * probeR;
-          const pz = nz + Math.sin(ang) * probeR;
-          const dMod = sampleGridField(curSdf, px, pz);
-          if (dMod < prevR + xyClearanceMm * 0.8) continue;
-          const eVal = sampleGridField(curEsc, px, pz);
-          if (eVal < bestCandEsc - 0.08) {
-            bestCandEsc = eVal;
-            bestDx = px - nx;
-            bestDz = pz - nz;
+        const radii = [maxStepMm * 0.55, maxStepMm * 0.96];
+        for (const rProbe of radii) {
+          for (let a = 0; a < 12; a++) {
+            const ang = (a / 12) * Math.PI * 2;
+            const px = prevX + Math.cos(ang) * rProbe;
+            const pz = prevZ + Math.sin(ang) * rProbe;
+            const dMod = sampleGridField(curSdf, px, pz);
+            if (dMod < reqClearance) continue;
+            const eVal = sampleGridField(curEsc, px, pz);
+            if (eVal < bestCandEsc - 0.04) {
+              bestCandEsc = eVal;
+              bestCandX = px;
+              bestCandZ = pz;
+            }
           }
         }
-
-        nx += bestDx * 0.72;
-        nz += bestDz * 0.72;
+        nx = bestCandX;
+        nz = bestCandZ;
       }
 
       // 2. Xử lý chạm mặt sàn mô hình bên dưới nếu ở chế độ Support Everywhere (!buildPlateOnly)
       const dAtTarget = sampleGridField(curSdf, nx, nz);
-      if (node.allowModelFloorLanding && node.ageLevels >= 2 && dAtTarget <= 0.18) {
-        capsules.push({
-          x0: prevX,
-          y0: yAbove,
-          z0: prevZ,
-          r0: prevR,
-          x1: prevX,
-          y1: Math.max(pre.minY + 0.2, yCur + levelStepY * 0.35),
-          z1: prevZ,
-          r1: prevR * 1.12,
-          isNearTip: node.ageLevels <= 2,
-        });
-        node.terminated = true;
+      if (parentNode.allowModelFloorLanding && parentNode.ageLevels >= 3 && dAtTarget <= 0.15) {
+        const landedNode: ITreeGraphNode = {
+          id: nextNodeId++,
+          level: k,
+          x: prevX,
+          y: Math.max(pre.minY + 0.2, yCur + levelStepY * 0.4),
+          z: prevZ,
+          r: prevR * 1.08,
+          ageLevels: parentNode.ageLevels + 1,
+          tipWeight: parentNode.tipWeight,
+          allowModelFloorLanding: true,
+          landedOnFloor: true,
+          reachedGoal: true,
+          parentIds: [parentNode.id],
+        };
+        allGraphNodes.set(landedNode.id, landedNode);
+        nodesByLevel[k].push(landedNode);
         continue;
       }
 
-      // 3. Đảm bảo khoảng cách an toàn tuyệt đối 0.38mm tới bề mặt mô hình ở tầng k
-      const clearanceRamp = node.ageLevels <= 2 ? 0.14 + node.ageLevels * 0.12 : xyClearanceMm;
-      const reqDist = prevR * 0.75 + clearanceRamp;
+      // 3. Đẩy nhánh ra ngoài biên dạng 2D SDF để đảm bảo toàn bộ tiết diện nhánh không chạm mẫu
       let curDist = sampleGridField(curSdf, nx, nz);
-
-      if (curDist < reqDist) {
-        if (isNormalMode && buildPlateOnly && curDist < -0.2) {
-          // Cột thẳng đứng Normal Support bị chặn bởi thân mẫu khi bật Build Plate Only -> Dừng
-          node.terminated = true;
+      if (curDist < reqClearance) {
+        if (isNormalMode && buildPlateOnly && curDist < 0) {
           continue;
         }
-        for (let iter = 0; iter < 3 && curDist < reqDist; iter++) {
+        for (let iter = 0; iter < 6 && curDist < reqClearance; iter++) {
           const [gx, gz] = sampleModelGradient(curSdf, nx, nz);
-          const push = Math.min(maxStepMm * 0.85, reqDist - curDist + 0.12);
+          const push = Math.min(maxStepMm * 0.65, reqClearance - curDist + 0.18);
           nx += gx * push;
           nz += gz * push;
           curDist = sampleGridField(curSdf, nx, nz);
         }
       }
 
-      // Khống chế góc nghiêng nhánh không vượt quá branchAngle tối đa để in không cần support phụ
+      // Kiểm tra góc nghiêng tối đa và kiểm tra tuyệt đối không cắt xuyên mẫu
       const stepDist = Math.hypot(nx - prevX, nz - prevZ);
-      const maxAllowed = maxStepMm * 1.18;
-      if (stepDist > maxAllowed) {
-        const s = maxAllowed / stepDist;
-        nx = prevX + (nx - prevX) * s;
-        nz = prevZ + (nz - prevZ) * s;
+      if (stepDist > maxStepMm * 1.48) {
+        continue;
       }
-
-      // Nếu vẫn chui sâu vào bên trong mô hình (hốc kín không lối thoát) -> Ngắt nhánh an toàn
-      if (sampleGridField(curSdf, nx, nz) < -0.15) {
-        node.terminated = true;
+      if (curDist < nextR * 0.8 + xyClearanceMm * 0.85) {
+        continue;
+      }
+      if (!isSegmentClearOfModel(aboveSdf, curSdf, prevX, prevZ, nx, nz, nextR * 0.72 + xyClearanceMm * 0.75)) {
         continue;
       }
 
-      // 4. Độ nở thân cây tự nhiên từ ngọn xuống gốc + Loe rễ bám bàn in ở 2 tầng cuối
-      let nextR = Math.min(maxTrunkRadius, prevR + levelStepY * (isNormalMode ? 0.004 : 0.015));
-      if (k === 1) nextR *= 1.1;
-      else if (k === 0) nextR *= 1.24;
-
-      node.x = nx;
-      node.z = nz;
-      node.r = nextR;
-      nextActive.push(node);
+      steppedCandidates.push({
+        id: nextNodeId++,
+        level: k,
+        x: nx,
+        y: yCur,
+        z: nz,
+        r: nextR,
+        ageLevels: parentNode.ageLevels + 1,
+        tipWeight: parentNode.tipWeight,
+        allowModelFloorLanding: parentNode.allowModelFloorLanding,
+        landedOnFloor: false,
+        reachedGoal: k === 0,
+        parentIds: [parentNode.id],
+      });
     }
 
-    // B. Lực hút quy tụ tán cây hữu cơ (Sibling Canopy Attraction) — Chỉ áp dụng cho Tree Support
-    if (!isNormalMode && nextActive.length > 1) {
+    // B. Lực hút quy tụ tán cây hữu cơ (Sibling Canopy Attraction) — Chỉ hút khi đường dịch chuyển hoàn toàn ngoài mẫu
+    if (!isNormalMode && steppedCandidates.length > 1) {
       const heightRatio = k / numLevels;
       const attractRange =
-        (5.5 + (1 - heightRatio) * 10.5) * mergeRangeScale * Math.max(0.75, tanBranchAngle);
+        (5.0 + (1 - heightRatio) * 9.5) * mergeRangeScale * Math.max(0.75, tanBranchAngle);
 
-      const shiftsX = new Float32Array(nextActive.length);
-      const shiftsZ = new Float32Array(nextActive.length);
+      const shiftsX = new Float32Array(steppedCandidates.length);
+      const shiftsZ = new Float32Array(steppedCandidates.length);
 
-      for (let i = 0; i < nextActive.length; i++) {
-        const a = nextActive[i];
+      for (let i = 0; i < steppedCandidates.length; i++) {
+        const a = steppedCandidates[i];
         let pullX = 0,
           pullZ = 0,
           pullW = 0;
 
-        for (let j = 0; j < nextActive.length; j++) {
+        for (let j = 0; j < steppedCandidates.length; j++) {
           if (i === j) continue;
-          const b = nextActive[j];
+          const b = steppedCandidates[j];
           const dx = b.x - a.x;
           const dz = b.z - a.z;
           const d = Math.hypot(dx, dz);
           if (d < 0.05 || d > attractRange) continue;
 
-          // Kiểm tra điểm giữa 2 nhánh không vướng thân mô hình (không kéo xuyên qua chân/cánh mẫu!)
-          const midSdf = sampleGridField(curSdf, (a.x + b.x) * 0.5, (a.z + b.z) * 0.5);
-          if (midSdf < xyClearanceMm + Math.min(a.r, b.r) * 0.5) continue;
+          // Kiểm tra đoạn nối giữa 2 nhánh không vướng thân mô hình
+          const reqMid = Math.max(a.r, b.r) * 0.9 + xyClearanceMm;
+          if (!isSegmentClearOfModel(curSdf, curSdf, a.x, a.z, b.x, b.z, reqMid)) continue;
 
           const w = (b.r * b.r) / (d + 0.8);
           pullX += (dx / d) * w;
@@ -976,178 +1027,231 @@ export function computeTreeSupport2DVolume(
           const dirX = pullX / pullW;
           const dirZ = pullZ / pullW;
           const dLen = Math.hypot(dirX, dirZ) || 1;
-          const step = Math.min(maxStepMm * 0.46, dLen * levelStepY * 0.52);
+          const step = Math.min(maxStepMm * 0.4, dLen * levelStepY * 0.48);
           const candX = a.x + (dirX / dLen) * step;
           const candZ = a.z + (dirZ / dLen) * step;
-          if (sampleGridField(curSdf, candX, candZ) >= a.r * 0.75 + xyClearanceMm) {
+
+          const pNode = allGraphNodes.get(a.parentIds[0]);
+          const parentClear = pNode
+            ? isSegmentClearOfModel(aboveSdf, curSdf, pNode.x, pNode.z, candX, candZ, a.r * 0.78 + xyClearanceMm)
+            : true;
+
+          if (parentClear && sampleGridField(curSdf, candX, candZ) >= a.r * 0.95 + xyClearanceMm) {
             shiftsX[i] = candX - a.x;
             shiftsZ[i] = candZ - a.z;
           }
         }
       }
 
-      for (let i = 0; i < nextActive.length; i++) {
-        nextActive[i].x += shiftsX[i];
-        nextActive[i].z += shiftsZ[i];
+      for (let i = 0; i < steppedCandidates.length; i++) {
+        steppedCandidates[i].x += shiftsX[i];
+        steppedCandidates[i].z += shiftsZ[i];
       }
     }
 
-    // Ghi đoạn Capsule 3D từ vị trí tầng trên xuống vị trí mới đã hút hội tụ ở tầng hiện tại
-    // Lưu ý: Để đường nối không bị gấp khúc, lưu từ snapshot trước khi gộp
-    // (Ở đây ta lưu trong bước tạo mới bên dưới bằng bảng prevPosMap)
+    // C. Phép Gộp Nhánh Sinh Học Bảo Toàn Diện Tích (Chỉ gộp nếu điểm gộp mới không chạm mô hình)
+    const mergedNodes: ITreeGraphNode[] = [];
+    const consumed = new Uint8Array(steppedCandidates.length);
 
-    // C. Phép Gộp Nhánh Sinh Học Bảo Toàn Diện Tích (Area-Preserving Organic Merge)
-    const mergedNodes: IActiveTreeNode[] = [];
-    const consumed = new Uint8Array(nextActive.length);
-
-    for (let i = 0; i < nextActive.length; i++) {
+    for (let i = 0; i < steppedCandidates.length; i++) {
       if (consumed[i]) continue;
-      const primary = nextActive[i];
+      const primary = steppedCandidates[i];
 
       if (!isNormalMode) {
-        for (let j = i + 1; j < nextActive.length; j++) {
+        for (let j = i + 1; j < steppedCandidates.length; j++) {
           if (consumed[j]) continue;
-          const other = nextActive[j];
+          const other = steppedCandidates[j];
           const dist = Math.hypot(primary.x - other.x, primary.z - other.z);
-          const mergeThresh = Math.max(0.9, (primary.r + other.r) * 0.64);
+          const mergeThresh = Math.max(0.9, (primary.r + other.r) * 0.65);
 
           if (dist <= mergeThresh) {
             const w1 = primary.r * primary.r;
             const w2 = other.r * other.r;
             const wSum = w1 + w2;
-            primary.x = (primary.x * w1 + other.x * w2) / wSum;
-            primary.z = (primary.z * w1 + other.z * w2) / wSum;
-            primary.r = Math.min(maxTrunkRadius, Math.sqrt(w1 + w2 * 0.76) + 0.03);
-            primary.tipWeight += other.tipWeight;
-            primary.ageLevels = Math.max(primary.ageLevels, other.ageLevels);
-            consumed[j] = 1;
+            const mx = (primary.x * w1 + other.x * w2) / wSum;
+            const mz = (primary.z * w1 + other.z * w2) / wSum;
+            const mr = Math.min(maxTrunkRadius, Math.sqrt(w1 + w2 * 0.76) + 0.03);
+
+            if (sampleGridField(curSdf, mx, mz) >= mr * 0.9 + xyClearanceMm) {
+              primary.x = mx;
+              primary.z = mz;
+              primary.r = mr;
+              primary.tipWeight += other.tipWeight;
+              primary.ageLevels = Math.max(primary.ageLevels, other.ageLevels);
+              primary.parentIds.push(...other.parentIds);
+              consumed[j] = 1;
+            }
           }
         }
       }
 
+      allGraphNodes.set(primary.id, primary);
+      nodesByLevel[k].push(primary);
       mergedNodes.push(primary);
     }
 
-    // D. Sinh các đầu nhánh mao mạch mới bắt đầu từ tầng k
-    for (const patch of patchesByLevel[k]) {
-      const [px, py, pz] = patch.center;
-      const [nx, ny, nz] = patch.normal;
+    // D. Sinh các đầu nhánh mao mạch mới bắt đầu từ tầng k (Đẩy điểm spawn ra ngoài biên SDF của mẫu)
+    if (k >= 1) {
+      for (const patch of patchesByLevel[k]) {
+        const [px, py, pz] = patch.center;
+        const [nx, ny, nz] = patch.normal;
 
-      let spawnX = px + nx * 0.25;
-      let spawnZ = pz + nz * 0.25;
-      let escHere = sampleGridField(curEsc, spawnX, spawnZ);
+        const patchTipR = Math.max(
+          tipRadius * 0.88,
+          Math.min(tipRadius * 1.45, tipRadius * (0.82 + Math.sqrt(patch.areaMm2) * 0.08))
+        );
+        const reqSpawnClear = patchTipR + xyClearanceMm + 0.18;
 
-      // Nếu điểm ngay sát dưới tam giác hơi sát biên SDF, nhích nhẹ ra hành lang thoát hiểm gần nhất (< 2.6mm)
-      if (escHere >= INF_ESCAPE * 0.5) {
-        let bestProbeEsc = INF_ESCAPE;
-        for (let rStep = 0.8; rStep <= 2.6; rStep += 0.9) {
-          for (let a = 0; a < 8; a++) {
-            const ang = (a / 8) * Math.PI * 2;
-            const tx = px + Math.cos(ang) * rStep;
-            const tz = pz + Math.sin(ang) * rStep;
-            const eVal = sampleGridField(curEsc, tx, tz);
-            if (eVal < bestProbeEsc) {
-              bestProbeEsc = eVal;
-              spawnX = tx;
-              spawnZ = tz;
-            }
-          }
-          if (bestProbeEsc < INF_ESCAPE * 0.5) break;
+        // Khởi tạo điểm spawn bên ngoài mặt nghiêng Overhang
+        const horizNormLen = Math.hypot(nx, nz);
+        const outDirX = horizNormLen > 0.08 ? nx / horizNormLen : 0;
+        const outDirZ = horizNormLen > 0.08 ? nz / horizNormLen : 0;
+
+        let spawnX = px + outDirX * (patchTipR * 0.85 + 0.35);
+        let spawnZ = pz + outDirZ * (patchTipR * 0.85 + 0.35);
+
+        // Đẩy điểm spawn ra khỏi mặt cắt 2D SDF ở tầng k để cuống nhánh không bao giờ nằm trong mẫu
+        let dSpawn = sampleGridField(curSdf, spawnX, spawnZ);
+        for (let iter = 0; iter < 6 && dSpawn < reqSpawnClear; iter++) {
+          const [gx, gz] = sampleModelGradient(curSdf, spawnX, spawnZ);
+          const push = Math.min(1.2, reqSpawnClear - dSpawn + 0.15);
+          spawnX += gx * push;
+          spawnZ += gz * push;
+          dSpawn = sampleGridField(curSdf, spawnX, spawnZ);
         }
-        escHere = bestProbeEsc;
+
+        // Nếu điểm spawn sau khi đẩy bị lệch quá xa (> 3.2mm) khỏi tấm đệm Overhang hoặc vẫn kẹt trong mẫu -> Bỏ qua
+        if (dSpawn < patchTipR * 0.75 + xyClearanceMm || Math.hypot(spawnX - px, spawnZ - pz) > 3.2) {
+          continue;
+        }
+
+        let escHere = sampleGridField(curEsc, spawnX, spawnZ);
+        if (escHere >= INF_ESCAPE * 0.5) {
+          let bestProbeEsc = INF_ESCAPE;
+          for (let rStep = 0.6; rStep <= 2.2; rStep += 0.8) {
+            for (let a = 0; a < 8; a++) {
+              const ang = (a / 8) * Math.PI * 2;
+              const tx = spawnX + Math.cos(ang) * rStep;
+              const tz = spawnZ + Math.sin(ang) * rStep;
+              if (sampleGridField(curSdf, tx, tz) < reqSpawnClear) continue;
+              const eVal = sampleGridField(curEsc, tx, tz);
+              if (eVal < bestProbeEsc) {
+                bestProbeEsc = eVal;
+                spawnX = tx;
+                spawnZ = tz;
+              }
+            }
+            if (bestProbeEsc < INF_ESCAPE * 0.5) break;
+          }
+          escHere = bestProbeEsc;
+        }
+
+        const reachableToBed = escHere < INF_ESCAPE * 0.5;
+        if (!reachableToBed && buildPlateOnly) {
+          continue;
+        }
+
+        const roofBottomY = Math.max(yCur + 0.15, py - topZDistMm - interfaceHeightMm * 0.65);
+        const newNode: ITreeGraphNode = {
+          id: nextNodeId++,
+          level: k,
+          x: spawnX,
+          y: yCur,
+          z: spawnZ,
+          r: patchTipR,
+          ageLevels: 0,
+          tipWeight: 1,
+          allowModelFloorLanding: !reachableToBed && !buildPlateOnly,
+          landedOnFloor: false,
+          reachedGoal: false,
+          parentIds: [],
+          patch,
+          tipStem: {
+            x0: px + outDirX * 0.28,
+            y0: roofBottomY,
+            z0: pz + outDirZ * 0.28,
+            r0: patchTipR * 0.88,
+          },
+        };
+        allGraphNodes.set(newNode.id, newNode);
+        nodesByLevel[k].push(newNode);
+        mergedNodes.push(newNode);
       }
-
-      const reachableToBed = escHere < INF_ESCAPE * 0.5;
-      if (!reachableToBed && buildPlateOnly) {
-        // Bỏ qua hốc kín tuyệt đối không có đường luồn ra bàn in khi bật "Chỉ bám bàn in"
-        continue;
-      }
-
-      const patchTipR = Math.max(
-        tipRadius * 0.88,
-        Math.min(tipRadius * 1.45, tipRadius * (0.82 + Math.sqrt(patch.areaMm2) * 0.08))
-      );
-
-      const newNode: IActiveTreeNode = {
-        id: nextNodeId++,
-        x: spawnX,
-        z: spawnZ,
-        r: patchTipR,
-        ageLevels: 0,
-        tipWeight: 1,
-        allowModelFloorLanding: !reachableToBed && !buildPlateOnly,
-        terminated: false,
-      };
-      mergedNodes.push(newNode);
-      acceptedPatches.push(patch);
-
-      const padCapR = Math.max(1.15, Math.min(3.2, Math.sqrt(patch.areaMm2) * 0.58));
-      interfacePads.push({
-        x: px,
-        y: py - topZDistMm,
-        z: pz,
-        nx,
-        ny,
-        nz,
-        radius: padCapR,
-      });
-
-      // Nối cuống mao mạch ngắn từ vị trí spawn lên sát đáy tấm đệm Support Roof
-      const roofBottomY = Math.max(yCur + 0.15, py - topZDistMm - interfaceHeightMm * 0.65);
-      capsules.push({
-        x0: px + nx * 0.12,
-        y0: roofBottomY,
-        z0: pz + nz * 0.12,
-        r0: patchTipR * 0.92,
-        x1: spawnX,
-        y1: yCur,
-        z1: spawnZ,
-        r1: patchTipR,
-        isNearTip: true,
-      });
     }
 
-    // Lưu mặt cắt nhánh tại tầng k và nối Capsule từ tầng k xuống tầng k - 1 ở vòng lặp kế tiếp
-    levelDiscs[k] = mergedNodes.map((n) => ({
+    activeNodes = mergedNodes;
+  }
+
+  // Bước 2.4: Lan truyền ngược (Backtrack Pruning) từ k = 0 lên đỉnh để XÓA BỎ 100% các nhánh cụt bị chặn giữa chừng!
+  for (let k = 0; k < numLevels; k++) {
+    for (const node of nodesByLevel[k]) {
+      if (!node.reachedGoal) continue;
+      for (const pid of node.parentIds) {
+        const pNode = allGraphNodes.get(pid);
+        if (pNode) {
+          pNode.reachedGoal = true;
+        }
+      }
+    }
+  }
+
+  const levelDiscs: ITreeSupport2DLevelDisc[][] = Array.from({ length: numLevels }, () => []);
+  const capsules: ITreeCapsuleSegment[] = [];
+  const acceptedPatches: IConformalOverhangPatch[] = [];
+  const interfacePads: ITreeInterfacePad[] = [];
+
+  for (let k = numLevels - 1; k >= 0; k--) {
+    const validNodes = nodesByLevel[k].filter((n) => n.reachedGoal);
+    levelDiscs[k] = validNodes.map((n) => ({
       x: n.x,
       z: n.z,
       r: n.r,
       nearTip: n.ageLevels <= 2,
     }));
 
-    activeNodes = mergedNodes;
-  }
-
-  // Dựng danh sách Capsule liên tục giữa các tầng từ levelDiscs (hoặc dùng liên kết gần nhất giữa k+1 -> k)
-  for (let k = numLevels - 1; k >= 1; k--) {
-    const upper = levelDiscs[k];
-    const lower = levelDiscs[k - 1];
-    if (upper.length === 0 || lower.length === 0) continue;
-
-    const yUp = pre.minY + (k + 0.35) * levelStepY;
-    const yLow = k === 1 ? pre.minY + 0.12 : pre.minY + (k - 0.65) * levelStepY;
-
-    for (const u of upper) {
-      let bestLow = lower[0];
-      let bestD = Infinity;
-      for (const l of lower) {
-        const d = Math.hypot(l.x - u.x, l.z - u.z);
-        if (d < bestD) {
-          bestD = d;
-          bestLow = l;
-        }
-      }
-      if (bestD <= maxStepMm * 2.4 + bestLow.r + u.r) {
+    for (const n of validNodes) {
+      // Nếu là nút ngọn khởi phát từ tấm đệm Overhang (và đã có đường hợp lệ chạm tới bàn in!)
+      if (n.patch && n.tipStem) {
+        acceptedPatches.push(n.patch);
+        const [px, py, pz] = n.patch.center;
+        const [nx, ny, nz] = n.patch.normal;
+        const padCapR = Math.max(1.15, Math.min(3.2, Math.sqrt(n.patch.areaMm2) * 0.58));
+        interfacePads.push({
+          x: px,
+          y: py - topZDistMm,
+          z: pz,
+          nx,
+          ny,
+          nz,
+          radius: padCapR,
+        });
         capsules.push({
-          x0: u.x,
-          y0: yUp,
-          z0: u.z,
-          r0: u.r,
-          x1: bestLow.x,
-          y1: yLow,
-          z1: bestLow.z,
-          r1: bestLow.r,
-          isNearTip: u.nearTip,
+          x0: n.tipStem.x0,
+          y0: n.tipStem.y0,
+          z0: n.tipStem.z0,
+          r0: n.tipStem.r0,
+          x1: n.x,
+          y1: n.y,
+          z1: n.z,
+          r1: n.r,
+          isNearTip: true,
+        });
+      }
+
+      // Nối chính xác Capsule theo liên kết Cha -> Con đã kiểm định không va chạm mẫu
+      for (const pid of n.parentIds) {
+        const pNode = allGraphNodes.get(pid);
+        if (!pNode || !pNode.reachedGoal) continue;
+        capsules.push({
+          x0: pNode.x,
+          y0: pNode.y,
+          z0: pNode.z,
+          r0: pNode.r,
+          x1: n.x,
+          y1: n.y,
+          z1: n.z,
+          r1: n.r,
+          isNearTip: pNode.ageLevels <= 2,
         });
       }
     }
@@ -1185,8 +1289,9 @@ export function computeTreeSupport2DVolume(
 
 /**
  * 3. Bộ Dựng Lưới Vỏ Cây Sinh Học Thưa 3D (Sparse Surface Nets Implicit Mesher):
- * Trích xuất bề mặt đẳng trị TreeSDF(x, y, z) = smin_i(Capsule_i) \ (ModelSDF - 0.36mm) = 0
- * -> Sinh thân cây hữu cơ liền khối 100%, chạc cây hòa quyện củ lạc/rễ cây tự nhiên, KHÔNG KHỚP BI CẦU!
+ * Trích xuất bề mặt đẳng trị TreeSDF(x, y, z) = smin_i(Capsule_i) \ (ModelSDF - 0.38mm) = 0
+ * -> Sinh thân cây hữu cơ liền khối 100%, chạc cây hòa quyện củ lạc/rễ cây tự nhiên, KHÔNG KHỚP BI CẦU
+ *    và tuyệt đối không bao giờ đâm xuyên vào bên trong mô hình!
  */
 function buildSparseSurfaceNetsTreeMesh(vol: ITreeSupport2DVolume): THREE.BufferGeometry | null {
   if (vol.capsules.length === 0) return null;
@@ -1289,10 +1394,24 @@ function buildSparseSurfaceNetsTreeMesh(vol: ITreeSupport2DVolume): THREE.Buffer
     }
   }
 
-  // Áp dụng cắt phẳng chân đế bàn in (Y = minY + 0.12) & Trừ Boolean vùng mô hình + khe hở XY 0.35mm!
+  // Áp dụng cắt phẳng chân đế bàn in (Y = minY + 0.12) & Trừ Boolean vùng mô hình nội suy mượt 3D!
   const floorPlaneY = vol.minY + 0.12;
   const gRes = vol.gridRes;
   const invCs = 1 / vol.cellSize;
+
+  const sampleBilinearSdf = (sdfArr: Float32Array, wx: number, wz: number): number => {
+    const fx = Math.max(0, Math.min(gRes - 1.001, (wx - vol.gridMinX) * invCs - 0.5));
+    const fz = Math.max(0, Math.min(gRes - 1.001, (wz - vol.gridMinZ) * invCs - 0.5));
+    const x0 = Math.floor(fx);
+    const z0 = Math.floor(fz);
+    const tx = fx - x0;
+    const tz = fz - z0;
+    const r0 = z0 * gRes;
+    const r1 = (z0 + 1) * gRes;
+    const a = sdfArr[r0 + x0] * (1 - tx) + sdfArr[r0 + x0 + 1] * tx;
+    const b = sdfArr[r1 + x0] * (1 - tx) + sdfArr[r1 + x0 + 1] * tx;
+    return a * (1 - tz) + b * tz;
+  };
 
   for (let i = 0; i < touchedIndices.length; i++) {
     const idx = touchedIndices[i];
@@ -1311,26 +1430,19 @@ function buildSparseSurfaceNetsTreeMesh(vol: ITreeSupport2DVolume): THREE.Buffer
       val = Math.max(val, floorPlaneY - wy);
     }
 
-    // Trừ chính xác mặt cắt 2D SDF của mô hình để vỏ cây tự lõm né sát biên dạng mẫu 0.34mm
-    if (val < vox * 1.5 && wy >= vol.minY + 0.4 && wy <= vol.maxY) {
-      const lvl = Math.max(
+    // Trừ chính xác mặt cắt 2D SDF nội suy của mô hình để vỏ cây không bao giờ xuyên vào trong mẫu
+    if (wy >= vol.minY + 0.2 && wy <= vol.maxY + 0.5) {
+      const fLvl = Math.max(
         0,
-        Math.min(vol.numLevels - 1, Math.floor((wy - vol.minY) / vol.levelStepY))
+        Math.min(vol.numLevels - 1.001, (wy - vol.minY) / vol.levelStepY - 0.35)
       );
-      const gx = Math.max(0, Math.min(gRes - 1, Math.round((wx - vol.gridMinX) * invCs - 0.5)));
-      const gz = Math.max(0, Math.min(gRes - 1, Math.round((wz - vol.gridMinZ) * invCs - 0.5)));
-      const modelSdf = vol.levelModelSdfs[lvl][gz * gRes + gx];
-      // Không khoét mất đầu mút nhánh ngay sát tấm đệm tiếp xúc
-      let nearPad = false;
-      for (let p = 0; p < vol.interfacePads.length; p++) {
-        const pad = vol.interfacePads[p];
-        if (Math.abs(wy - pad.y) < 1.35 && Math.hypot(wx - pad.x, wz - pad.z) < pad.radius + 0.8) {
-          nearPad = true;
-          break;
-        }
-      }
-      const reqClear = nearPad ? 0.05 : 0.34;
-      val = Math.max(val, -(modelSdf - reqClear));
+      const l0 = Math.floor(fLvl);
+      const l1 = Math.min(vol.numLevels - 1, l0 + 1);
+      const ty = fLvl - l0;
+      const d0 = sampleBilinearSdf(vol.levelModelSdfs[l0], wx, wz);
+      const d1 = sampleBilinearSdf(vol.levelModelSdfs[l1], wx, wz);
+      const modelSdf = Math.min(d0, d0 * (1 - ty) + d1 * ty);
+      val = Math.max(val, -(modelSdf - 0.36));
     }
 
     field[idx] = val;

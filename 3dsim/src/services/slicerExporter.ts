@@ -3,6 +3,7 @@ import { zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { ISimulationProfile, IModelTransform } from '@/types/simulator';
 import { ISlicingMetrics } from './slicingEngine';
 import { applyTransformToGeometry, IBambuPartGeometryRecord } from './sampleModels';
+import { generateBambuSupportStructures } from './supportGenerator';
 
 /**
  * Chuẩn hóa hình học phôi 3D trước khi xuất:
@@ -55,25 +56,72 @@ function prepareNormalizedExportGeometry(
 }
 
 /**
- * Giữ chữ ký hàm tương thích ngược nhưng luôn trả về null để KHÔNG BAO GIỜ
- * hàn dính lưới Support giả vào tệp phôi .3MF / .STL xuất sang Bambu Studio.
+ * Xây dựng lưới 3D Tree/Normal Support độc lập (đã khử va chạm SDF + Backtrack Pruning)
+ * khi người dùng chọn xuất kèm Tree Support.
  */
 export function buildExportSupportGeometry(
-  _normalizedModelGeom: THREE.BufferGeometry,
-  _profile: ISimulationProfile
+  normalizedModelGeom: THREE.BufferGeometry,
+  profile: ISimulationProfile
 ): THREE.BufferGeometry | null {
-  return null;
+  if (!profile || profile.supportMode === 'none') {
+    return null;
+  }
+
+  const supportGroup = generateBambuSupportStructures(normalizedModelGeom, profile);
+  const candidateGeoms: THREE.BufferGeometry[] = [];
+  supportGroup.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.geometry) {
+      candidateGeoms.push(child.geometry);
+    }
+  });
+
+  const chunks: Float32Array[] = [];
+  let totalFloats = 0;
+
+  for (const g of candidateGeoms) {
+    const nonIdx = g.index ? g.toNonIndexed() : g;
+    const pos = nonIdx.getAttribute('position');
+    if (pos && pos.count >= 3) {
+      const arr = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        arr[i * 3] = pos.getX(i);
+        arr[i * 3 + 1] = pos.getY(i);
+        arr[i * 3 + 2] = pos.getZ(i);
+      }
+      chunks.push(arr);
+      totalFloats += arr.length;
+    }
+  }
+
+  if (totalFloats === 0) return null;
+
+  const merged = new Float32Array(totalFloats);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.length;
+  }
+
+  const outGeom = new THREE.BufferGeometry();
+  outGeom.setAttribute('position', new THREE.BufferAttribute(merged, 3));
+  outGeom.computeVertexNormals();
+  return outGeom;
 }
 
 /**
- * Đếm số tam giác Support đính kèm trong file xuất (luôn = 0 vì Support do Bambu Studio sinh trực tiếp khi Slice)
+ * Đếm số tam giác Support 3D có thể đính kèm trong file xuất khi người dùng chọn xuất kèm Tree
  */
 export function countGeneratedSupportTriangles(
-  _geometry: THREE.BufferGeometry,
-  _profile: ISimulationProfile,
-  _transform?: IModelTransform
+  geometry: THREE.BufferGeometry,
+  profile: ISimulationProfile,
+  transform?: IModelTransform
 ): number {
-  return 0;
+  if (!profile || profile.supportMode === 'none') return 0;
+  const exportGeom = prepareNormalizedExportGeometry(geometry, transform);
+  const supGeom = buildExportSupportGeometry(exportGeom, profile);
+  if (!supGeom) return 0;
+  const posAttr = supGeom.getAttribute('position');
+  return posAttr ? Math.floor(posAttr.count / 3) : 0;
 }
 
 /**
@@ -219,12 +267,13 @@ export function download3MFProject(
   metrics: ISlicingMetrics,
   modelName: string = 'Model',
   transform?: IModelTransform,
-  _includeSupportMesh: boolean = false
+  includeSupportMesh: boolean = false
 ): string {
   const safeName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'AI_3D_Model';
-  const filename = `${safeName}_BambuProject.3mf`;
+  const suffix = includeSupportMesh && profile.supportMode !== 'none' ? '_with_TreeSupport' : '_CleanModel';
+  const filename = `${safeName}${suffix}_BambuProject.3mf`;
 
-  // 1. Chuẩn hóa hình học phôi 3D sạch 100% (Tuyệt đối KHÔNG hàn dính Support vào lưới mẫu)
+  // 1. Chuẩn hóa hình học phôi 3D sạch 100%
   const exportGeom = prepareNormalizedExportGeometry(geometry, transform);
 
   const serializePositionsTo3MF = (posArray: Float32Array | THREE.BufferAttribute) => {
@@ -273,14 +322,19 @@ export function download3MFProject(
   const settingsObjectBlocks: string[] = [];
   const settingsInstanceBlocks: string[] = [];
 
-  const buildObjectSettingsBlock = (objId: number, objName: string, faceCount: number) => `  <object id="${objId}">
+  const buildObjectSettingsBlock = (
+    objId: number,
+    objName: string,
+    faceCount: number,
+    enableSlicerAutoSupport: boolean
+  ) => `  <object id="${objId}">
     <metadata key="name" value="${objName}"/>
     <metadata key="extruder" value="1"/>
     <metadata key="layer_height" value="${profile.layerHeight}"/>
     <metadata key="wall_loops" value="${profile.wallLoops}"/>
     <metadata key="sparse_infill_density" value="${profile.infillDensity}%"/>
     <metadata key="sparse_infill_pattern" value="${profile.infillType}"/>
-    <metadata key="enable_support" value="${profile.supportMode !== 'none' ? '1' : '0'}"/>
+    <metadata key="enable_support" value="${enableSlicerAutoSupport ? '1' : '0'}"/>
     <metadata key="support_type" value="${profile.supportMode === 'tree' ? 'tree(auto)' : 'normal(auto)'}"/>
     <metadata key="support_style" value="${profile.supportMode === 'tree' ? `tree_${profile.treeStyle || 'organic'}` : 'default'}"/>
     <metadata key="support_threshold_angle" value="${profile.supportAngleThreshold ?? 45}"/>
@@ -296,10 +350,16 @@ export function download3MFProject(
     </part>
   </object>`;
 
+  // Nếu người dùng đã đính kèm 3D Tree Support thành Object riêng thì tắt auto-support để tránh sinh chồng 2 lần
+  const autoSupportInBambu = !includeSupportMesh && profile.supportMode !== 'none';
+
+  let nextObjId = 1;
+
   if (bambuParts && bambuParts.length > 1) {
     // Xuất riêng từng chi tiết lẻ thành từng <object> độc lập để trong Bambu Studio vẫn di chuyển rời từng chi tiết được
     bambuParts.forEach((part, idx) => {
       const objId = idx + 1;
+      nextObjId = objId + 1;
       const partSafeName = (part.name || `${safeName}_Part_${objId}`).replace(/[<>&"]/g, '_');
       const meshData = serializePositionsTo3MF(part.positions);
       objectXmlBlocks.push(`    <object id="${objId}" name="${partSafeName}" type="model">
@@ -313,7 +373,7 @@ ${meshData.tLines.join('\n')}
       </mesh>
     </object>`);
       buildItemXmlBlocks.push(`    <item objectid="${objId}" printable="1" />`);
-      settingsObjectBlocks.push(buildObjectSettingsBlock(objId, partSafeName, meshData.tCount));
+      settingsObjectBlocks.push(buildObjectSettingsBlock(objId, partSafeName, meshData.tCount, autoSupportInBambu));
       settingsInstanceBlocks.push(`    <model_instance>
       <metadata key="object_id" value="${objId}"/>
       <metadata key="instance_id" value="0"/>
@@ -334,12 +394,41 @@ ${mainMeshData.tLines.join('\n')}
       </mesh>
     </object>`);
     buildItemXmlBlocks.push(`    <item objectid="1" printable="1" />`);
-    settingsObjectBlocks.push(buildObjectSettingsBlock(1, safeName, mainMeshData.tCount));
+    settingsObjectBlocks.push(buildObjectSettingsBlock(1, safeName, mainMeshData.tCount, autoSupportInBambu));
     settingsInstanceBlocks.push(`    <model_instance>
       <metadata key="object_id" value="1"/>
       <metadata key="instance_id" value="0"/>
       <metadata key="identify_id" value="1"/>
     </model_instance>`);
+    nextObjId = 2;
+  }
+
+  // 2. Nếu người dùng chọn Xuất KÈM Tree Support -> Đóng gói thành một <object> TÁCH BIỆT hoàn toàn (không bao giờ hàn dính vào mẫu)
+  if (includeSupportMesh && profile.supportMode !== 'none') {
+    const supportGeom = buildExportSupportGeometry(exportGeom, profile);
+    const supPosAttr = supportGeom?.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (supPosAttr && supPosAttr.count >= 3) {
+      const supObjId = nextObjId;
+      const supName = `${safeName}_Tree_Support`;
+      const supMeshData = serializePositionsTo3MF(supPosAttr);
+      objectXmlBlocks.push(`    <object id="${supObjId}" name="${supName}" type="model">
+      <mesh>
+        <vertices>
+${supMeshData.vLines.join('\n')}
+        </vertices>
+        <triangles>
+${supMeshData.tLines.join('\n')}
+        </triangles>
+      </mesh>
+    </object>`);
+      buildItemXmlBlocks.push(`    <item objectid="${supObjId}" printable="1" />`);
+      settingsObjectBlocks.push(buildObjectSettingsBlock(supObjId, supName, supMeshData.tCount, false));
+      settingsInstanceBlocks.push(`    <model_instance>
+      <metadata key="object_id" value="${supObjId}"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="${supObjId}"/>
+    </model_instance>`);
+    }
   }
 
   const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -428,13 +517,36 @@ export function downloadBinarySTL(
   geometry: THREE.BufferGeometry,
   modelName: string = 'Model',
   transform?: IModelTransform,
-  _profile?: ISimulationProfile,
-  _includeSupportMesh: boolean = false
+  profile?: ISimulationProfile,
+  includeSupportMesh: boolean = false
 ): string {
   const safeName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'AI_3D_Model';
-  const filename = `${safeName}.stl`;
+  const suffix = includeSupportMesh && profile && profile.supportMode !== 'none' ? '_with_TreeSupport' : '';
+  const filename = `${safeName}${suffix}.stl`;
 
-  const exportGeom = prepareNormalizedExportGeometry(geometry, transform);
+  let exportGeom = prepareNormalizedExportGeometry(geometry, transform);
+  if (includeSupportMesh && profile && profile.supportMode !== 'none') {
+    const supGeom = buildExportSupportGeometry(exportGeom, profile);
+    const mPos = exportGeom.getAttribute('position');
+    const sPos = supGeom?.getAttribute('position');
+    if (mPos && sPos && sPos.count >= 3) {
+      const mergedArr = new Float32Array((mPos.count + sPos.count) * 3);
+      for (let i = 0; i < mPos.count; i++) {
+        mergedArr[i * 3] = mPos.getX(i);
+        mergedArr[i * 3 + 1] = mPos.getY(i);
+        mergedArr[i * 3 + 2] = mPos.getZ(i);
+      }
+      const base = mPos.count * 3;
+      for (let i = 0; i < sPos.count; i++) {
+        mergedArr[base + i * 3] = sPos.getX(i);
+        mergedArr[base + i * 3 + 1] = sPos.getY(i);
+        mergedArr[base + i * 3 + 2] = sPos.getZ(i);
+      }
+      const combined = new THREE.BufferGeometry();
+      combined.setAttribute('position', new THREE.BufferAttribute(mergedArr, 3));
+      exportGeom = combined;
+    }
+  }
 
   const posAttr = exportGeom.getAttribute('position');
   const triCount = posAttr ? Math.floor(posAttr.count / 3) : 0;
