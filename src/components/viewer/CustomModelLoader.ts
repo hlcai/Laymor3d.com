@@ -611,19 +611,21 @@ export class CustomModelLoader {
     }
 
     // 4. Thuật toán tự động áp phẳng bàn in (Auto Lay-Flat):
-    // Trục mỏng nhất phải luôn là trục Y (thẳng đứng, hướng vuông góc với bàn in)
-    if (size.z < size.y * 0.45 && size.z < size.x * 0.45) {
-      rootGroup.rotation.x += Math.PI / 2;
-      rootGroup.updateMatrixWorld(true);
-      box.setFromObject(rootGroup);
-      box.getSize(size);
-      box.getCenter(center);
-    } else if (size.x < size.y * 0.45 && size.x < size.z * 0.45) {
-      rootGroup.rotation.z += Math.PI / 2;
-      rootGroup.updateMatrixWorld(true);
-      box.setFromObject(rootGroup);
-      box.getSize(size);
-      box.getCenter(center);
+    // Chỉ áp dụng cho STL/OBJ/GLB lẻ; với .3MF thì giữ nguyên bố cục bàn in đã dàn sẵn từ Bambu Studio
+    if (ext !== '3mf') {
+      if (size.z < size.y * 0.45 && size.z < size.x * 0.45) {
+        rootGroup.rotation.x += Math.PI / 2;
+        rootGroup.updateMatrixWorld(true);
+        box.setFromObject(rootGroup);
+        box.getSize(size);
+        box.getCenter(center);
+      } else if (size.x < size.y * 0.45 && size.x < size.z * 0.45) {
+        rootGroup.rotation.z += Math.PI / 2;
+        rootGroup.updateMatrixWorld(true);
+        box.setFromObject(rootGroup);
+        box.getSize(size);
+        box.getCenter(center);
+      }
     }
 
     // Kích thước thực tế ban đầu (mm)

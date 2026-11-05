@@ -535,47 +535,132 @@ export interface IParsedBambuGcodeBundle {
   supportLinesCount: number;
 }
 
+export interface IExtractedBambuPlateGcode {
+  plateId: number;
+  plateName: string;
+  gcodeKey: string;
+  gcodeText: string;
+  sliceInfoWeightGrams?: number;
+  sliceInfoTimeSec?: number;
+}
+
+export interface IParseBambuGcodeOptions {
+  referenceMeshBbox?: {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } | null;
+  plateCenter3MF?: [number, number];
+  lockToPlateCenter128?: boolean;
+}
+
 /**
- * Kiểm tra và giải nén nội dung G-Code thực tế từ file .gcode, .gcode.3mf hoặc .3mf xuất từ Bambu Studio / OrcaSlicer / PrusaSlicer
+ * Bóc tách toàn bộ danh sách các bàn in đã cắt lát (Metadata/plate_1.gcode, Metadata/plate_2.gcode, ...)
+ * kèm thông số Metadata/slice_info.config từ gói .gcode.3mf hoặc .gcode của Bambu Studio / OrcaSlicer
  */
-export function extractBambuGcodeFromBuffer(buffer: ArrayBuffer, fileName: string): string | null {
+export function extractAllBambuPlatesGcodeFromBuffer(
+  buffer: ArrayBuffer,
+  fileName: string
+): IExtractedBambuPlateGcode[] {
   const lower = fileName.toLowerCase();
+  const results: IExtractedBambuPlateGcode[] = [];
+
   try {
     if (lower.endsWith('.gcode') || lower.endsWith('.gco') || lower.endsWith('.g')) {
       const text = new TextDecoder().decode(buffer);
       if (text.includes('G1 ') || text.includes('; FEATURE:') || text.includes(';TYPE:')) {
-        return text;
+        results.push({
+          plateId: 1,
+          plateName: 'Bàn in 1',
+          gcodeKey: fileName,
+          gcodeText: text,
+        });
       }
-      return null;
+      return results;
     }
 
     if (lower.endsWith('.3mf')) {
       const unzipped = unzipSync(new Uint8Array(buffer));
+      const decoder = new TextDecoder();
+
+      // Đọc Metadata/slice_info.config nếu có để lấy thời gian & khối lượng từng bàn in
+      const sliceInfoMap = new Map<number, { weightGrams?: number; timeSec?: number }>();
+      const sliceInfoKey = Object.keys(unzipped).find(
+        (k) => k.replace(/\\/g, '/').toLowerCase() === 'metadata/slice_info.config'
+      );
+      if (sliceInfoKey && unzipped[sliceInfoKey]) {
+        const infoXml = decoder.decode(unzipped[sliceInfoKey]);
+        const plateBlocks = infoXml.matchAll(/<plate>([\s\S]*?)<\/plate>/gi);
+        let fallbackIdx = 1;
+        for (const pm of plateBlocks) {
+          const body = pm[1];
+          const idxM = body.match(/<metadata\s+key="index"\s+value="(\d+)"/i);
+          const predM = body.match(/<metadata\s+key="prediction"\s+value="([\d.]+)"/i);
+          const weightM = body.match(/<metadata\s+key="weight"\s+value="([\d.]+)"/i);
+          const pid = idxM ? parseInt(idxM[1], 10) : fallbackIdx++;
+          sliceInfoMap.set(pid, {
+            timeSec: predM ? Math.round(parseFloat(predM[1])) : undefined,
+            weightGrams: weightM ? Number(parseFloat(weightM[1]).toFixed(1)) : undefined,
+          });
+        }
+      }
+
       const gcodeKeys = Object.keys(unzipped).filter(
         (k) => k.toLowerCase().endsWith('.gcode') && unzipped[k] && unzipped[k].length > 120
       );
-      if (gcodeKeys.length > 0) {
-        gcodeKeys.sort((a, b) => unzipped[b].length - unzipped[a].length);
-        const gcodeText = new TextDecoder().decode(unzipped[gcodeKeys[0]]);
-        if (gcodeText.includes('G1 ') || gcodeText.includes('; FEATURE:') || gcodeText.includes(';TYPE:')) {
-          return gcodeText;
+
+      const parsedEntries: Array<{ plateId: number; key: string; text: string }> = [];
+      let autoId = 1;
+      for (const k of gcodeKeys) {
+        const text = decoder.decode(unzipped[k]);
+        if (!text.includes('G1 ') && !text.includes('; FEATURE:') && !text.includes(';TYPE:')) {
+          continue;
         }
+        const plateNumMatch = k.match(/plate_(\d+)\.gcode/i);
+        const plateId = plateNumMatch ? parseInt(plateNumMatch[1], 10) : autoId++;
+        parsedEntries.push({ plateId, key: k, text });
+      }
+
+      // Sắp xếp đúng thứ tự Bàn in 1, Bàn in 2, Bàn in 3...
+      parsedEntries.sort((a, b) => a.plateId - b.plateId);
+
+      for (const entry of parsedEntries) {
+        const info = sliceInfoMap.get(entry.plateId);
+        results.push({
+          plateId: entry.plateId,
+          plateName: `Bàn in ${entry.plateId}`,
+          gcodeKey: entry.key,
+          gcodeText: entry.text,
+          sliceInfoWeightGrams: info?.weightGrams,
+          sliceInfoTimeSec: info?.timeSec,
+        });
       }
     }
   } catch (err) {
-    console.warn('[extractBambuGcodeFromBuffer] Không thể giải nén G-code:', err);
+    console.warn('[extractAllBambuPlatesGcodeFromBuffer] Lỗi giải nén G-code đa bàn in:', err);
   }
-  return null;
+
+  return results;
+}
+
+/**
+ * Kiểm tra và giải nén nội dung G-Code thực tế từ file .gcode, .gcode.3mf hoặc .3mf xuất từ Bambu Studio / OrcaSlicer / PrusaSlicer
+ */
+export function extractBambuGcodeFromBuffer(buffer: ArrayBuffer, fileName: string): string | null {
+  const plates = extractAllBambuPlatesGcodeFromBuffer(buffer, fileName);
+  return plates.length > 0 ? plates[0].gcodeText : null;
 }
 
 /**
  * Trích xuất trực tiếp 100% cấu trúc Tree Support (; FEATURE: Support / Support interface) và toàn bộ sợi in
  * từ G-Code của Bambu Studio / OrcaSlicer / PrusaSlicer ngay trên trình duyệt (Client-Side).
- * Tự động căn tâm XZ của G-Code khớp tuyệt đối với tâm (0, 0) của mô hình 3D trên bàn in.
+ * Khớp nối chính xác hệ tọa độ bàn in (128, 128) hoặc Bounding Box của mô hình trên từng Plate.
  */
 export function parseBambuGcodeNative(
   gcodeText: string,
-  modelName = 'Bambu Studio Native Model'
+  modelName = 'Bambu Studio Native Model',
+  options?: IParseBambuGcodeOptions
 ): IParsedBambuGcodeBundle {
   const lines = gcodeText.split(/\r?\n/);
 
@@ -655,7 +740,7 @@ export function parseBambuGcodeNative(
       const ny = mY ? parseFloat(mY[1]) : p1Y;
       const ev = mE ? parseFloat(mE[1]) : 0;
 
-      if (!p1Wipe && ev > 0 && p1LayerZ > 0.25 && nx > 8 && nx < 248 && ny > 12 && ny < 248) {
+      if (!p1Wipe && ev > 0 && p1LayerZ > 0.25 && nx > 4 && nx < 252 && ny > 8 && ny < 252) {
         if (nx < minAllX) minAllX = nx;
         if (nx > maxAllX) maxAllX = nx;
         if (ny < minAllY) minAllY = ny;
@@ -684,18 +769,44 @@ export function parseBambuGcodeNative(
     }
   }
 
-  const centerX =
+  const gcodeModelCx =
     minModelX < maxModelX
       ? (minModelX + maxModelX) / 2
       : minAllX < maxAllX
       ? (minAllX + maxAllX) / 2
       : 128;
-  const centerY =
+  const gcodeModelCy =
     minModelY < maxModelY
       ? (minModelY + maxModelY) / 2
       : minAllY < maxAllY
       ? (minAllY + maxAllY) / 2
       : 128;
+
+  // Khớp nối tâm bàn in chuẩn xác giữa 3MF Mesh và Bambu G-code:
+  // - Nếu có referenceMeshBbox (từ lưới 3D trên bàn in hiện tại):
+  //   + Nếu lưới 3D đã đặt theo đúng gốc bàn in (128, 128) (sai số < 4.5mm), giữ cứng (128, 128) để khớp tuyệt đối
+  //   + Nếu lưới 3D là Bàn in 2, 3... đã dịch tâm hoặc file .STL căn giữa (0, 0), tự động bù theo (gcodeModelCx - meshCx)
+  // - Nếu khóa theo bàn in chuẩn (lockToPlateCenter128), dùng đúng tâm bàn in (128, 128)
+  let centerX = gcodeModelCx;
+  let centerY = gcodeModelCy;
+
+  if (options?.referenceMeshBbox) {
+    const meshCx = (options.referenceMeshBbox.minX + options.referenceMeshBbox.maxX) / 2;
+    const meshCz = (options.referenceMeshBbox.minZ + options.referenceMeshBbox.maxZ) / 2;
+    if (
+      Math.abs((gcodeModelCx - 128) - meshCx) <= 4.5 &&
+      Math.abs((gcodeModelCy - 128) - meshCz) <= 4.5
+    ) {
+      centerX = 128;
+      centerY = 128;
+    } else {
+      centerX = gcodeModelCx - meshCx;
+      centerY = gcodeModelCy - meshCz;
+    }
+  } else if (options?.lockToPlateCenter128) {
+    centerX = 128;
+    centerY = 128;
+  }
 
   // Pass 2: Trích xuất chuẩn xác các segment Support, Interface, Brim và Full Toolpaths
   let curX = centerX,

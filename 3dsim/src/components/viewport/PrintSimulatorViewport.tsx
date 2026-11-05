@@ -16,7 +16,6 @@ import {
 import { ISlicingMetrics } from '@/services/slicingEngine';
 import { generateDefect3DGroup, getActiveDefectAlert } from '@/services/defectSimulation';
 import { layerSliceCache, createSliceToolpathMeshes } from '@/services/meshSlicer';
-import { generateBambuSupportStructures } from '@/services/supportGenerator';
 import {
   loadNativeBambuSupport,
   getCachedNativeSupport,
@@ -75,6 +74,16 @@ interface PrintSimulatorViewportProps {
   proTelemetry?: IProSlicerTelemetry;
   gcodeLines?: string[];
   isProfileOpen?: boolean;
+  plates?: Array<{
+    plateId: number;
+    plateName: string;
+    partCount: number;
+    hasNativeSupport: boolean;
+  }>;
+  activePlateId?: number;
+  onSelectPlate?: (plateId: number) => void;
+  hasNativeBambuSupport?: boolean;
+  onImportBambuGcode?: () => void;
 }
 
 export function PrintSimulatorViewport({
@@ -108,6 +117,11 @@ export function PrintSimulatorViewport({
   proTelemetry,
   gcodeLines = [],
   isProfileOpen = true,
+  plates = [],
+  activePlateId = 1,
+  onSelectPlate,
+  hasNativeBambuSupport = false,
+  onImportBambuGcode,
 }: PrintSimulatorViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -734,7 +748,7 @@ export function PrintSimulatorViewport({
             clonedGeom,
             sliceKey,
             profile,
-            supportGroup,
+            null,
             (pct) => {
               if (sliceJobTokenRef.current === token) setSlicingProgressPct(pct);
             }
@@ -1170,7 +1184,7 @@ export function PrintSimulatorViewport({
             clonedGeom,
             sliceKey,
             profile,
-            supportGroupRef.current,
+            null,
             (pct) => {
               if (sliceJobTokenRef.current === token) setSlicingProgressPct(pct);
             }
@@ -1446,15 +1460,75 @@ export function PrintSimulatorViewport({
         />
       )}
 
-      {/* 1.5. Centerpiece Printability Score & Technical Assessment Bar (Đặt giữa màn hình nhấn mạnh khả năng đánh giá) */}
+      {/* 1.5. Centerpiece Printability Score & Technical Assessment Bar + Multi-Plate Selector */}
       <div
         data-testid="center-printability-score-hud"
         className={`absolute ${
           viewMode === 'prepare' ? 'top-29' : 'top-16'
         } ${
           isProfileOpen ? 'left-[58%]' : 'left-1/2'
-        } -translate-x-1/2 z-20 pointer-events-auto transition-all duration-300`}
+        } -translate-x-1/2 z-20 pointer-events-auto transition-all duration-300 flex flex-col items-center gap-2`}
       >
+        {/* Multi-Plate Selector Bar (Hiển thị khi dự án 3MF có nhiều bàn in hoặc nhiều chi tiết) */}
+        {plates.length > 0 && (
+          <div className="px-2.5 py-1.5 rounded-2xl glass-panel border border-emerald-500/30 flex items-center gap-1.5 shadow-xl">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400 px-1.5">
+              Bàn in ({plates.length}):
+            </span>
+            {plates.map((plate) => {
+              const isActive = plate.plateId === activePlateId;
+              return (
+                <button
+                  key={plate.plateId}
+                  onClick={() => onSelectPlate?.(plate.plateId)}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'bg-white/5 hover:bg-white/10 studio-text-secondary hover:text-white'
+                  }`}
+                  title={`${plate.plateName} — ${plate.partCount} chi tiết${
+                    plate.hasNativeSupport ? ' • Đã nạp Support Bambu Studio' : ''
+                  }`}
+                >
+                  <span>{plate.plateName}</span>
+                  <span
+                    className={`text-[9px] font-mono px-1 py-0.2 rounded ${
+                      isActive ? 'bg-slate-950/25 text-slate-950' : 'bg-white/10 opacity-75'
+                    }`}
+                  >
+                    {plate.partCount}ct
+                  </span>
+                  {plate.hasNativeSupport && (
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        isActive ? 'bg-slate-950' : 'bg-emerald-400'
+                      }`}
+                      title="Đã có Tree Support gốc từ Bambu Studio"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Cảnh báo / Nút nạp nhanh khi bật Support nhưng chưa nạp file .gcode.3mf từ Bambu Studio */}
+        {profile.supportMode !== 'none' && showSupport && !hasNativeBambuSupport && (
+          <div
+            onClick={onImportBambuGcode}
+            className="px-3 py-1.5 rounded-xl glass-panel border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 flex items-center gap-2 cursor-pointer transition-all shadow-lg"
+            title="App không tự sinh Tree Support giả. Nhấn để nạp file .gcode.3mf hoặc .gcode đã cắt từ Bambu Studio"
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-[10px] font-mono text-amber-300">
+              Tree Support lấy nguyên bản từ Bambu Studio —{' '}
+              <strong className="underline text-amber-200">
+                Nhấn nạp file .gcode.3mf / .gcode
+              </strong>
+            </span>
+          </div>
+        )}
+
         <div
           onClick={onOpenReportModal}
           className="px-3.5 py-2 rounded-2xl glass-panel hover:border-[var(--accent-gold)] flex items-center gap-3 cursor-pointer group transition-all shadow-xl"
@@ -2441,7 +2515,8 @@ function updateSupportStructures(
     });
   };
 
-  // 2. Cấu trúc Tree Support 3D chính thức từ Bambu Studio CLI G-code hoặc Conformal Tree Support
+  // 2. Cấu trúc Tree Support 3D nguyên bản 100% từ Bambu Studio (.gcode.3mf / .gcode / CLI)
+  // Lưu ý: Không tự sinh Tree Support giả trong trình duyệt để đảm bảo độ chính xác tuyệt đối với Bambu Studio
   if (profile.supportMode !== 'none' && visible) {
     const supportGroup = new THREE.Group();
     supportGroup.name = 'support_structures_group';
@@ -2455,13 +2530,6 @@ function updateSupportStructures(
       supportGroup.add(nativeMesh);
       return supportGroup;
     }
-
-    // Dựng ngay Conformal Tree Support ôm sát bề mặt mô hình 100% trong lúc chờ/nếu không có G-code native
-    const conformalFallback = generateBambuSupportStructures(geometry, profile);
-    while (conformalFallback.children.length > 0) {
-      supportGroup.add(conformalFallback.children[0]);
-    }
-    applyClipPlane(supportGroup);
 
     loadNativeBambuSupport(modelIdentifier, modelPath).then((nativeData) => {
       if (parent.getObjectByName('support_structures_group') !== supportGroup) return;

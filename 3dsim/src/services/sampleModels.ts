@@ -429,15 +429,25 @@ function centerAndGroundGeometry(geom: THREE.BufferGeometry): THREE.BufferGeomet
   geom.computeBoundingBox();
   const bbox = geom.boundingBox;
   if (bbox) {
-    const cx = (bbox.min.x + bbox.max.x) / 2;
-    const cz = (bbox.min.z + bbox.max.z) / 2;
-    geom.translate(-cx, -bbox.min.y, -cz);
+    if (geom.userData?.preservePlateLayout) {
+      // Giữ nguyên tuyệt đối vị trí dàn trang X/Z của từng chi tiết lẻ trên bàn in 256x256mm,
+      // chỉ hạ cứng mặt đáy thấp nhất chạm sàn Y = 0
+      if (Math.abs(bbox.min.y) > 1e-4) {
+        geom.translate(0, -bbox.min.y, 0);
+      }
+    } else {
+      const cx = (bbox.min.x + bbox.max.x) / 2;
+      const cz = (bbox.min.z + bbox.max.z) / 2;
+      geom.translate(-cx, -bbox.min.y, -cz);
+    }
   }
   geom.computeVertexNormals();
   return geom;
 }
 
-function parseTransform12(str: string): number[] | null {
+const IDENTITY_TRANSFORM_12: number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+
+function parseTransform12(str?: string | null): number[] | null {
   if (!str) return null;
   const parts = str.trim().split(/\s+/).map(Number);
   return parts.length === 12 && parts.every((n) => !isNaN(n)) ? parts : null;
@@ -456,200 +466,671 @@ function applyAffineTransform(x: number, y: number, z: number, m: number[]): [nu
 }
 
 /**
- * Bộ giải mã file 3MF chuyên dụng chuẩn Bambu Studio & OrcaSlicer (Tối ưu hóa O(N) chống treo trình duyệt)
- * Trích xuất trực tiếp lưới tam giác từ 3D/Objects/*.model và 3D/3dmodel.model
- * Áp dụng đầy đủ ma trận biến đổi affine (Transform Matrix) từ thẻ <item> và <component>
- * và tự động hiệu chỉnh hướng pháp tuyến ngoài (Signed Volume) cho từng khối <mesh>
+ * Nhân hai ma trận 4x3 Affine của 3MF: M_out = M_parent * M_child
+ * (Áp dụng M_child trước, sau đó áp dụng M_parent)
  */
-export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
+function multiplyAffine12(parent: number[], child: number[]): number[] {
+  const p = parent;
+  const c = child;
+  return [
+    p[0] * c[0] + p[3] * c[1] + p[6] * c[2],
+    p[1] * c[0] + p[4] * c[1] + p[7] * c[2],
+    p[2] * c[0] + p[5] * c[1] + p[8] * c[2],
+
+    p[0] * c[3] + p[3] * c[4] + p[6] * c[5],
+    p[1] * c[3] + p[4] * c[4] + p[7] * c[5],
+    p[2] * c[3] + p[5] * c[4] + p[8] * c[5],
+
+    p[0] * c[6] + p[3] * c[7] + p[6] * c[8],
+    p[1] * c[6] + p[4] * c[7] + p[7] * c[8],
+    p[2] * c[6] + p[5] * c[7] + p[8] * c[8],
+
+    p[0] * c[9] + p[3] * c[10] + p[6] * c[11] + p[9],
+    p[1] * c[9] + p[4] * c[10] + p[7] * c[11] + p[10],
+    p[2] * c[9] + p[5] * c[10] + p[8] * c[11] + p[11],
+  ];
+}
+
+function normalize3MFZipPath(rawPath: string): string {
+  return rawPath.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+}
+
+export interface IBambuPartGeometryRecord {
+  id: string;
+  name: string;
+  positions: Float32Array;
+}
+
+export interface IBambuPlateMeshData {
+  plateId: number;
+  plateName: string;
+  partCount: number;
+  geometry: THREE.BufferGeometry;
+  plateCenter3MF: [number, number];
+}
+
+interface I3MFMeshObjectNode {
+  id: string;
+  name: string;
+  modelPath: string;
+  type: string;
+  vertices: Float32Array;
+  triangles: Uint32Array;
+  components: Array<{
+    targetPath: string;
+    targetObjectId: string;
+    transform: number[];
+  }>;
+}
+
+function parseSingleMeshBlock(meshText: string): { vertices: Float32Array; triangles: Uint32Array } | null {
+  const verts: number[] = [];
+  const vFastRegex = /<(?:\w+:)?vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"/gi;
+  let vMatch: RegExpExecArray | null;
+  while ((vMatch = vFastRegex.exec(meshText)) !== null) {
+    verts.push(parseFloat(vMatch[1]), parseFloat(vMatch[2]), parseFloat(vMatch[3]));
+  }
+  if (verts.length === 0) {
+    const vTagRegex = /<(?:\w+:)?vertex\s+([^>]+)>/gi;
+    while ((vMatch = vTagRegex.exec(meshText)) !== null) {
+      const attrs = vMatch[1];
+      const xm = attrs.match(/\bx="([^"]+)"/i);
+      const ym = attrs.match(/\by="([^"]+)"/i);
+      const zm = attrs.match(/\bz="([^"]+)"/i);
+      if (!xm || !ym || !zm) continue;
+      verts.push(parseFloat(xm[1]), parseFloat(ym[1]), parseFloat(zm[1]));
+    }
+  }
+  const vertCount = verts.length / 3;
+  if (vertCount < 3) return null;
+
+  const tris: number[] = [];
+  const tFastRegex = /<(?:\w+:)?triangle\s+v1="(\d+)"\s+v2="(\d+)"\s+v3="(\d+)"/gi;
+  let tMatch: RegExpExecArray | null;
+  while ((tMatch = tFastRegex.exec(meshText)) !== null) {
+    const v1 = parseInt(tMatch[1], 10);
+    const v2 = parseInt(tMatch[2], 10);
+    const v3 = parseInt(tMatch[3], 10);
+    if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
+      tris.push(v1, v2, v3);
+    }
+  }
+  if (tris.length === 0) {
+    const tTagRegex = /<(?:\w+:)?triangle\s+([^>]+)>/gi;
+    while ((tMatch = tTagRegex.exec(meshText)) !== null) {
+      const attrs = tMatch[1];
+      const m1 = attrs.match(/\bv1="(\d+)"/i);
+      const m2 = attrs.match(/\bv2="(\d+)"/i);
+      const m3 = attrs.match(/\bv3="(\d+)"/i);
+      if (!m1 || !m2 || !m3) continue;
+      const v1 = parseInt(m1[1], 10);
+      const v2 = parseInt(m2[1], 10);
+      const v3 = parseInt(m3[1], 10);
+      if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
+        tris.push(v1, v2, v3);
+      }
+    }
+  }
+  if (tris.length < 3) return null;
+
+  return {
+    vertices: new Float32Array(verts),
+    triangles: new Uint32Array(tris),
+  };
+}
+
+/**
+ * Giải mã đầy đủ cấu trúc 3MF Production Extension & Multi-Plate của Bambu Studio / OrcaSlicer:
+ * - Bảo toàn 100% vị trí dàn trang của từng chi tiết lẻ (<build><item> x <components><component>)
+ * - Tách riêng từng Bàn in (Plate 1, Plate 2, Plate 3...) dựa trên Metadata/model_settings.config & ô bàn in 256x256mm
+ * - Không bao giờ tự gom các chi tiết đã dàn phẳng về lại vị trí lắp ráp CAD ban đầu
+ */
+export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshData[] {
   const unzipped = unzipSync(new Uint8Array(buffer));
-  const modelKeys = Object.keys(unzipped).filter((k) => k.toLowerCase().endsWith('.model'));
+  const decoder = new TextDecoder();
+
+  const normalizedFiles = new Map<string, Uint8Array>();
+  for (const rawKey of Object.keys(unzipped)) {
+    normalizedFiles.set(normalize3MFZipPath(rawKey), unzipped[rawKey]);
+  }
+
+  const modelKeys = Array.from(normalizedFiles.keys()).filter((k) => k.endsWith('.model'));
   if (modelKeys.length === 0) {
     throw new Error('File 3MF không chứa mô hình 3D (.model).');
   }
 
-  // Phân tích ma trận biến đổi từ 3D/3dmodel.model (không phân biệt hoa thường)
-  let itemTransform: number[] | null = null;
-  const componentMap = new Map<string, number[]>();
+  // 1. Đọc Metadata/model_settings.config (nếu có) để biết tên các chi tiết, phân loại part và ánh xạ từng chi tiết vào từng Plate
+  const objectNameMap = new Map<string, string>();
+  const nonPrintablePartIds = new Set<string>();
+  const instanceToPlateMap = new Map<string, { plateId: number; plateName: string }>();
+  const declaredPlateNames = new Map<number, string>();
 
-  const rootModelKey = Object.keys(unzipped).find((k) => k.toLowerCase() === '3d/3dmodel.model');
-  if (rootModelKey && unzipped[rootModelKey]) {
-    const rootText = new TextDecoder().decode(unzipped[rootModelKey]);
-    const itemMatch = rootText.match(/<(?:\w+:)?item\s+[^>]*transform="([^"]+)"/i);
-    if (itemMatch) itemTransform = parseTransform12(itemMatch[1]);
+  const modelSettingsBytes = normalizedFiles.get('metadata/model_settings.config');
+  if (modelSettingsBytes) {
+    const settingsXml = decoder.decode(modelSettingsBytes);
 
-    for (const cTagMatch of rootText.matchAll(/<(?:\w+:)?component\s+([^>]+)>/gi)) {
-      const attrs = cTagMatch[1];
-      const pathMatch = attrs.match(/(?:\w+:)?path="([^"]+)"/i);
-      const transMatch = attrs.match(/transform="([^"]+)"/i);
-      if (pathMatch && transMatch) {
-        const p = pathMatch[1].replace(/^\//, '');
-        const t = parseTransform12(transMatch[1]);
-        if (t) componentMap.set(p, t);
+    // Đọc tên object và lọc bỏ support_blocker / modifier_part
+    const objBlockRegex = /<object\s+id="(\d+)"[^>]*>([\s\S]*?)<\/object>/gi;
+    let objMatch: RegExpExecArray | null;
+    while ((objMatch = objBlockRegex.exec(settingsXml)) !== null) {
+      const objId = objMatch[1];
+      const body = objMatch[2];
+      const nameMeta = body.match(/<metadata\s+key="name"\s+value="([^"]+)"/i);
+      if (nameMeta) objectNameMap.set(objId, nameMeta[1]);
+
+      const partRegex = /<part\s+id="(\d+)"\s+subtype="([^"]+)"/gi;
+      let pMatch: RegExpExecArray | null;
+      while ((pMatch = partRegex.exec(body)) !== null) {
+        const subType = pMatch[2].toLowerCase();
+        if (
+          subType.includes('blocker') ||
+          subType.includes('modifier') ||
+          subType.includes('negative')
+        ) {
+          nonPrintablePartIds.add(`${objId}#${pMatch[1]}`);
+        }
+      }
+    }
+
+    // Đọc danh sách các bàn in <plate>...</plate>
+    const plateBlockRegex = /<plate>([\s\S]*?)<\/plate>/gi;
+    let plateMatch: RegExpExecArray | null;
+    let fallbackPlateIdx = 1;
+    while ((plateMatch = plateBlockRegex.exec(settingsXml)) !== null) {
+      const pBody = plateMatch[1];
+      const idMeta = pBody.match(/<metadata\s+key="plater_id"\s+value="(\d+)"/i);
+      const nameMeta = pBody.match(/<metadata\s+key="plater_name"\s+value="([^"]*)"/i);
+      const plateId = idMeta ? parseInt(idMeta[1], 10) : fallbackPlateIdx;
+      fallbackPlateIdx = Math.max(fallbackPlateIdx + 1, plateId + 1);
+      const plateName =
+        nameMeta && nameMeta[1].trim() ? `Bàn ${plateId} (${nameMeta[1].trim()})` : `Bàn in ${plateId}`;
+      declaredPlateNames.set(plateId, plateName);
+
+      const instRegex = /<model_instance>([\s\S]*?)<\/model_instance>/gi;
+      let instMatch: RegExpExecArray | null;
+      while ((instMatch = instRegex.exec(pBody)) !== null) {
+        const iBody = instMatch[1];
+        const objIdM = iBody.match(/<metadata\s+key="object_id"\s+value="(\d+)"/i);
+        const instIdM = iBody.match(/<metadata\s+key="instance_id"\s+value="(\d+)"/i);
+        if (objIdM) {
+          const oid = objIdM[1];
+          const iid = instIdM ? instIdM[1] : '0';
+          instanceToPlateMap.set(`${oid}#${iid}`, { plateId, plateName });
+          if (!instanceToPlateMap.has(`${oid}#*`)) {
+            instanceToPlateMap.set(`${oid}#*`, { plateId, plateName });
+          }
+        }
       }
     }
   }
 
-  const allPositions: number[] = [];
+  // 2. Giải mã toàn bộ các thẻ <object id="..."> trong mọi file .model
+  const objectRegistry = new Map<string, I3MFMeshObjectNode>();
+  const rootModelKey =
+    modelKeys.find((k) => k === '3d/3dmodel.model') ||
+    modelKeys.find((k) => k.endsWith('3dmodel.model')) ||
+    modelKeys[0];
 
-  for (const k of modelKeys) {
-    const text = new TextDecoder().decode(unzipped[k]);
-    if (!text.includes('mesh')) continue;
+  for (const mKey of modelKeys) {
+    const xmlText = decoder.decode(normalizedFiles.get(mKey)!);
+    let searchPos = 0;
 
-    let compTransform = componentMap.get(k) || null;
-    if (!compTransform) {
-      for (const [ck, ct] of componentMap.entries()) {
-        if (ck.toLowerCase() === k.toLowerCase()) {
-          compTransform = ct;
+    while (searchPos < xmlText.length) {
+      const objOpen = xmlText.indexOf('<object ', searchPos);
+      if (objOpen === -1) break;
+      const headerEnd = xmlText.indexOf('>', objOpen);
+      if (headerEnd === -1) break;
+      const objClose = xmlText.indexOf('</object>', headerEnd);
+      if (objClose === -1) break;
+
+      const headerAttrs = xmlText.slice(objOpen + 8, headerEnd);
+      const objBody = xmlText.slice(headerEnd + 1, objClose);
+      searchPos = objClose + 9;
+
+      const idMatch = headerAttrs.match(/\bid="([^"]+)"/i);
+      if (!idMatch) continue;
+      const objId = idMatch[1];
+      const typeMatch = headerAttrs.match(/\btype="([^"]+)"/i);
+      const objType = (typeMatch ? typeMatch[1] : 'model').toLowerCase();
+      // Bỏ qua các đối tượng kiểu support/other nếu có nhúng nhầm từ phần mềm khác
+      if (objType === 'support' || objType === 'solidsupport') continue;
+
+      const nameMatch = headerAttrs.match(/\bname="([^"]+)"/i);
+      const objName = nameMatch ? nameMatch[1] : objectNameMap.get(objId) || `Part_${objId}`;
+
+      let vertices: Float32Array = new Float32Array(0);
+      let triangles: Uint32Array = new Uint32Array(0);
+
+      const meshStart = objBody.indexOf('<mesh');
+      if (meshStart !== -1) {
+        const meshTagEnd = objBody.indexOf('>', meshStart);
+        const meshClose = objBody.indexOf('</mesh>', meshTagEnd);
+        if (meshTagEnd !== -1 && meshClose !== -1) {
+          const parsedMesh = parseSingleMeshBlock(objBody.slice(meshTagEnd + 1, meshClose));
+          if (parsedMesh) {
+            vertices = parsedMesh.vertices;
+            triangles = parsedMesh.triangles;
+          }
+        }
+      }
+
+      const components: I3MFMeshObjectNode['components'] = [];
+      for (const compMatch of objBody.matchAll(/<(?:\w+:)?component\s+([^>]+)>/gi)) {
+        const cAttrs = compMatch[1];
+        const cObjIdM = cAttrs.match(/\bobjectid="([^"]+)"/i);
+        if (!cObjIdM) continue;
+        const pathM = cAttrs.match(/(?:\w+:)?path="([^"]+)"/i);
+        const transM = cAttrs.match(/\btransform="([^"]+)"/i);
+        const targetPath = pathM ? normalize3MFZipPath(pathM[1]) : mKey;
+        const transform = parseTransform12(transM ? transM[1] : null) || IDENTITY_TRANSFORM_12;
+        components.push({
+          targetPath,
+          targetObjectId: cObjIdM[1],
+          transform,
+        });
+      }
+
+      objectRegistry.set(`${mKey}#${objId}`, {
+        id: objId,
+        name: objName,
+        modelPath: mKey,
+        type: objType,
+        vertices,
+        triangles,
+        components,
+      });
+    }
+  }
+
+  // 3. Đọc toàn bộ danh sách <build><item .../></build> từ rootModelKey
+  const rootXml = decoder.decode(normalizedFiles.get(rootModelKey)!);
+  const buildItems: Array<{
+    objectId: string;
+    instanceIdx: number;
+    transform: number[];
+    hasExplicitTransform: boolean;
+    printable: boolean;
+  }> = [];
+
+  const instanceCounter = new Map<string, number>();
+  const buildSectionMatch = rootXml.match(/<(?:\w+:)?build[^>]*>([\s\S]*?)<\/(?:\w+:)?build>/i);
+  const buildSearchText = buildSectionMatch ? buildSectionMatch[1] : rootXml;
+
+  for (const itemMatch of buildSearchText.matchAll(/<(?:\w+:)?item\s+([^>]+)>/gi)) {
+    const attrs = itemMatch[1];
+    const objIdM = attrs.match(/\bobjectid="([^"]+)"/i);
+    if (!objIdM) continue;
+    const objectId = objIdM[1];
+    const curInst = instanceCounter.get(objectId) || 0;
+    instanceCounter.set(objectId, curInst + 1);
+
+    const transM = attrs.match(/\btransform="([^"]+)"/i);
+    const parsedT = parseTransform12(transM ? transM[1] : null);
+    const printableM = attrs.match(/\bprintable="([^"]+)"/i);
+    const printable = printableM ? printableM[1] !== '0' && printableM[1].toLowerCase() !== 'false' : true;
+
+    buildItems.push({
+      objectId,
+      instanceIdx: curInst,
+      transform: parsedT || IDENTITY_TRANSFORM_12,
+      hasExplicitTransform: Boolean(parsedT),
+      printable,
+    });
+  }
+
+  // Nếu file 3MF không có thẻ <item>, tự tạo build item cho các root objects
+  if (buildItems.length === 0) {
+    for (const [key, node] of objectRegistry.entries()) {
+      if (key.startsWith(`${rootModelKey}#`)) {
+        buildItems.push({
+          objectId: node.id,
+          instanceIdx: 0,
+          transform: IDENTITY_TRANSFORM_12,
+          hasExplicitTransform: false,
+          printable: true,
+        });
+      }
+    }
+  }
+
+  // 4. Duyệt đệ quy Scene Graph cho từng Build Item để thu thập các chi tiết (World 3MF Space)
+  interface IResolvedBuildItemInstance {
+    objectId: string;
+    instanceIdx: number;
+    name: string;
+    printable: boolean;
+    hasTransform: boolean;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    minZ: number;
+    maxZ: number;
+    // Mảng tam giác đã biến đổi sang World 3MF (x, y, z chuẩn mm của 3MF trước khi trừ tâm Plate)
+    worldTris3MF: Float32Array;
+  }
+
+  const resolvedInstances: IResolvedBuildItemInstance[] = [];
+
+  const collectLeafMeshes = (
+    modelPath: string,
+    objectId: string,
+    worldMatrix: number[],
+    hasTransformFlag: { value: boolean },
+    outTris3MF: number[],
+    depth: number
+  ) => {
+    if (depth > 8) return;
+    let node = objectRegistry.get(`${modelPath}#${objectId}`);
+    if (!node) {
+      for (const [k, candidate] of objectRegistry.entries()) {
+        if (k.endsWith(`#${objectId}`)) {
+          node = candidate;
           break;
         }
       }
     }
+    if (!node) return;
 
-    // Tìm các khối <mesh>...</mesh> bằng indexOf thay vì regex [\s\S]*? tránh treo trình duyệt trên file XML lớn
-    let searchPos = 0;
-    while (searchPos < text.length) {
-      const openIdx = text.indexOf('mesh', searchPos);
-      if (openIdx === -1) break;
-      const beforeChar = openIdx > 0 ? text.charCodeAt(openIdx - 1) : 0;
-      if (beforeChar !== 60 /* '<' */ && beforeChar !== 58 /* ':' */) {
-        searchPos = openIdx + 4;
-        continue;
-      }
-      const tagStartEnd = text.indexOf('>', openIdx);
-      if (tagStartEnd === -1) break;
-      const closeIdx = text.indexOf('mesh>', tagStartEnd);
-      if (closeIdx === -1) break;
-
-      const meshText = text.slice(tagStartEnd + 1, closeIdx);
-      searchPos = closeIdx + 5;
-
-      // Parse vertices nhanh bằng regex 1-pass (x=".." y=".." z="..")
-      const vertices: number[] = [];
-      const vFastRegex = /<(?:\w+:)?vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"/gi;
-      let vMatch: RegExpExecArray | null;
-      while ((vMatch = vFastRegex.exec(meshText)) !== null) {
-        let x = parseFloat(vMatch[1]);
-        let y = parseFloat(vMatch[2]);
-        let z = parseFloat(vMatch[3]);
-
-        if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
-        if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
-
-        if (itemTransform) {
-          vertices.push(x - 128, z, y - 128);
-        } else {
-          vertices.push(x, z, -y);
-        }
+    if (node.vertices.length >= 9 && node.triangles.length >= 3) {
+      const v = node.vertices;
+      const t = node.triangles;
+      const vTransformed = new Float32Array(v.length);
+      for (let i = 0; i < v.length; i += 3) {
+        const [tx, ty, tz] = applyAffineTransform(v[i], v[i + 1], v[i + 2], worldMatrix);
+        vTransformed[i] = tx;
+        vTransformed[i + 1] = ty;
+        vTransformed[i + 2] = tz;
       }
 
-      // Fallback nếu thứ tự thuộc tính x, y, z không theo chuẩn thông thường
-      if (vertices.length === 0) {
-        const vTagRegex = /<(?:\w+:)?vertex\s+([^>]+)>/gi;
-        while ((vMatch = vTagRegex.exec(meshText)) !== null) {
-          const attrs = vMatch[1];
-          const xm = attrs.match(/\bx="([^"]+)"/i);
-          const ym = attrs.match(/\by="([^"]+)"/i);
-          const zm = attrs.match(/\bz="([^"]+)"/i);
-          if (!xm || !ym || !zm) continue;
-          let x = parseFloat(xm[1]);
-          let y = parseFloat(ym[1]);
-          let z = parseFloat(zm[1]);
-          if (compTransform) [x, y, z] = applyAffineTransform(x, y, z, compTransform);
-          if (itemTransform) [x, y, z] = applyAffineTransform(x, y, z, itemTransform);
-          if (itemTransform) vertices.push(x - 128, z, y - 128);
-          else vertices.push(x, z, -y);
-        }
-      }
-      if (vertices.length < 9) continue;
-
-      const rawTris: number[] = [];
-      const tFastRegex = /<(?:\w+:)?triangle\s+v1="(\d+)"\s+v2="(\d+)"\s+v3="(\d+)"/gi;
-      let tMatch: RegExpExecArray | null;
-      const vertCount = vertices.length / 3;
-      while ((tMatch = tFastRegex.exec(meshText)) !== null) {
-        const v1 = parseInt(tMatch[1], 10);
-        const v2 = parseInt(tMatch[2], 10);
-        const v3 = parseInt(tMatch[3], 10);
-        if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
-          rawTris.push(v1, v2, v3);
-        }
-      }
-
-      if (rawTris.length === 0) {
-        const tTagRegex = /<(?:\w+:)?triangle\s+([^>]+)>/gi;
-        while ((tMatch = tTagRegex.exec(meshText)) !== null) {
-          const attrs = tMatch[1];
-          const m1 = attrs.match(/\bv1="(\d+)"/i);
-          const m2 = attrs.match(/\bv2="(\d+)"/i);
-          const m3 = attrs.match(/\bv3="(\d+)"/i);
-          if (!m1 || !m2 || !m3) continue;
-          const v1 = parseInt(m1[1], 10);
-          const v2 = parseInt(m2[1], 10);
-          const v3 = parseInt(m3[1], 10);
-          if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
-            rawTris.push(v1, v2, v3);
-          }
-        }
-      }
-      if (rawTris.length === 0) continue;
-
-      // Kiểm tra thể tích có dấu (Signed Volume) chính xác của khối <mesh> để đảm bảo pháp tuyến luôn hướng ra ngoài
-      const refX = vertices[0];
-      const refY = vertices[1];
-      const refZ = vertices[2];
+      // Kiểm tra định hướng thể tích có dấu (Signed Volume) trên từng khối mesh
+      const refX = vTransformed[0];
+      const refY = vTransformed[1];
+      const refZ = vTransformed[2];
       let signedVolume6 = 0;
-      for (let i = 0; i < rawTris.length; i += 3) {
-        const i1 = rawTris[i] * 3;
-        const i2 = rawTris[i + 1] * 3;
-        const i3 = rawTris[i + 2] * 3;
-        const ax = vertices[i1] - refX;
-        const ay = vertices[i1 + 1] - refY;
-        const az = vertices[i1 + 2] - refZ;
-        const bx = vertices[i2] - refX;
-        const by = vertices[i2 + 1] - refY;
-        const bz = vertices[i2 + 2] - refZ;
-        const cx = vertices[i3] - refX;
-        const cy = vertices[i3 + 1] - refY;
-        const cz = vertices[i3 + 2] - refZ;
+      for (let i = 0; i < t.length; i += 3) {
+        const i1 = t[i] * 3;
+        const i2 = t[i + 1] * 3;
+        const i3 = t[i + 2] * 3;
+        const ax = vTransformed[i1] - refX;
+        const ay = vTransformed[i1 + 1] - refY;
+        const az = vTransformed[i1 + 2] - refZ;
+        const bx = vTransformed[i2] - refX;
+        const by = vTransformed[i2 + 1] - refY;
+        const bz = vTransformed[i2 + 2] - refZ;
+        const cx = vTransformed[i3] - refX;
+        const cy = vTransformed[i3 + 1] - refY;
+        const cz = vTransformed[i3 + 2] - refZ;
         signedVolume6 +=
           ax * (by * cz - bz * cy) +
           ay * (bz * cx - bx * cz) +
           az * (bx * cy - by * cx);
       }
 
-      const flipWinding = signedVolume6 < 0;
-      for (let i = 0; i < rawTris.length; i += 3) {
-        const v1 = rawTris[i] * 3;
-        const v2 = rawTris[i + 1] * 3;
-        const v3 = rawTris[i + 2] * 3;
-        if (flipWinding) {
-          allPositions.push(
-            vertices[v1], vertices[v1 + 1], vertices[v1 + 2],
-            vertices[v3], vertices[v3 + 1], vertices[v3 + 2],
-            vertices[v2], vertices[v2 + 1], vertices[v2 + 2]
+      // Chú ý: Khi ánh xạ (x - cx, z, y - cy) sang Three.js, trục Y và Z hoán vị (det = -1),
+      // nên nếu signedVolume6 > 0 ở hệ Z-up thì sau khi hoán vị Y<->Z cần đảo v2<->v3 để pháp tuyến hướng ra ngoài
+      const swapForThreeYZ = signedVolume6 > 0;
+      for (let i = 0; i < t.length; i += 3) {
+        const i1 = t[i] * 3;
+        const i2 = t[i + 1] * 3;
+        const i3 = t[i + 2] * 3;
+        if (swapForThreeYZ) {
+          outTris3MF.push(
+            vTransformed[i1], vTransformed[i1 + 1], vTransformed[i1 + 2],
+            vTransformed[i3], vTransformed[i3 + 1], vTransformed[i3 + 2],
+            vTransformed[i2], vTransformed[i2 + 1], vTransformed[i2 + 2]
           );
         } else {
-          allPositions.push(
-            vertices[v1], vertices[v1 + 1], vertices[v1 + 2],
-            vertices[v2], vertices[v2 + 1], vertices[v2 + 2],
-            vertices[v3], vertices[v3 + 1], vertices[v3 + 2]
+          outTris3MF.push(
+            vTransformed[i1], vTransformed[i1 + 1], vTransformed[i1 + 2],
+            vTransformed[i2], vTransformed[i2 + 1], vTransformed[i2 + 2],
+            vTransformed[i3], vTransformed[i3 + 1], vTransformed[i3 + 2]
           );
+        }
+      }
+    }
+
+    for (const comp of node.components) {
+      if (nonPrintablePartIds.has(`${objectId}#${comp.targetObjectId}`)) continue;
+      if (comp.transform !== IDENTITY_TRANSFORM_12) hasTransformFlag.value = true;
+      const combinedMatrix = multiplyAffine12(worldMatrix, comp.transform);
+      collectLeafMeshes(
+        comp.targetPath,
+        comp.targetObjectId,
+        combinedMatrix,
+        hasTransformFlag,
+        outTris3MF,
+        depth + 1
+      );
+    }
+  };
+
+  for (const item of buildItems) {
+    const outTris: number[] = [];
+    const hasTransformFlag = { value: item.hasExplicitTransform };
+    collectLeafMeshes(rootModelKey, item.objectId, item.transform, hasTransformFlag, outTris, 0);
+    if (outTris.length < 9) continue;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < outTris.length; i += 3) {
+      const x = outTris[i];
+      const y = outTris[i + 1];
+      const z = outTris[i + 2];
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+
+    const rootNode = objectRegistry.get(`${rootModelKey}#${item.objectId}`);
+    const partName =
+      objectNameMap.get(item.objectId) || rootNode?.name || `Object_${item.objectId}_${item.instanceIdx + 1}`;
+
+    resolvedInstances.push({
+      objectId: item.objectId,
+      instanceIdx: item.instanceIdx,
+      name: partName,
+      printable: item.printable,
+      hasTransform: hasTransformFlag.value,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      minZ,
+      maxZ,
+      worldTris3MF: new Float32Array(outTris),
+    });
+  }
+
+  // Fallback nếu file 3MF xuất từ phần mềm CAD thuần không qua cấu trúc <object>/<build>
+  if (resolvedInstances.length === 0) {
+    for (const [, node] of objectRegistry.entries()) {
+      if (node.vertices.length >= 9 && node.triangles.length >= 3) {
+        const outTris: number[] = [];
+        const hasTransformFlag = { value: false };
+        collectLeafMeshes(node.modelPath, node.id, IDENTITY_TRANSFORM_12, hasTransformFlag, outTris, 0);
+        if (outTris.length >= 9) {
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+          for (let i = 0; i < outTris.length; i += 3) {
+            const x = outTris[i], y = outTris[i + 1], z = outTris[i + 2];
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+            if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+          }
+          resolvedInstances.push({
+            objectId: node.id,
+            instanceIdx: 0,
+            name: node.name,
+            printable: true,
+            hasTransform: false,
+            minX, maxX, minY, maxY, minZ, maxZ,
+            worldTris3MF: new Float32Array(outTris),
+          });
         }
       }
     }
   }
 
-  if (allPositions.length === 0) {
-    throw new Error('Không tìm thấy dữ liệu lưới tam giác trong file 3MF.');
+  if (resolvedInstances.length === 0) {
+    throw new Error('Không tìm thấy dữ liệu lưới tam giác hợp lệ trong file 3MF.');
   }
 
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
-  geom.userData = { hasItemTransform: true };
-  centerAndGroundGeometry(geom);
+  // 5. Phân nhóm các chi tiết (resolvedInstances) vào từng Bàn in (Plate 1, Plate 2, ...)
+  const plateBuckets = new Map<number, { plateName: string; items: IResolvedBuildItemInstance[] }>();
+  const spatialTileToPlateId = new Map<string, number>();
+  let nextDynamicPlateId = Math.max(1, ...Array.from(declaredPlateNames.keys()), 0) + 1;
 
-  return geom;
+  for (const inst of resolvedInstances) {
+    const cx = (inst.minX + inst.maxX) * 0.5;
+    const cy = (inst.minY + inst.maxY) * 0.5;
+
+    // Ưu tiên 1: Ánh xạ từ Metadata/model_settings.config (<plate><model_instance>)
+    const mapped =
+      instanceToPlateMap.get(`${inst.objectId}#${inst.instanceIdx}`) ||
+      instanceToPlateMap.get(`${inst.objectId}#*`);
+
+    let targetPlateId = mapped ? mapped.plateId : 0;
+    let targetPlateName = mapped ? mapped.plateName : '';
+
+    // Kiểm tra nếu không có trong model_settings.config hoặc nhiều bàn in được trải theo lưới tọa độ Bambu (> 256mm)
+    if (!targetPlateId) {
+      // Trong Bambu Studio, Bàn in 1 nằm trong [0..256, 0..256]. Các bàn in tiếp theo cách nhau ~280..310mm
+      const col = Math.floor((cx + 22) / 280);
+      const row = Math.floor((278 - cy) / 280);
+      if (col === 0 && row === 0) {
+        targetPlateId = 1;
+        targetPlateName = declaredPlateNames.get(1) || 'Bàn in 1';
+      } else {
+        const tileKey = `${row}_${col}`;
+        if (!spatialTileToPlateId.has(tileKey)) {
+          spatialTileToPlateId.set(tileKey, nextDynamicPlateId++);
+        }
+        targetPlateId = spatialTileToPlateId.get(tileKey)!;
+        targetPlateName = declaredPlateNames.get(targetPlateId) || `Bàn in ${targetPlateId}`;
+      }
+    }
+
+    if (!plateBuckets.has(targetPlateId)) {
+      plateBuckets.set(targetPlateId, {
+        plateName: targetPlateName || `Bàn in ${targetPlateId}`,
+        items: [],
+      });
+    }
+    plateBuckets.get(targetPlateId)!.items.push(inst);
+  }
+
+  // Sắp xếp thứ tự Bàn in 1, 2, 3...
+  const sortedPlateIds = Array.from(plateBuckets.keys()).sort((a, b) => a - b);
+  const resultPlates: IBambuPlateMeshData[] = [];
+
+  for (const plateId of sortedPlateIds) {
+    const bucket = plateBuckets.get(plateId)!;
+    const items = bucket.items;
+
+    let pMinX = Infinity, pMaxX = -Infinity;
+    let pMinY = Infinity, pMaxY = -Infinity;
+    let pMinZ = Infinity;
+    let totalFloats = 0;
+
+    for (const it of items) {
+      if (it.minX < pMinX) pMinX = it.minX;
+      if (it.maxX > pMaxX) pMaxX = it.maxX;
+      if (it.minY < pMinY) pMinY = it.minY;
+      if (it.maxY > pMaxY) pMaxY = it.maxY;
+      if (it.minZ < pMinZ) pMinZ = it.minZ;
+      totalFloats += it.worldTris3MF.length;
+    }
+
+    // Xác định tâm bàn in 3MF (cxPlate, cyPlate):
+    // Nếu toàn bộ chi tiết của bàn in nằm gọn trong bàn in chuẩn [0..256, 0..256] của Bambu Studio,
+    // giữ nguyên gốc tâm bàn in (128, 128) để khớp 1:1 tuyệt đối với G-code (Metadata/plate_N.gcode)!
+    // Nếu bàn in nằm ở ô bàn in thứ 2, 3... (ngoài [0..256]), tính tâm ô bàn in 256x256 tương ứng hoặc tâm cụm
+    let plateCenterX = 128;
+    let plateCenterY = 128;
+    const isInsidePrimaryBed = pMinX >= -25 && pMaxX <= 281 && pMinY >= -25 && pMaxY <= 281;
+    if (!isInsidePrimaryBed) {
+      const spanX = pMaxX - pMinX;
+      const spanY = pMaxY - pMinY;
+      if (spanX <= 260 && spanY <= 260) {
+        plateCenterX = (pMinX + pMaxX) * 0.5;
+        plateCenterY = (pMinY + pMaxY) * 0.5;
+      } else {
+        plateCenterX = (pMinX + pMaxX) * 0.5;
+        plateCenterY = (pMinY + pMaxY) * 0.5;
+      }
+    }
+
+    const zGroundOffset = isFinite(pMinZ) ? pMinZ : 0;
+    const mergedPositions = new Float32Array(totalFloats);
+    const bambuParts: IBambuPartGeometryRecord[] = [];
+    let writeOffset = 0;
+
+    for (const it of items) {
+      const src = it.worldTris3MF;
+      const partPos = new Float32Array(src.length);
+      for (let i = 0; i < src.length; i += 3) {
+        const xThree = src[i] - plateCenterX;
+        const yThree = src[i + 2] - zGroundOffset;
+        const zThree = src[i + 1] - plateCenterY;
+
+        mergedPositions[writeOffset + i] = xThree;
+        mergedPositions[writeOffset + i + 1] = yThree;
+        mergedPositions[writeOffset + i + 2] = zThree;
+
+        partPos[i] = xThree;
+        partPos[i + 1] = yThree;
+        partPos[i + 2] = zThree;
+      }
+      writeOffset += src.length;
+      bambuParts.push({
+        id: `${it.objectId}_${it.instanceIdx}`,
+        name: it.name,
+        positions: partPos,
+      });
+    }
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(mergedPositions, 3));
+    geom.userData = {
+      hasItemTransform: true,
+      preservePlateLayout: true,
+      plateId,
+      plateName: bucket.plateName,
+      partCount: items.length,
+      plateCenter3MF: [plateCenterX, plateCenterY],
+      bambuParts,
+    };
+    geom.computeBoundingBox();
+    geom.computeVertexNormals();
+
+    resultPlates.push({
+      plateId,
+      plateName: bucket.plateName,
+      partCount: items.length,
+      geometry: geom,
+      plateCenter3MF: [plateCenterX, plateCenterY],
+    });
+  }
+
+  return resultPlates;
+}
+
+/**
+ * Bộ giải mã file 3MF chuyên dụng chuẩn Bambu Studio & OrcaSlicer
+ * Trả về BufferGeometry của Bàn in đầu tiên đồng thời đính kèm toàn bộ danh sách `plates` trong `geom.userData.plates`
+ */
+export function parse3MFBuffer(buffer: ArrayBuffer): THREE.BufferGeometry {
+  const plates = parse3MFPlatesFromBuffer(buffer);
+  const primary = plates[0].geometry;
+  primary.userData = {
+    ...primary.userData,
+    plates,
+  };
+  return primary;
 }
 
 /**

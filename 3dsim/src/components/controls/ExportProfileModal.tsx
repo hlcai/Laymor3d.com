@@ -9,7 +9,6 @@ import {
   download3MFProject,
   downloadBinarySTL,
   copyProfileToClipboard,
-  countGeneratedSupportTriangles,
 } from '@/services/slicerExporter';
 import { embedProtocol } from '@/services/embedProtocol';
 import {
@@ -45,7 +44,6 @@ export function ExportProfileModal({
   const [isCopied, setIsCopied] = useState(false);
   const [isSynced, setIsSynced] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
-  const [includeSupportMesh, setIncludeSupportMesh] = useState(true);
 
   if (!isOpen) return null;
 
@@ -58,10 +56,9 @@ export function ExportProfileModal({
   const triCount = geometry?.getAttribute('position')
     ? Math.floor(geometry.getAttribute('position').count / 3)
     : 0;
-  const supportTriCount =
-    geometry && profile.supportMode !== 'none'
-      ? countGeneratedSupportTriangles(geometry, profile, modelTransform)
-      : 0;
+  const partCount = Array.isArray(geometry?.userData?.bambuParts)
+    ? geometry!.userData.bambuParts.length
+    : 1;
 
   const handleCopy = async () => {
     let success = false;
@@ -89,14 +86,10 @@ export function ExportProfileModal({
       metrics,
       modelName,
       modelTransform,
-      includeSupportMesh
+      false
     );
     setExportNotice(
-      `Đã đóng gói & tải xuống dự án 3MF${
-        includeSupportMesh && supportTriCount > 0
-          ? ` (Kèm ${supportTriCount.toLocaleString('vi-VN')} mặt 3D Tree Support)`
-          : ''
-      }: ${file}`
+      `Đã đóng gói dự án 3MF sạch (${partCount} chi tiết rời, KHÔNG hàn dính Support vào phôi): ${file}`
     );
     setTimeout(() => setExportNotice(null), 4000);
   };
@@ -108,14 +101,10 @@ export function ExportProfileModal({
       modelName,
       modelTransform,
       profile,
-      includeSupportMesh
+      false
     );
     setExportNotice(
-      `Đã xuất mô hình Binary STL chuẩn mm${
-        includeSupportMesh && supportTriCount > 0
-          ? ` (Kèm ${supportTriCount.toLocaleString('vi-VN')} mặt 3D Tree Support)`
-          : ''
-      }: ${file}`
+      `Đã xuất mô hình Binary STL phôi gốc chuẩn mm (không dính Support): ${file}`
     );
     setTimeout(() => setExportNotice(null), 4000);
   };
@@ -236,16 +225,13 @@ export function ExportProfileModal({
 
                 <div className="grid grid-cols-3 gap-2.5 pt-2 border-t studio-border text-xs">
                   <div>
-                    <span className="studio-text-muted text-[10px] block">Số mặt tam giác</span>
+                    <span className="studio-text-muted text-[10px] block">Số mặt tam giác / Chi tiết</span>
                     <span className="font-mono font-bold studio-text-primary">
-                      {triCount.toLocaleString('vi-VN')} tris
-                      {includeSupportMesh && supportTriCount > 0
-                        ? ` (+${supportTriCount.toLocaleString('vi-VN')} Tree)`
-                        : ''}
+                      {triCount.toLocaleString('vi-VN')} tris ({partCount} part)
                     </span>
                   </div>
                   <div>
-                    <span className="studio-text-muted text-[10px] block">Cấu trúc Tree Support</span>
+                    <span className="studio-text-muted text-[10px] block">Cấu hình Support gửi Bambu</span>
                     <span className="font-mono font-bold text-emerald-400">
                       {profile.supportMode !== 'none'
                         ? `${profile.supportMode.toUpperCase()} (${profile.treeStyle || 'organic'})`
@@ -258,29 +244,19 @@ export function ExportProfileModal({
                   </div>
                 </div>
 
-                {profile.supportMode !== 'none' && (
-                  <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer">
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={includeSupportMesh}
-                        onChange={(e) => setIncludeSupportMesh(e.target.checked)}
-                        className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
-                      />
-                      <div>
-                        <div className="text-xs font-bold text-emerald-300">
-                          Nhúng trực tiếp lưới 3D Tree Support vào file (.3MF / .STL)
-                        </div>
-                        <div className="text-[11px] studio-text-secondary">
-                          Xuất kèm {supportTriCount.toLocaleString('vi-VN')} tam giác nhánh cây hữu cơ + lớp đệm Conformal Interface + thông số Tree Support Bambu Studio
-                        </div>
-                      </div>
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                  <div>
+                    <div className="text-xs font-bold text-emerald-300">
+                      Bảo toàn 100% Phôi gốc sạch (Không hàn dính Support vào lưới mẫu)
                     </div>
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 shrink-0">
-                      BAMBU TREE 3D
-                    </span>
-                  </label>
-                )}
+                    <div className="text-[11px] studio-text-secondary mt-0.5">
+                      File .3MF xuất ra giữ nguyên từng chi tiết rời và gửi cấu hình sang Bambu Studio để Slice. Sau khi Slice trong Bambu Studio, xuất file <strong>.gcode.3mf</strong> và nạp lại vào App để xem nguyên xi 100% cây Tree Support của Bambu Studio.
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 shrink-0">
+                    CLEAN 3MF
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -1,18 +1,20 @@
 import * as THREE from 'three';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { ISimulationProfile, IModelTransform } from '@/types/simulator';
 import { ISlicingMetrics } from './slicingEngine';
-import { applyTransformToGeometry } from './sampleModels';
-import { generateBambuSupportStructures } from './supportGenerator';
+import { applyTransformToGeometry, IBambuPartGeometryRecord } from './sampleModels';
 
 /**
- * Chuẩn hóa hình học phôi 3D về tâm bàn in (0, 0) và đặt sát đáy Y = 0
+ * Chuẩn hóa hình học phôi 3D trước khi xuất:
+ * - Nếu mô hình nạp từ dự án 3MF có sẵn bố cục bàn in (`preservePlateLayout === true`),
+ *   bảo toàn 100% vị trí X/Z đã dàn trải của từng chi tiết lẻ trên mặt bàn 256x256mm.
+ * - Tuyệt đối KHÔNG hàn dính lưới Support vào phôi mẫu.
  */
 function prepareNormalizedExportGeometry(
   geometry: THREE.BufferGeometry,
   transform?: IModelTransform
 ): THREE.BufferGeometry {
+  const preserveLayout = Boolean(geometry.userData?.preservePlateLayout);
   let exportGeom = transform
     ? applyTransformToGeometry(geometry, transform)
     : geometry.clone();
@@ -28,75 +30,50 @@ function prepareNormalizedExportGeometry(
   const sizeZ = bbox.max.z - bbox.min.z;
   const maxDim = Math.max(sizeX, sizeY, sizeZ, 0.0001);
 
-  if (maxDim < 5) {
+  if (maxDim < 5 && !preserveLayout) {
     const scaleTo80Mm = 80 / maxDim;
     exportGeom.scale(scaleTo80Mm, scaleTo80Mm, scaleTo80Mm);
   }
 
   exportGeom.computeBoundingBox();
   const finalBox = exportGeom.boundingBox!;
-  const centerX = (finalBox.min.x + finalBox.max.x) / 2;
-  const centerZ = (finalBox.min.z + finalBox.max.z) / 2;
   const minY = finalBox.min.y;
-  exportGeom.translate(-centerX, -minY, -centerZ);
+
+  if (preserveLayout) {
+    if (Math.abs(minY) > 1e-4) {
+      exportGeom.translate(0, -minY, 0);
+    }
+  } else {
+    const centerX = (finalBox.min.x + finalBox.max.x) / 2;
+    const centerZ = (finalBox.min.z + finalBox.max.z) / 2;
+    exportGeom.translate(-centerX, -minY, -centerZ);
+  }
   exportGeom.computeBoundingBox();
+  exportGeom.userData = { ...geometry.userData };
 
   return exportGeom;
 }
 
 /**
- * Trích xuất và hợp nhất toàn bộ lưới 3D Tree Support (Branches + Conformal Interfaces + Brim)
- * để nhúng trực tiếp vào file .3MF / .STL xuất ra
+ * Giữ chữ ký hàm tương thích ngược nhưng luôn trả về null để KHÔNG BAO GIỜ
+ * hàn dính lưới Support giả vào tệp phôi .3MF / .STL xuất sang Bambu Studio.
  */
 export function buildExportSupportGeometry(
-  normalizedModelGeom: THREE.BufferGeometry,
-  profile: ISimulationProfile
+  _normalizedModelGeom: THREE.BufferGeometry,
+  _profile: ISimulationProfile
 ): THREE.BufferGeometry | null {
-  if (profile.supportMode === 'none') return null;
-
-  const supportGroup = generateBambuSupportStructures(normalizedModelGeom, profile);
-  const supportGeoms: THREE.BufferGeometry[] = [];
-
-  supportGroup.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      const mesh = child as THREE.Mesh;
-      if (mesh.geometry) {
-        const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
-        const pos = g.getAttribute('position');
-        if (pos && pos.count >= 3) {
-          const clean = new THREE.BufferGeometry();
-          clean.setAttribute('position', pos.clone());
-          supportGeoms.push(clean);
-        }
-      }
-    }
-  });
-
-  if (supportGeoms.length === 0) return null;
-  const merged = BufferGeometryUtils.mergeGeometries(supportGeoms, false);
-  if (merged) {
-    merged.computeVertexNormals();
-  }
-  return merged;
+  return null;
 }
 
 /**
- * Đếm số tam giác 3D Tree Support được sinh ra cho mô hình hiện tại
+ * Đếm số tam giác Support đính kèm trong file xuất (luôn = 0 vì Support do Bambu Studio sinh trực tiếp khi Slice)
  */
 export function countGeneratedSupportTriangles(
-  geometry: THREE.BufferGeometry,
-  profile: ISimulationProfile,
-  transform?: IModelTransform
+  _geometry: THREE.BufferGeometry,
+  _profile: ISimulationProfile,
+  _transform?: IModelTransform
 ): number {
-  if (profile.supportMode === 'none') return 0;
-  try {
-    const normGeom = prepareNormalizedExportGeometry(geometry, transform);
-    const supGeom = buildExportSupportGeometry(normGeom, profile);
-    const pos = supGeom?.getAttribute('position');
-    return pos ? Math.floor(pos.count / 3) : 0;
-  } catch {
-    return 0;
-  }
+  return 0;
 }
 
 /**
@@ -242,22 +219,26 @@ export function download3MFProject(
   metrics: ISlicingMetrics,
   modelName: string = 'Model',
   transform?: IModelTransform,
-  includeSupportMesh: boolean = true
+  _includeSupportMesh: boolean = false
 ): string {
   const safeName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'AI_3D_Model';
   const filename = `${safeName}_BambuProject.3mf`;
 
-  // 1. Áp dụng biến đổi (Scale, Rotation, Position) và đưa về tâm bàn in (0, 0), đáy Y = 0
+  // 1. Chuẩn hóa hình học phôi 3D sạch 100% (Tuyệt đối KHÔNG hàn dính Support vào lưới mẫu)
   const exportGeom = prepareNormalizedExportGeometry(geometry, transform);
 
-  const serializeMeshTo3MF = (geom: THREE.BufferGeometry) => {
-    const posAttr = geom.getAttribute('position');
-    const vertexCount = posAttr ? posAttr.count : 0;
+  const serializePositionsTo3MF = (posArray: Float32Array | THREE.BufferAttribute) => {
+    const isAttr = 'count' in posArray;
+    const vertexCount = isAttr ? posArray.count : Math.floor(posArray.length / 3);
     const vLines: string[] = new Array(vertexCount);
     for (let i = 0; i < vertexCount; i++) {
-      const vx = posAttr.getX(i) + 128;
-      const vy = -posAttr.getZ(i) + 128;
-      const vz = Math.max(0, posAttr.getY(i));
+      const x = isAttr ? posArray.getX(i) : posArray[i * 3];
+      const y = isAttr ? posArray.getY(i) : posArray[i * 3 + 1];
+      const z = isAttr ? posArray.getZ(i) : posArray[i * 3 + 2];
+      // Ánh xạ ngược khớp 1:1 với parse3MFPlatesFromBuffer: x3MF = xThree + 128, y3MF = zThree + 128, z3MF = yThree
+      const vx = x + 128;
+      const vy = z + 128;
+      const vz = Math.max(0, y);
       vLines[i] = `          <vertex x="${vx.toFixed(4)}" y="${vy.toFixed(4)}" z="${vz.toFixed(4)}" />`;
     }
     const tCount = Math.floor(vertexCount / 3);
@@ -266,57 +247,34 @@ export function download3MFProject(
       const v1 = t * 3;
       const v2 = t * 3 + 1;
       const v3 = t * 3 + 2;
-      tLines[t] = `          <triangle v1="${v1}" v2="${v2}" v3="${v3}" />`;
+      // Đảo v2 <-> v3 khi hoán vị trục Y<->Z để giữ thể tích dương (Right-Handed Normal) trong Bambu Studio
+      tLines[t] = `          <triangle v1="${v1}" v2="${v3}" v3="${v2}" />`;
     }
     return { vLines, tLines, tCount };
   };
 
-  const supportGeom =
-    includeSupportMesh && profile.supportMode !== 'none'
-      ? buildExportSupportGeometry(exportGeom, profile)
+  // Kiểm tra nếu mô hình có danh sách các chi tiết rời (bambuParts) và người dùng chưa xoay/scale biến dạng chung
+  const isDefaultTransform =
+    !transform ||
+    (transform.scale === 1 &&
+      transform.rotation[0] === 0 &&
+      transform.rotation[1] === 0 &&
+      transform.rotation[2] === 0 &&
+      transform.position[0] === 0 &&
+      transform.position[2] === 0);
+
+  const bambuParts =
+    isDefaultTransform && Array.isArray(geometry.userData?.bambuParts) && geometry.userData.bambuParts.length > 1
+      ? (geometry.userData.bambuParts as IBambuPartGeometryRecord[])
       : null;
 
-  let combinedGeom = exportGeom;
-  if (supportGeom) {
-    const mPos = exportGeom.getAttribute('position');
-    const sPos = supportGeom.getAttribute('position');
-    if (mPos && sPos) {
-      const mergedArr = new Float32Array((mPos.count + sPos.count) * 3);
-      mergedArr.set(mPos.array as Float32Array, 0);
-      mergedArr.set(sPos.array as Float32Array, mPos.count * 3);
-      combinedGeom = new THREE.BufferGeometry();
-      combinedGeom.setAttribute('position', new THREE.BufferAttribute(mergedArr, 3));
-    }
-  }
+  const objectXmlBlocks: string[] = [];
+  const buildItemXmlBlocks: string[] = [];
+  const settingsObjectBlocks: string[] = [];
+  const settingsInstanceBlocks: string[] = [];
 
-  const mainMeshData = serializeMeshTo3MF(combinedGeom);
-
-  const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
-  <metadata name="Application">BambuStudio-01.10.00.00</metadata>
-  <metadata name="BambuStudio:3mfVersion">1</metadata>
-  <metadata name="Title">${modelName}</metadata>
-  <resources>
-    <object id="1" name="${safeName}" type="model">
-      <mesh>
-        <vertices>
-${mainMeshData.vLines.join('\n')}
-        </vertices>
-        <triangles>
-${mainMeshData.tLines.join('\n')}
-        </triangles>
-      </mesh>
-    </object>
-  </resources>
-  <build>
-    <item objectid="1" printable="1" />
-  </build>
-</model>`;
-
-  const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
-<config>
-  <object id="1">
-    <metadata key="name" value="${safeName}"/>
+  const buildObjectSettingsBlock = (objId: number, objName: string, faceCount: number) => `  <object id="${objId}">
+    <metadata key="name" value="${objName}"/>
     <metadata key="extruder" value="1"/>
     <metadata key="layer_height" value="${profile.layerHeight}"/>
     <metadata key="wall_loops" value="${profile.wallLoops}"/>
@@ -333,19 +291,78 @@ ${mainMeshData.tLines.join('\n')}
     <metadata key="support_interface_top_layers" value="${profile.supportInterfaceLayers ?? 2}"/>
     <metadata key="support_on_build_plate_only" value="${profile.supportOnBuildPlateOnly !== false ? '1' : '0'}"/>
     <part id="1" subtype="normal_part">
-      <metadata key="name" value="${safeName}"/>
-      <metadata key="face_count" value="${mainMeshData.tCount}"/>
+      <metadata key="name" value="${objName}"/>
+      <metadata key="face_count" value="${faceCount}"/>
     </part>
-  </object>
+  </object>`;
+
+  if (bambuParts && bambuParts.length > 1) {
+    // Xuất riêng từng chi tiết lẻ thành từng <object> độc lập để trong Bambu Studio vẫn di chuyển rời từng chi tiết được
+    bambuParts.forEach((part, idx) => {
+      const objId = idx + 1;
+      const partSafeName = (part.name || `${safeName}_Part_${objId}`).replace(/[<>&"]/g, '_');
+      const meshData = serializePositionsTo3MF(part.positions);
+      objectXmlBlocks.push(`    <object id="${objId}" name="${partSafeName}" type="model">
+      <mesh>
+        <vertices>
+${meshData.vLines.join('\n')}
+        </vertices>
+        <triangles>
+${meshData.tLines.join('\n')}
+        </triangles>
+      </mesh>
+    </object>`);
+      buildItemXmlBlocks.push(`    <item objectid="${objId}" printable="1" />`);
+      settingsObjectBlocks.push(buildObjectSettingsBlock(objId, partSafeName, meshData.tCount));
+      settingsInstanceBlocks.push(`    <model_instance>
+      <metadata key="object_id" value="${objId}"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="${objId}"/>
+    </model_instance>`);
+    });
+  } else {
+    const posAttr = exportGeom.getAttribute('position') as THREE.BufferAttribute;
+    const mainMeshData = serializePositionsTo3MF(posAttr);
+    objectXmlBlocks.push(`    <object id="1" name="${safeName}" type="model">
+      <mesh>
+        <vertices>
+${mainMeshData.vLines.join('\n')}
+        </vertices>
+        <triangles>
+${mainMeshData.tLines.join('\n')}
+        </triangles>
+      </mesh>
+    </object>`);
+    buildItemXmlBlocks.push(`    <item objectid="1" printable="1" />`);
+    settingsObjectBlocks.push(buildObjectSettingsBlock(1, safeName, mainMeshData.tCount));
+    settingsInstanceBlocks.push(`    <model_instance>
+      <metadata key="object_id" value="1"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="1"/>
+    </model_instance>`);
+  }
+
+  const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
+  <metadata name="Application">BambuStudio-01.10.00.00</metadata>
+  <metadata name="BambuStudio:3mfVersion">1</metadata>
+  <metadata name="Title">${modelName}</metadata>
+  <resources>
+${objectXmlBlocks.join('\n')}
+  </resources>
+  <build>
+${buildItemXmlBlocks.join('\n')}
+  </build>
+</model>`;
+
+  const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+${settingsObjectBlocks.join('\n')}
   <plate>
     <metadata key="plater_id" value="1"/>
     <metadata key="plater_name" value="Laymor3D_Plate_1"/>
     <metadata key="locked" value="false"/>
-    <model_instance>
-      <metadata key="object_id" value="1"/>
-      <metadata key="instance_id" value="0"/>
-      <metadata key="identify_id" value="1"/>
-    </model_instance>
+${settingsInstanceBlocks.join('\n')}
   </plate>
 </config>`;
 
@@ -405,30 +422,19 @@ ${mainMeshData.tLines.join('\n')}
 
 /**
  * Xuất trực tiếp mô hình 3D hiện tại sang tệp Binary STL chuẩn kích thước thực (mm)
+ * Tuyệt đối KHÔNG hàn dính lưới Support vào tệp STL.
  */
 export function downloadBinarySTL(
   geometry: THREE.BufferGeometry,
   modelName: string = 'Model',
   transform?: IModelTransform,
-  profile?: ISimulationProfile,
-  includeSupportMesh: boolean = true
+  _profile?: ISimulationProfile,
+  _includeSupportMesh: boolean = false
 ): string {
   const safeName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'AI_3D_Model';
   const filename = `${safeName}.stl`;
 
-  let exportGeom = prepareNormalizedExportGeometry(geometry, transform);
-
-  if (includeSupportMesh && profile && profile.supportMode !== 'none') {
-    const supGeom = buildExportSupportGeometry(exportGeom, profile);
-    if (supGeom) {
-      const cleanMain = new THREE.BufferGeometry();
-      cleanMain.setAttribute('position', exportGeom.getAttribute('position').clone());
-      const merged = BufferGeometryUtils.mergeGeometries([cleanMain, supGeom], false);
-      if (merged) {
-        exportGeom = merged;
-      }
-    }
-  }
+  const exportGeom = prepareNormalizedExportGeometry(geometry, transform);
 
   const posAttr = exportGeom.getAttribute('position');
   const triCount = posAttr ? Math.floor(posAttr.count / 3) : 0;
