@@ -52,14 +52,14 @@ const PROJECT_PHASES: ProjectPhase[] = [
   {
     id: 'phase-1',
     phaseNumber: 'Phase 01',
-    title: 'Khảo Sát Mô Hình & Dựng Bản Nháp Giao Diện Ban Đầu',
-    subtitle: 'Xây dựng khung ý tưởng sơ bộ (Concept Draft) để có cơ sở làm việc và lấy ý kiến điều chỉnh',
-    timeline: 'Giai đoạn 1 • Đã dựng khung nháp, chờ hiệu chỉnh UI/UX',
-    progressPercent: 75,
+    title: 'Chuẩn Hóa Nhận Diện Thương Hiệu LAYMOR & Giao Diện UI/UX Theo Guideline Khách Hàng',
+    subtitle: 'Triển khai đầy đủ Logo LAYMOR chính thức, Mega-Menu cây thư mục, 5 Banner dịch vụ, khối Về LAYMOR, AI Tools Showcase, Makers Club và Footer Halocom E-commerce',
+    timeline: 'Giai đoạn 1 • Đã cập nhật toàn bộ 8 trang Guideline UI/UX của khách',
+    progressPercent: 95,
     status: 'active',
-    statusLabel: 'Đạt 75% (Cần điều chỉnh UI/UX)',
+    statusLabel: 'Đạt 95% (Đã áp dụng Guideline UI khách gửi)',
     businessValue:
-      'Tạo bản mẫu trực quan ban đầu để đội ngũ và phía khách hàng/đối tác có chất liệu thực tế cùng rà soát, góp ý và thống nhất lại giao diện.',
+      'Đồng bộ hoàn toàn diện mạo thương hiệu LAYMOR (From layers to form), cây thư mục sản phẩm (Bambu Lab, Flashforge, Snapmaker, Creality, Elegoo), hệ sinh thái AI Studio / Makers Club và thông tin pháp nhân Showroom Thủ Đức.',
     steps: [
       {
         code: 'Bước 1.1',
@@ -71,27 +71,27 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 1.2',
-        title: 'Dựng bản nháp giao diện & chuẩn hóa bộ Icon Minimalist CAD độc quyền',
+        title: 'Tích hợp bộ Logo LAYMOR chính thức & hệ thống Icon Minimalist CAD độc quyền',
         description:
-          'Triển khai các màn hình mẫu ban đầu và thay thế toàn bộ bộ icon mặc định phổ thông bằng hệ thống Icon Minimalist CAD/Architectural tự thiết kế riêng (16x16 vector kỹ thuật), loại bỏ hoàn toàn cảm giác giao diện mẫu đại trà.',
+          'Tự động cắt chuẩn và điều chỉnh kích thước bộ Logo LAYMOR (Wordmark cuộn nhựa 3D, Emblem 3 lớp & Full Logo) kết hợp hệ thống Icon Minimalist CAD 16x16 tự thiết kế riêng.',
         status: 'completed',
-        deliverable: 'Giao diện thử nghiệm & Bộ Icon Minimalist CAD riêng',
+        deliverable: 'Bộ Logo LAYMOR & Icon Minimalist CAD riêng',
       },
       {
         code: 'Bước 1.3',
-        title: 'Làm việc lại với phía khách hàng để rà soát & điều chỉnh UI/UX',
+        title: 'Triển khai Header 5 mục, Cây thư mục Mega-Menu & Trang chủ 5 Banner dịch vụ theo PDF khách gửi',
         description:
-          'Tổ chức các buổi làm việc trực tiếp để ghi nhận yêu cầu thay đổi về bố cục, màu sắc, cách sắp xếp bảng thông số và luồng thao tác sao cho sát với nhu cầu thực tế.',
-        status: 'in_progress',
-        deliverable: 'Danh mục yêu cầu chỉnh sửa UI/UX',
+          'Xây dựng thanh điều hướng HOME / SHOP / AI STUDIO (New) / MAKERS CLUB / ABOUT kèm Mega-Menu chọn hãng nền xanh + dấu ">", 5 Banner dịch vụ kèm nút MUA NGAY, khối Về LAYMOR 4 trụ cột và giao diện 2 AI Tool (2D→3D & Mô phỏng in 3D).',
+        status: 'completed',
+        deliverable: 'Header Mega-Menu & Trang chủ chuẩn Guideline PDF',
       },
       {
         code: 'Bước 1.4',
-        title: 'Cập nhật & chuẩn hóa lại toàn bộ thiết kế giao diện sau phản hồi',
+        title: 'Chuẩn hóa Cửa hàng kiểu Bambu Store, trang Makers Club, About & Footer Halocom E-commerce',
         description:
-          'Thiết kế lại các khu vực chưa hợp lý, tối ưu hóa trải nghiệm người dùng trên cả máy tính và điện thoại theo đúng thống nhất mới.',
-        status: 'upcoming',
-        deliverable: 'Giao diện UI/UX hoàn chỉnh được duyệt',
+          'Bổ sung danh mục Máy in 3D (Bambu Lab A1/A2L/H2D/X2D/P2S, Creator 5 Pro, Snapmaker U1, Creality i8/i7/K3, Elegoo Carbon 2 Combo), Nhựa in 3D, Linh kiện và Footer Công ty TNHH Halocom E-commerce (Showroom Urban Green Thủ Đức).',
+        status: 'completed',
+        deliverable: 'Giao diện Shop, Makers Club, About & Footer chính thức',
       },
     ],
   },
@@ -421,11 +421,11 @@ const PROJECT_PHASES: ProjectPhase[] = [
 
 const CURRENT_FOCUS_AREAS = [
   {
-    title: '1. Làm Việc Lại & Điều Chỉnh Giao Diện (UI/UX) Cùng Khách Hàng',
-    status: 'Đang rà soát & Chỉnh sửa',
-    desc: 'Giao diện hiện tại mới là bản dựng nháp ban đầu để hình dung luồng hoạt động. Đội ngũ cần làm việc lại chi tiết với phía khách hàng để điều chỉnh bố cục, màu sắc, cách hiển thị thông số và tối ưu trải nghiệm thao tác thực tế.',
+    title: '1. Đã Triển Khai Toàn Bộ 8 Trang Guideline UI/UX & Logo LAYMOR Chính Thức',
+    status: 'Đạt 95% (Hoàn tất UI mới)',
+    desc: 'Đã tích hợp bộ Logo LAYMOR đính kèm, thanh điều hướng 5 mục (HOME, SHOP, AI STUDIO, MAKERS CLUB, ABOUT) kèm Mega-Menu cây thư mục, 5 Banner dịch vụ, khối Về LAYMOR, giao diện 2 AI Tool, Makers Club và Footer Công ty TNHH Halocom E-commerce.',
     icon: Palette,
-    badgeColor: 'bg-rose-50 text-rose-800 border-rose-200',
+    badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   },
   {
     title: '2. Cắt Lớp 2D-SDF, Volumetric Shader, Tree Support Chống Xuyên Mẫu & Xuất .3MF Tùy Chọn',
@@ -459,11 +459,11 @@ const CURRENT_FOCUS_AREAS = [
 
 const BUSINESS_MODULES = [
   {
-    name: 'Giao Diện & Trải Nghiệm Người Dùng (UI/UX)',
-    role: 'Mới ở mức bản nháp thử nghiệm; đang lên lịch làm việc lại với khách hàng để điều chỉnh bố cục & thao tác',
-    progress: 60,
-    status: 'Chờ điều chỉnh UI/UX',
-    statusStyle: 'bg-rose-50 text-rose-800 border-rose-200',
+    name: 'Giao Diện Thương Hiệu LAYMOR & Cây Thư Mục Mega-Menu (UI/UX)',
+    role: 'Đã áp dụng đầy đủ 8 trang PDF yêu cầu UI của khách: Logo LAYMOR, 5 Banner dịch vụ, Mega-Menu chọn hãng, Về LAYMOR, Makers Club & Footer Halocom',
+    progress: 95,
+    status: 'Đã áp dụng UI khách gửi',
+    statusStyle: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     href: '/',
     icon: Palette,
   },

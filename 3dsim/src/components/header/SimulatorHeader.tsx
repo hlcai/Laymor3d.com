@@ -144,24 +144,23 @@ export function SimulatorHeader({
           1. CỤM TRÁI: NHẬN DIỆN STUDIO & QUẢN LÝ PHÔI MÔ HÌNH
          ===================================================================== */}
       <div className="flex items-center gap-1.5 pointer-events-auto shrink-0">
-        {/* Nút điều hướng quay về 3D HUB (Spatial 3D Studio & Maker Intelligence) */}
+        {/* Nút điều hướng quay về Trang chủ LAYMOR */}
         <a
           href="/"
           target="_top"
           data-testid="back-to-3dhub-btn"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-panel hover:border-[var(--accent-gold-border)] studio-pill-inactive transition-all cursor-pointer group"
-          title="Quay về 3D HUB — Spatial 3D Studio & Maker Intelligence"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/95 hover:bg-white border border-slate-300 shadow-sm transition-all cursor-pointer group"
+          title="Quay về Trang chủ LAYMOR — From layers to form"
         >
           <IconChevronLeft
             size={13}
-            className="studio-text-gold group-hover:-translate-x-0.5 transition-transform shrink-0"
+            className="text-slate-700 group-hover:-translate-x-0.5 transition-transform shrink-0"
           />
-          <div className="w-4 h-4 rounded-md studio-gold-badge flex items-center justify-center shrink-0">
-            <IconCube size={10} />
-          </div>
-          <span className="font-semibold text-xs tracking-tight studio-text-primary">
-            3D HUB
-          </span>
+          <img
+            src="/3dsim/brand/laymor-wordmark.png"
+            alt="LAYMOR"
+            className="h-4 w-auto object-contain select-none"
+          />
         </a>
 
         {!isEmbedded && onSyncToStudio && (

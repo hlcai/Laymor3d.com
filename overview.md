@@ -175,6 +175,10 @@ File trực quan tương tác đặt tại:
 5. **Hệ Thống Đăng Nhập Riêng, Phân Quyền Từng Vùng Chức Năng & Bộ Icon Minimalist CAD Độc Quyền**:
    - Bỏ chế độ chọn tài khoản giả lập; triển khai cổng đăng nhập riêng với tài khoản Master Admin (`hlcai_admin`) toàn quyền tạo tài khoản người dùng, tắt/mở từng vùng hiển thị & chức năng và kiểm duyệt Kho Tri Thức Lỗi.
    - Thay thế 100% bộ icon mặc định phổ thông bằng hệ thống vector kỹ thuật **Minimalist CAD (`MinimalIcons.tsx`)** tự thiết kế riêng trên toàn bộ 87+ tệp giao diện.
-6. **Loại bỏ Staging & Chuẩn hóa Apple VisionOS Light Theme**:
-   - Duy trì môi trường Production thống nhất và đồng bộ trang báo cáo tiến độ `/overview` (`src/app/overview/page.tsx` & `overview.md`).
+6. **Triển khai Toàn diện 8 Trang Yêu Cầu Giao Diện UI/UX Của Khách Hàng & Bộ Logo LAYMOR Chính Thức**:
+   - Tự động cắt chuẩn và tối ưu kích thước bộ Logo `LAYMOR — From layers to form` (`laymor-wordmark.png`, `laymor-full.png`, `laymor-mark.png`).
+   - Thiết kế lại `Navbar.tsx` với 5 mục chính (`HOME`, `SHOP`, `AI STUDIO` kèm tag `New`, `MAKERS CLUB`, `ABOUT`), Mega-Menu cây thư mục 3 cấp cho `SHOP` (chọn hãng hiện nền xanh + dấu `>`) và Mega-Menu lưới thẻ trực tiếp cho `AI STUDIO` & `MAKERS CLUB`.
+   - Thiết kế lại Trang chủ (`src/app/page.tsx`) với **5 Banner dịch vụ** kèm nút `MUA NGAY`, khối **Về LAYMOR** (4 trụ cột `MATERIALS`, `MACHINES`, `AI STUDIO`, `COMMUNITY`), khối giới thiệu **2 AI Tool (`2D → 3D` & `Mô phỏng in 3D`)** phong cách Meshy kèm nút `Trải nghiệm ->`, và banner **LAYMOR MAKERS CLUB — Hãy tham gia cùng chúng tôi**.
+   - Nâng cấp `ShopPage.tsx` theo chuẩn Bambu Store với đầy đủ danh mục **Máy in 3D** (`Bambu Lab A1/A2L/H2D/X2D/P2S`, `Flashforge Creator 5 Pro`, `Snapmaker U1`, `Creality i8/i7 combo/K3`, `Elegoo Carbon 2 combo`), **Nhựa in 3D** (`Bambu Lab`, `Creality`, `LAYMOR Coming soon`) và **Linh kiện** (`Coming soon`).
+   - Tạo mới trang `/makers-club`, `/about` và `Footer.tsx` chuẩn thông tin pháp nhân **Công ty TNHH Halocom E-commerce** (Showroom Shophouse B1.15 - Tháp B - The Bliss, Dự án Urban Green, Thủ Đức; Hotline `0775015612`; Giờ làm việc `Thứ 2 - Thứ 6 | 9:00 AM - 18:00 PM`).
 
