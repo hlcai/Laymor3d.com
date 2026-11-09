@@ -98,30 +98,30 @@ const PROJECT_PHASES: ProjectPhase[] = [
   {
     id: 'phase-2',
     phaseNumber: 'Phase 02',
-    title: 'Phát Triển Khung Không Gian 3D & Mô Phỏng Cắt Lớp Chuyên Sâu',
-    subtitle: 'Xây dựng bộ khung hiển thị 3D WebGL, thuật toán cắt sợi O(S) Zero-Drop, Voxel 3D Tree Support và tải tệp lớn',
-    timeline: 'Giai đoạn 2 • Đã hoàn tất cắt sợi O(S), Voxel Tree Support & đồng bộ /studio ↔ /3dsim',
-    progressPercent: 85,
+    title: 'Phát Triển Khung Không Gian 3D, Cắt Lớp 2D-SDF Web Worker & Volumetric Shader',
+    subtitle: 'Xây dựng bộ khung hiển thị 3D WebGL2 Volumetric Bead Shader, cắt lớp 2D-SDF đa luồng, Multi-Part/Multi-Plate và Tree Support 2 tầng không xuyên mẫu',
+    timeline: 'Giai đoạn 2 • Đã hoàn tất 2D-SDF Slicer, Volumetric Shader & Tree Support Backtrack Pruning',
+    progressPercent: 90,
     status: 'active',
-    statusLabel: 'Đạt 85% (Đã tối ưu lõi cắt lớp & tệp lớn)',
+    statusLabel: 'Đạt 90% (Đã có 2D-SDF Worker, Multi-Plate & Chống xuyên mẫu)',
     businessValue:
-      'Đảm bảo khả năng nạp mượt mà các mô hình 3MF/STL lưới dày (>120.000 tam giác), hiển thị chính xác 100% sợi in theo từng lớp và định tuyến cây chống thông minh không xuyên qua thân mẫu.',
+      'Đảm bảo khả năng nạp mượt mà các tệp .3MF đa chi tiết/đa bàn in (Multi-Part & Multi-Plate), hiển thị sợi nhựa khối 3D (Volumetric Bead Shader) theo từng lớp và dựng Tree Support 2 tầng cô lập từng chi tiết, tuyệt đối không đâm xuyên qua thân mẫu.',
     steps: [
       {
         code: 'Bước 2.1',
-        title: 'Xây dựng khung quan sát 3D trực tuyến & đồng bộ hai chiều /studio ↔ /3dsim',
+        title: 'Khung quan sát 3D đa chi tiết / đa khay in (Multi-Part & Multi-Plate) & Đồng bộ /studio ↔ /3dsim',
         description:
-          'Hỗ trợ xoay 360°, phóng đại chi tiết, hiển thị lưới bàn in, đo kích thước bao ngoài và chuyển tiếp trực tiếp mô hình kèm thông số giữa 3D Studio và Buồng giả lập.',
+          'Hỗ trợ xoay 360°, đọc tệp .3MF nhiều chi tiết và nhiều khay in (Multi-Plate), tự động tách cụm chi tiết (Per-Part Isolation) và chuyển tiếp trực tiếp mô hình kèm thông số giữa 3D Studio và Buồng giả lập.',
         status: 'completed',
-        deliverable: 'Khung hiển thị & Cầu nối 3D (/studio ↔ /3dsim)',
+        deliverable: 'Khung 3D Multi-Part/Multi-Plate & Cầu nối (/studio ↔ /3dsim)',
       },
       {
         code: 'Bước 2.2',
-        title: 'Thuật toán cắt sợi tuyến tính O(S) Zero-Drop & Tua lớp (Layer Scrubbing)',
+        title: 'Bộ cắt lớp 2D-SDF Web Worker, Cắt sợi O(S) Zero-Drop & WebGL2 Volumetric Bead Shader',
         description:
-          'Cắt trực tiếp 100% tam giác của mô hình thành tường ngoài, tường trong, ruột in Scanline (Gyroid, Honeycomb, Grid...) và mối nối Z-Seam mượt mà theo từng lớp mà không bỏ sót chi tiết.',
+          'Cắt lớp đa luồng bằng trường khoảng cách có dấu 2D-SDF kết hợp O(S) Zero-Drop và tái tạo sợi nhựa khối 3D (Volumetric Bead Shader) với đầy đủ tường trong/ngoài, ruột in (Gyroid, Honeycomb, Grid...) và cầu nối theo từng lớp.',
         status: 'completed',
-        deliverable: 'Bộ cắt sợi O(S) & Xem Sợi In Bambu thời gian thực',
+        deliverable: '2D-SDF Web Worker Slicer & Volumetric Bead Shader',
       },
       {
         code: 'Bước 2.3',
@@ -133,25 +133,25 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 2.4',
-        title: 'Tối ưu hóa tải tệp 3MF/STL dung lượng lớn & Lưới Voxel 3D Tree Support',
+        title: 'Tree Support 2 tầng cô lập theo từng chi tiết & Cắt tỉa ngược chống đâm xuyên (Backtrack Pruning)',
         description:
-          'Giải mã nhanh tệp .3MF nhiều lưới không gây treo trình duyệt, kết hợp lưới Voxel 3D Bitmask (100×100×30) kiểm tra va chạm toàn chiều cao giúp cây chống mọc vòng bên ngoài thân mẫu.',
+          'Hiển thị rõ 2 tầng Tree Support (Thân cành & Đỉnh/Đế tiếp xúc), cô lập cây chống cho từng chi tiết trên bàn in và áp dụng thuật toán Backtrack Pruning loại bỏ 100% nhánh/gốc đâm xuyên qua thân mô hình.',
         status: 'completed',
-        deliverable: 'Voxel 3D Tree Support & Bộ đọc 3MF tốc độ cao',
+        deliverable: 'Tree Support 2 Tầng Chống Xuyên Mẫu & Đọc 3MF tốc độ cao',
       },
     ],
   },
   {
     id: 'phase-3',
     phaseNumber: 'Phase 03',
-    title: 'Bộ Dữ Liệu Chuẩn Bambu Studio, Đặc Trưng Hình Học 12D & AI Tự Học Lỗi Thực Tế',
-    subtitle: 'Đồng bộ thông số lên mẫu 3D tức thì, xuất .3MF in ngay, trích xuất Geometry Fingerprint 12 chiều và tự học RAG + Google Sheets/Supabase',
-    timeline: 'Giai đoạn 3 • Đã tích hợp Đặc trưng hình học 12D, AI Tự học RAG & Đồng bộ Cloud',
-    progressPercent: 75,
+    title: 'Bộ Dữ Liệu Chuẩn Bambu Studio, Xuất .3MF Tùy Chọn Support, Cloud Slicer & AI Tự Học',
+    subtitle: 'Đồng bộ thông số lên mẫu 3D tức thì, nạp nguyên bản Support Bambu Studio, tùy chọn xuất .3MF kèm/không kèm Tree Support và AI RAG 12D',
+    timeline: 'Giai đoạn 3 • Đã tích hợp Xuất .3MF Kèm/Tách Support, Cloud OrcaSlicer Worker & AI RAG 12D',
+    progressPercent: 82,
     status: 'active',
-    statusLabel: 'Đạt 75% (Đã tích hợp Fingerprint 12D & AI RAG)',
+    statusLabel: 'Đạt 82% (Có tùy chọn xuất Support, Cloud Worker & AI RAG)',
     businessValue:
-      'Mọi thông số điều chỉnh bản in đều thể hiện trực tiếp trên mẫu 3D, xuất .3MF sẵn Profile cho Bambu Studio, đồng thời lượng hóa hình học 12 chiều để AI tự đối chiếu lịch sử in và lưu sổ dữ liệu lên Cloud.',
+      'Mọi thông số điều chỉnh bản in đều thể hiện trực tiếp trên mẫu 3D, giữ nguyên 100% Tree Support gốc từ Bambu Studio, cho phép chọn xuất file .3MF/STL có hoặc không có Tree Support đi kèm, đồng thời lượng hóa hình học 12 chiều để AI tự học.',
     steps: [
       {
         code: 'Bước 3.1',
@@ -163,11 +163,11 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 3.2',
-        title: 'Nạp trực tiếp Tree Support gốc từ Bambu Studio (.gcode.3mf / .gcode) & Xuất .3MF kèm Profile',
+        title: 'Giữ nguyên bản Support gốc Bambu Studio (.gcode.3mf), Cloud Slicer Worker & Tùy chọn Xuất .3MF Kèm/Tách Support',
         description:
-          'Hỗ trợ nạp trực tiếp tệp đã cắt lớp (.gcode.3mf hoặc .gcode) từ Bambu Studio / OrcaSlicer ngay trên trình duyệt để trích xuất 100% cấu trúc Tree Support chính gốc và xuất tệp .3MF kèm đầy đủ Profile in ngay.',
+          'Ưu tiên hiển thị nguyên bản 100% Tree Support từ tệp .gcode.3mf/.gcode của Bambu Studio, tích hợp Docker Headless OrcaSlicer Cloud Worker và cho phép tùy chọn xuất tệp .3MF/.STL kèm sẵn khối lưới Tree Support hoặc chỉ xuất mẫu sạch kèm Profile.',
         status: 'completed',
-        deliverable: 'Bộ nạp Support gốc Bambu Studio & Xuất .3MF chuẩn',
+        deliverable: 'Verbatim Bambu Support, Cloud Slicer & Xuất .3MF Tùy chọn Support',
       },
       {
         code: 'Bước 3.3',
@@ -428,9 +428,9 @@ const CURRENT_FOCUS_AREAS = [
     badgeColor: 'bg-rose-50 text-rose-800 border-rose-200',
   },
   {
-    title: '2. Lõi Cắt Sợi O(S), Voxel Tree Support, Đặc Trưng 12D & AI Tự Học',
-    status: 'Đạt 75% – 85%',
-    desc: 'Đã nâng cấp bộ cắt sợi O(S) Zero-Drop, Voxel 3D Tree Support không xuyên mẫu, trích xuất Geometry Fingerprint 12 chiều, AI tự học đối chiếu ca in lịch sử (RAG) và đồng bộ sổ dữ liệu lên Supabase & Google Drive/Sheets.',
+    title: '2. Cắt Lớp 2D-SDF, Volumetric Shader, Tree Support Chống Xuyên Mẫu & Xuất .3MF Tùy Chọn',
+    status: 'Đạt 82% – 90%',
+    desc: 'Đã hoàn thiện bộ cắt lớp 2D-SDF Web Worker, sợi in khối 3D Volumetric Bead Shader, Tree Support 2 tầng cắt tỉa ngược (Backtrack Pruning) triệt tiêu 100% lỗi đâm xuyên mẫu, tùy chọn xuất .3MF có/không kèm Tree Support, kết hợp AI RAG 12D & Cloud OrcaSlicer Worker.',
     icon: Database,
     badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   },
@@ -469,17 +469,17 @@ const BUSINESS_MODULES = [
   },
   {
     name: 'Không Gian 3D Studio & Dự Toán Thể Tích Thực (/studio)',
-    role: 'Đã đồng bộ hai chiều với /3dsim, tính thể tích thực Signed Tetrahedron & trích xuất đặc trưng hình học 12 chiều',
-    progress: 70,
+    role: 'Đã đồng bộ hai chiều với /3dsim, Tree Support cắt tỉa ngược chống đâm xuyên mẫu, tính thể tích thực Signed Tetrahedron & đặc trưng 12D',
+    progress: 78,
     status: 'Đã nâng cấp lõi 3D',
     statusStyle: 'bg-cyan-50 text-cyan-800 border-cyan-200',
     href: '/studio',
     icon: Sparkles,
   },
   {
-    name: 'Bộ Giả Lập Cắt Sợi O(S), Voxel Tree Support & AI RAG (/3dsim)',
-    role: 'Cắt sợi O(S) Zero-Drop, Voxel 3D Tree Support chống xuyên mẫu, xuất .3MF in ngay, AI Tự học RAG 12D & đồng bộ Supabase / Google Sheets',
-    progress: 80,
+    name: 'Bộ Giả Lập 2D-SDF, Volumetric Shader, Tree Support 2.0 & AI RAG (/3dsim)',
+    role: 'Cắt lớp 2D-SDF Worker & Volumetric Shader, hỗ trợ Multi-Part/Multi-Plate, Tree Support 2 tầng không xuyên mẫu, tùy chọn xuất .3MF kèm/tách Support & AI RAG 12D',
+    progress: 88,
     status: 'Hoạt động ổn định',
     statusStyle: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     href: '/3dsim',
@@ -552,10 +552,11 @@ export default function InvestorOverviewPage() {
             </h1>
 
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-              Dự án hiện đang ở <strong>Giai đoạn Thử nghiệm Nâng cao (Beta ~50%)</strong>. Đợt nâng cấp mới nhất đã hoàn
-              thiện <strong>bộ cắt sợi tuyến tính O(S) Zero-Drop, lưới Voxel 3D Tree Support chống đâm xuyên mẫu</strong>,{' '}
-              <strong>trích xuất Đặc trưng hình học 12 chiều (Geometry Fingerprint), AI Tự học RAG</strong> và{' '}
-              <strong>cầu nối lưu trữ Supabase + Google Drive/Sheets</strong>. Trọng tâm kế tiếp là{' '}
+              Dự án hiện đang ở <strong>Giai đoạn Thử nghiệm Nâng cao (Beta v2.5 ~55%)</strong>. Đợt nâng cấp mới nhất đã hoàn
+              thiện <strong>bộ cắt lớp 2D-SDF Web Worker, hiển thị sợi nhựa khối 3D (WebGL2 Volumetric Bead Shader)</strong>,{' '}
+              <strong>Tree Support 2 tầng cô lập từng chi tiết với thuật toán Backtrack Pruning triệt tiêu 100% lỗi đâm xuyên mẫu</strong>,{' '}
+              <strong>tùy chọn xuất tệp .3MF/.STL kèm hoặc tách riêng Tree Support</strong>, hỗ trợ{' '}
+              <strong>Multi-Part / Multi-Plate, Cloud OrcaSlicer Worker</strong> và <strong>AI Tự học RAG 12 chiều</strong>. Trọng tâm kế tiếp là{' '}
               <strong>rà soát điều chỉnh UI/UX cùng khách hàng</strong>, mở rộng{' '}
               <strong>so sánh song song đa cấu hình QC</strong> và hoàn thiện kho vật tư/thanh toán thực tế.
             </p>
@@ -589,7 +590,7 @@ export default function InvestorOverviewPage() {
           {/* Executive KPI Summary Grid */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4 shrink-0 lg:w-[370px]">
             <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 text-center">
-              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700">~50%</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-amber-700">~55%</div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-amber-900/70 mt-1">
                 Tiến Độ Toàn Lộ Trình
               </div>
@@ -607,7 +608,7 @@ export default function InvestorOverviewPage() {
               </div>
             </div>
             <div className="p-4 rounded-2xl bg-slate-50/90 border border-slate-200/80 text-center">
-              <div className="text-2xl sm:text-3xl font-extrabold text-slate-800">Beta v2.3</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-slate-800">Beta v2.5</div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mt-1">
                 Trạng Thái Hiện Tại
               </div>
@@ -620,13 +621,13 @@ export default function InvestorOverviewPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-bold text-slate-700 mb-2">
             <span>TIẾN ĐỘ TỔNG THỂ TRÊN TOÀN BỘ 8 GIAI ĐOẠN PHÁT TRIỂN (PHASE 01 – PHASE 08)</span>
             <span className="text-amber-700 font-mono">
-              Đạt ~50% • Đã tích hợp Cắt sợi O(S), Voxel Tree Support, Fingerprint 12D, AI RAG &amp; Google Drive/Sheets
+              Đạt ~55% • Đã tích hợp 2D-SDF Slicer, Volumetric Shader, Tree Support Backtrack Pruning, Xuất .3MF Tùy chọn Support &amp; AI RAG 12D
             </span>
           </div>
           <div className="w-full h-3 rounded-full bg-slate-100 border border-slate-200/80 overflow-hidden p-0.5">
             <div
               className="h-full rounded-full bg-gradient-to-r from-cyan-600 via-sky-500 to-emerald-500 transition-all duration-500"
-              style={{ width: '50%' }}
+              style={{ width: '55%' }}
             />
           </div>
         </div>
