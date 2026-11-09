@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.PORT || 8090);
 const SLICER_BIN = process.env.SLICER_BIN || '/opt/orcaslicer/AppRun';
+const PRUSA_BIN = process.env.PRUSA_BIN || '/usr/bin/prusa-slicer';
 const API_KEY = process.env.CLOUD_SLICER_API_KEY || '';
 const WORK_ROOT = process.env.SLICE_WORK_DIR || '/tmp/laymor_slices';
 const MAX_CONCURRENT_JOBS = Number(process.env.MAX_CONCURRENT_SLICES || 2);
@@ -22,7 +23,10 @@ let activeJobs = 0;
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Slicer-Key');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Slicer-Key, X-Api-Key'
+  );
 }
 
 function readRequestBody(req, maxBytes = 160 * 1024 * 1024) {
@@ -43,30 +47,62 @@ function readRequestBody(req, maxBytes = 160 * 1024 * 1024) {
   });
 }
 
+async function extractGcodeFromOutDir(outDir) {
+  const outFiles = await fs.readdir(outDir);
+  const gcodeFile = outFiles.find((f) => f.toLowerCase().endsWith('.gcode'));
+  if (gcodeFile) {
+    return await fs.readFile(path.join(outDir, gcodeFile), 'utf8');
+  }
+
+  // Nếu OrcaSlicer xuất ra file .gcode.3mf hoặc .3mf chứa Metadata/plate_1.gcode
+  const threemfFile = outFiles.find((f) => f.toLowerCase().endsWith('.3mf'));
+  if (threemfFile) {
+    const archivePath = path.join(outDir, threemfFile);
+    try {
+      const { stdout } = await execFileAsync('unzip', ['-p', archivePath, '*.gcode'], {
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      if (stdout && stdout.length > 128) {
+        return stdout;
+      }
+    } catch {
+      // ignore unzip error
+    }
+  }
+  return null;
+}
+
 async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
   const outDir = path.join(jobDir, 'out');
   await fs.mkdir(outDir, { recursive: true });
 
-  // Tạo file cấu hình JSON ghi đè thông số in thực tế của Bambu Lab P1S / X1C 0.4mm Nozzle
+  const layerHeight = Number(settings.layerHeight || 0.2);
+  const supportEnabled = settings.supportMode !== 'none' && settings.supportEnabled !== false;
+  const angleThreshold = Number(settings.supportAngleThreshold || settings.angleThreshold || 45);
+  const topZDistance = Number(settings.supportTopZDistance ?? settings.topZDistance ?? 0.2);
+  const branchDiameter = Number(settings.supportBranchDiameter || settings.branchDiameter || 2.0);
+  const treeStyle = String(settings.treeStyle || 'organic');
+
+  // 1. Thử chạy OrcaSlicer v2.2.0 Headless CLI trước
   const processOverride = {
     type: 'process',
     name: 'Laymor3D Cloud Dynamic Process',
     from: 'system',
     instantiation: 'true',
-    layer_height: String(settings.layerHeight || 0.2),
+    layer_height: String(layerHeight),
     initial_layer_print_height: String(settings.firstLayerHeight || 0.2),
     wall_loops: String(settings.wallLoops || 2),
     sparse_infill_density: `${settings.infillDensity ?? 15}%`,
     sparse_infill_pattern: settings.infillType || 'gyroid',
-    enable_support: settings.supportMode !== 'none' ? '1' : '0',
+    enable_support: supportEnabled ? '1' : '0',
     support_type:
-      settings.supportMode === 'tree'
-        ? `tree(${settings.treeStyle || 'auto'})`
-        : 'normal(auto)',
-    support_threshold_angle: String(settings.supportAngleThreshold || 45),
+      settings.supportMode === 'normal'
+        ? 'normal(auto)'
+        : `tree(${treeStyle === 'organic' ? 'organic' : 'auto'})`,
+    support_threshold_angle: String(angleThreshold),
     support_on_build_plate_only: settings.supportOnBuildPlateOnly !== false ? '1' : '0',
-    support_top_z_distance: String(settings.supportTopZDistance ?? 0.2),
-    tree_support_branch_diameter: String(settings.supportBranchDiameter || 2.0),
+    support_top_z_distance: String(topZDistance),
+    tree_support_branch_diameter: String(branchDiameter),
     tree_support_branch_angle: String(settings.supportBranchAngle || 42),
     brim_type: settings.brimEnabled !== false ? 'auto_brim' : 'no_brim',
     brim_width: String(settings.brimWidthMm || 5),
@@ -78,7 +114,7 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
 
   const isLinuxHeadless = process.platform === 'linux' && !process.env.DISPLAY;
   const cmd = isLinuxHeadless ? 'xvfb-run' : SLICER_BIN;
-  const args = isLinuxHeadless
+  const orcaArgs = isLinuxHeadless
     ? [
         '-a',
         '-s',
@@ -86,6 +122,8 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
         SLICER_BIN,
         '--load-settings',
         settingsJsonPath,
+        '--export-3mf',
+        path.join(outDir, 'sliced_plate.gcode.3mf'),
         '--slice',
         '0',
         '--outputdir',
@@ -102,19 +140,67 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
         inputFilePath,
       ];
 
-  const { stdout, stderr } = await execFileAsync(cmd, args, {
-    timeout: 90000,
-    maxBuffer: 32 * 1024 * 1024,
-  });
-
-  const outFiles = await fs.readdir(outDir);
-  const gcodeFile = outFiles.find((f) => f.toLowerCase().endsWith('.gcode'));
-  if (gcodeFile) {
-    const gcodeText = await fs.readFile(path.join(outDir, gcodeFile), 'utf8');
-    return { gcodeText, logs: `${stdout}\n${stderr}`.trim() };
+  let combinedLogs = '';
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, orcaArgs, {
+      timeout: 65000,
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    combinedLogs = `${stdout}\n${stderr}`.trim();
+    const gcodeText = await extractGcodeFromOutDir(outDir);
+    if (gcodeText && gcodeText.length > 200) {
+      return { gcodeText, logs: combinedLogs, engineUsed: 'orca_slicer_headless_cli' };
+    }
+  } catch (orcaErr) {
+    combinedLogs = `OrcaSlicer fallback notice: ${orcaErr?.message || ''}`;
   }
 
-  throw new Error(`Không tìm thấy file .gcode đầu ra từ Slicer CLI. Logs: ${stdout} ${stderr}`);
+  // 2. Fallback C++ Native CLI (PrusaSlicer Organic Tree Engine) cho các file .STL / .3MF thô chưa nhúng Machine Profile của Bambu
+  const prusaOutGcode = path.join(outDir, 'prusa_organic.gcode');
+  const prusaArgs = [
+    '--export-gcode',
+    '--center',
+    '128,128',
+    '--layer-height',
+    String(layerHeight),
+    '--perimeters',
+    String(settings.wallLoops || 2),
+    '--fill-density',
+    `${settings.infillDensity ?? 15}%`,
+    ...(supportEnabled
+      ? [
+          '--support-material',
+          '--support-material-auto',
+          '--support-material-style',
+          settings.supportMode === 'normal' ? 'grid' : 'organic',
+          '--support-material-threshold',
+          String(angleThreshold),
+          '--support-material-contact-distance',
+          String(topZDistance),
+          ...(settings.supportOnBuildPlateOnly !== false
+            ? ['--support-material-buildplate-only']
+            : []),
+        ]
+      : []),
+    '--output',
+    prusaOutGcode,
+    inputFilePath,
+  ];
+
+  const { stdout: pOut, stderr: pErr } = await execFileAsync(PRUSA_BIN, prusaArgs, {
+    timeout: 65000,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const gcodeText = await extractGcodeFromOutDir(outDir);
+  if (gcodeText && gcodeText.length > 200) {
+    return {
+      gcodeText,
+      logs: `${combinedLogs}\n${pOut}\n${pErr}`.trim(),
+      engineUsed: 'prusa_organic_native_cli',
+    };
+  }
+
+  throw new Error(`Không tìm thấy file .gcode đầu ra từ Slicer CLI. Logs: ${combinedLogs}`);
 }
 
 /**
@@ -161,9 +247,14 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && reqUrl.pathname === '/health') {
     let binExists = false;
+    let prusaExists = false;
     try {
       await fs.access(SLICER_BIN);
       binExists = true;
+    } catch {}
+    try {
+      await fs.access(PRUSA_BIN);
+      prusaExists = true;
     } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
@@ -171,7 +262,9 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         service: 'laymor3d-headless-orca-bambu-worker',
         slicerBinary: SLICER_BIN,
-        binaryReady: binExists,
+        binaryReady: binExists || prusaExists,
+        orcaReady: binExists,
+        prusaReady: prusaExists,
         activeJobs,
         maxConcurrentJobs: MAX_CONCURRENT_JOBS,
       })
@@ -181,6 +274,7 @@ const server = http.createServer(async (req, res) => {
 
   if (API_KEY) {
     const token =
+      req.headers['x-api-key'] ||
       req.headers['x-slicer-key'] ||
       (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (token !== API_KEY) {
@@ -190,7 +284,10 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (req.method === 'POST' && reqUrl.pathname === '/slice') {
+  if (
+    req.method === 'POST' &&
+    (reqUrl.pathname === '/slice' || reqUrl.pathname === '/slice-url')
+  ) {
     if (activeJobs >= MAX_CONCURRENT_JOBS) {
       res.writeHead(429, { 'Content-Type': 'application/json' });
       res.end(
@@ -212,27 +309,29 @@ const server = http.createServer(async (req, res) => {
 
       let modelBuffer;
       let fileName = reqUrl.searchParams.get('name') || 'model.stl';
+      const supParam = reqUrl.searchParams.get('support') || reqUrl.searchParams.get('supportMode');
+      const angParam = reqUrl.searchParams.get('angle') || reqUrl.searchParams.get('angleThreshold');
+
       let settings = {
         layerHeight: Number(reqUrl.searchParams.get('layerHeight') || 0.2),
         wallLoops: Number(reqUrl.searchParams.get('wallLoops') || 2),
         infillDensity: Number(reqUrl.searchParams.get('infillDensity') || 15),
         infillType: reqUrl.searchParams.get('infillType') || 'gyroid',
-        supportMode: reqUrl.searchParams.get('supportMode') || 'tree',
+        supportMode: supParam || 'tree',
         treeStyle: reqUrl.searchParams.get('treeStyle') || 'organic',
-        supportAngleThreshold: Number(reqUrl.searchParams.get('angleThreshold') || 45),
+        supportAngleThreshold: Number(angParam || 45),
         supportTopZDistance: Number(reqUrl.searchParams.get('topZDistance') || 0.2),
         supportBranchDiameter: Number(reqUrl.searchParams.get('branchDiameter') || 2.0),
         material: reqUrl.searchParams.get('material') || 'PLA',
       };
 
-      if (contentType.includes('application/json')) {
-        const rawBody = await readRequestBody(req, 10 * 1024 * 1024);
+      if (contentType.includes('application/json') || reqUrl.pathname === '/slice-url') {
+        const rawBody = await readRequestBody(req, 15 * 1024 * 1024);
         const payload = JSON.parse(rawBody.toString('utf8'));
         fileName = payload.fileName || fileName;
         settings = { ...settings, ...(payload.profile || payload.settings || {}) };
 
         if (payload.fileUrl) {
-          // Tải trực tiếp file .STL / .3MF (lên tới 150MB) từ Supabase Storage / R2 / Google Drive vượt trần 4.5MB Vercel!
           const remoteRes = await fetch(payload.fileUrl);
           if (!remoteRes.ok) {
             throw new Error(`Không tải được file mô hình từ fileUrl (${remoteRes.status})`);
@@ -251,7 +350,11 @@ const server = http.createServer(async (req, res) => {
       const inputPath = path.join(jobDir, `input_model${safeExt}`);
       await fs.writeFile(inputPath, modelBuffer);
 
-      const { gcodeText, logs } = await runHeadlessOrcaBambuSlice(inputPath, jobDir, settings);
+      const { gcodeText, logs, engineUsed } = await runHeadlessOrcaBambuSlice(
+        inputPath,
+        jobDir,
+        settings
+      );
       const parsed = parseNativeSlicerGcode(gcodeText, fileName);
       const quote = calculateFactoryQuoteVnd(parsed, settings.material || 'PLA');
 
@@ -271,7 +374,7 @@ const server = http.createServer(async (req, res) => {
         res.end(
           JSON.stringify({
             success: true,
-            engine: 'orca_bambu_headless_cli',
+            engine: engineUsed || 'orca_bambu_headless_cli',
             modelName: fileName,
             ...parsed,
             factoryQuote: quote,
@@ -299,5 +402,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Laymor3D Cloud Slicer Worker] Listening on 0.0.0.0:${PORT} (Binary: ${SLICER_BIN})`);
+  console.log(
+    `[Laymor3D Cloud Slicer Worker] Listening on 0.0.0.0:${PORT} (Orca: ${SLICER_BIN}, Prusa: ${PRUSA_BIN})`
+  );
 });

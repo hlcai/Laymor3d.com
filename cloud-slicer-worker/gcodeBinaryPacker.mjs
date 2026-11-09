@@ -1,7 +1,7 @@
 import zlib from 'node:zlib';
 
 /**
- * Bộ bóc tách & đóng gói nhị phân G-Code gốc từ OrcaSlicer / Bambu Studio CLI
+ * Bộ bóc tách & đóng gói nhị phân G-Code gốc từ OrcaSlicer / Bambu Studio / PrusaSlicer CLI
  * Tương thích 1:1 với IFullToolpathData, INativeSupportData và GPU VolumetricFilamentRenderer của Laymor3D.
  */
 export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_model') {
@@ -23,7 +23,7 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
   let supportWeightGrams = 0;
   let layerHeightMm = 0.2;
 
-  // Pass 1: Đọc metadata chính xác từ Header/Footer Bambu & OrcaSlicer + Tính tâm Bounding Box trên bàn in
+  // Pass 1: Đọc metadata chính xác từ Header/Footer Bambu / Orca / Prusa + Tính tâm Bounding Box trên bàn in
   let pX = 128,
     pY = 128,
     pZ = 0.2;
@@ -55,10 +55,13 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
       if (line.includes('layer_height') && line.includes('=')) {
         const m = /layer_height\s*=\s*([\d.]+)/i.exec(line);
         if (m) layerHeightMm = parseFloat(m[1]) || 0.2;
-      } else if (line.includes('total layer number:')) {
-        const m = /total layer number:\s*(\d+)/i.exec(line);
+      } else if (line.includes('total layer number')) {
+        const m = /total layer number\s*[:=]\s*(\d+)/i.exec(line);
         if (m) headerTotalLayers = parseInt(m[1], 10);
-      } else if (line.includes('estimated printing time') || line.includes('model printing time:')) {
+      } else if (
+        line.includes('estimated printing time') ||
+        line.includes('model printing time:')
+      ) {
         const hM = /(\d+)\s*h/i.exec(line);
         const mM = /(\d+)\s*m/i.exec(line);
         const sM = /(\d+)\s*s/i.exec(line);
@@ -67,7 +70,11 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
           (mM ? parseInt(mM[1], 10) * 60 : 0) +
           (sM ? parseInt(sM[1], 10) : 0);
         if (sec > 0) estimatedTimeSec = sec;
-      } else if (line.includes('total filament used [g]') || line.includes('total filament weight [g]') || line.includes('filament used [g]')) {
+      } else if (
+        line.includes('total filament used [g]') ||
+        line.includes('total filament weight [g]') ||
+        line.includes('filament used [g]')
+      ) {
         const wM = /[=:]\s*([\d.]+)/.exec(line);
         if (wM) {
           const val = parseFloat(wM[1]);
@@ -80,9 +87,14 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
     if (line.startsWith('G0 ') || line.startsWith('G1 ')) {
       const mX = /X([-\d.]+)/.exec(line);
       const mY = /Y([-\d.]+)/.exec(line);
+      const mZ = /Z([-\d.]+)/.exec(line);
       const mE = /E([-\d.]+)/.exec(line);
       const nx = mX ? parseFloat(mX[1]) : pX;
       const ny = mY ? parseFloat(mY[1]) : pY;
+      if (mZ) {
+        const zv = parseFloat(mZ[1]);
+        if (!Number.isNaN(zv) && zv > 0) pZ = zv;
+      }
       const ev = mE ? parseFloat(mE[1]) : 0;
 
       if (!pWipe && ev > 0 && pZ > 0.25 && nx > 6 && nx < 250 && ny > 6 && ny < 250) {
@@ -92,7 +104,14 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
         if (ny > maxAllY) maxAllY = ny;
 
         const fl = pFeat.toLowerCase();
-        if (fl.includes('wall') || fl.includes('surface') || fl.includes('infill') || fl.includes('bridge') || fl.includes('perimeter')) {
+        if (
+          fl.includes('wall') ||
+          fl.includes('surface') ||
+          fl.includes('infill') ||
+          fl.includes('bridge') ||
+          fl.includes('perimeter') ||
+          fl.includes('solid')
+        ) {
           if (nx < minModelX) minModelX = nx;
           if (nx > maxModelX) maxModelX = nx;
           if (ny < minModelY) minModelY = ny;
@@ -105,11 +124,19 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
   }
 
   const centerX =
-    minModelX < maxModelX ? (minModelX + maxModelX) * 0.5 : minAllX < maxAllX ? (minAllX + maxAllX) * 0.5 : 128;
+    minModelX < maxModelX
+      ? (minModelX + maxModelX) * 0.5
+      : minAllX < maxAllX
+      ? (minAllX + maxAllX) * 0.5
+      : 128;
   const centerY =
-    minModelY < maxModelY ? (minModelY + maxModelY) * 0.5 : minAllY < maxAllY ? (minAllY + maxAllY) * 0.5 : 128;
+    minModelY < maxModelY
+      ? (minModelY + maxModelY) * 0.5
+      : minAllY < maxAllY
+      ? (minAllY + maxAllY) * 0.5
+      : 128;
 
-  // Pass 2: Bóc tách đủ 8 phân lớp đường chạy dao chuẩn Bambu Studio + Support Segments
+  // Pass 2: Bóc tách đủ 8 phân lớp đường chạy dao chuẩn Bambu Studio + Chuỗi Polyline Support liên tục
   const outerWalls = [];
   const innerWalls = [];
   const topBottomShells = [];
@@ -134,12 +161,27 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
   let layerTimeAccum = 0.25;
   let modelExtrudedE = 0;
   let supportExtrudedE = 0;
+  let maxZ = 0.2;
+
+  let activeSupPts = null;
+  let activeSupIsInterface = false;
+
+  const flushSupportChain = () => {
+    if (activeSupPts && activeSupPts.length >= 6) {
+      supportSegments.push({
+        isInterface: activeSupIsInterface,
+        points: activeSupPts,
+      });
+    }
+    activeSupPts = null;
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
 
     if (line.startsWith('; WIPE_START')) {
+      flushSupportChain();
       inWipe = true;
       continue;
     }
@@ -149,6 +191,7 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
     }
 
     if (line.startsWith('; CHANGE_LAYER') || line.startsWith(';LAYER_CHANGE')) {
+      flushSupportChain();
       layerTimesSec[curLayer] = Number(Math.max(0.5, layerTimeAccum).toFixed(2));
       layerTimeAccum = 0.25;
       curLayer++;
@@ -168,13 +211,22 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
 
     if (line.startsWith('; Z_HEIGHT:') || line.startsWith(';Z:')) {
       const zv = parseFloat(line.slice(line.indexOf(':') + 1));
-      if (!Number.isNaN(zv) && zv > 0) curZ = zv;
+      if (!Number.isNaN(zv) && zv > 0) {
+        curZ = zv;
+        if (zv > maxZ && zv < 500) maxZ = zv;
+      }
       continue;
     }
 
     if (line.startsWith('; FEATURE:') || line.startsWith(';TYPE:')) {
+      flushSupportChain();
       curFeat = line.slice(line.indexOf(':') + 1).trim();
-      if (curFeat.toLowerCase().includes('outer wall')) isNewOuter = true;
+      if (
+        curFeat.toLowerCase().includes('outer wall') ||
+        curFeat.toLowerCase().includes('external perimeter')
+      ) {
+        isNewOuter = true;
+      }
       continue;
     }
 
@@ -193,61 +245,98 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
       const nx = mX ? parseFloat(mX[1]) : curX;
       const ny = mY ? parseFloat(mY[1]) : curY;
       const nz = mZ ? parseFloat(mZ[1]) : curZ;
+      if (nz > maxZ && nz < 500) maxZ = nz;
       const ev = mE ? parseFloat(mE[1]) : 0;
 
       const dist = Math.hypot(nx - curX, ny - curY);
       layerTimeAccum += dist / Math.max(10, feedMmPerSec);
 
-      if (!inWipe && line.startsWith('G1 ') && ev > 0.0002 && dist >= 0.03 && dist <= 180) {
+      if (!inWipe && line.startsWith('G1 ') && ev > 0.0002 && dist >= 0.025 && dist <= 180) {
         // Loại bỏ đường purge line ở mép trước bàn in
         const isPurge = nz <= 0.35 && (ny < 10 || nx < 6);
         if (!isPurge) {
           const x1 = Number((curX - centerX).toFixed(2));
           const y1 = Number(nz.toFixed(2));
-          const z1 = Number((curY - centerY).toFixed(2));
+          const z1 = Number((-(curY - centerY)).toFixed(2));
           const x2 = Number((nx - centerX).toFixed(2));
           const y2 = Number(nz.toFixed(2));
-          const z2 = Number((ny - centerY).toFixed(2));
+          const z2 = Number((-(ny - centerY)).toFixed(2));
 
           const fl = curFeat.toLowerCase();
           if (fl.includes('outer wall') || fl.includes('external perimeter')) {
+            flushSupportChain();
             outerWalls.push(x1, y1, z1, x2, y2, z2);
             modelExtrudedE += ev;
             if (isNewOuter) {
               seams.push(x1, y1, z1);
               isNewOuter = false;
             }
-          } else if (fl.includes('bridge') || fl.includes('overhang wall')) {
+          } else if (fl.includes('bridge') || fl.includes('overhang')) {
+            flushSupportChain();
             bridges.push(x1, y1, z1, x2, y2, z2);
             modelExtrudedE += ev;
-          } else if (fl.includes('top surface') || fl.includes('bottom surface') || fl.includes('solid infill')) {
+          } else if (
+            fl.includes('top') ||
+            fl.includes('bottom') ||
+            fl.includes('solid infill') ||
+            fl.includes('internal solid')
+          ) {
+            flushSupportChain();
             topBottomShells.push(x1, y1, z1, x2, y2, z2);
             modelExtrudedE += ev;
           } else if (fl.includes('inner wall') || fl.includes('perimeter') || fl.includes('gap')) {
+            flushSupportChain();
             innerWalls.push(x1, y1, z1, x2, y2, z2);
             modelExtrudedE += ev;
           } else if (fl.includes('infill')) {
+            flushSupportChain();
             infills.push(x1, y1, z1, x2, y2, z2);
             modelExtrudedE += ev;
-          } else if (fl.includes('support interface') || fl.includes('support_interface') || fl.includes('support transition')) {
+          } else if (
+            fl.includes('support interface') ||
+            fl.includes('support_interface') ||
+            fl.includes('support material interface') ||
+            fl.includes('support transition')
+          ) {
             interfaces.push(x1, y1, z1, x2, y2, z2);
-            supportSegments.push({ isInterface: true, points: [x1, y1, z1, x2, y2, z2] });
+            if (!activeSupPts || !activeSupIsInterface) {
+              flushSupportChain();
+              activeSupIsInterface = true;
+              activeSupPts = [x1, y1, z1, x2, y2, z2];
+            } else {
+              activeSupPts.push(x2, y2, z2);
+            }
             supportExtrudedE += ev;
           } else if (fl.includes('support') || fl.includes('tree')) {
             if (nz <= 0.32) {
               brims.push(x1, y1, z1, x2, y2, z2);
             } else {
               supports.push(x1, y1, z1, x2, y2, z2);
-              supportSegments.push({ isInterface: false, points: [x1, y1, z1, x2, y2, z2] });
+            }
+            if (!activeSupPts || activeSupIsInterface) {
+              flushSupportChain();
+              activeSupIsInterface = false;
+              activeSupPts = [x1, y1, z1, x2, y2, z2];
+            } else {
+              activeSupPts.push(x2, y2, z2);
             }
             supportExtrudedE += ev;
           } else if (fl.includes('skirt') || fl.includes('brim')) {
+            flushSupportChain();
             brims.push(x1, y1, z1, x2, y2, z2);
             supportExtrudedE += ev;
           }
         }
-      } else if (ev <= 0 && dist > 0.08 && curFeat.toLowerCase().includes('outer wall')) {
-        isNewOuter = true;
+      } else {
+        flushSupportChain();
+        if (
+          ev <= 0 &&
+          dist > 0.08 &&
+          (curFeat.toLowerCase().includes('outer wall') ||
+            curFeat.toLowerCase().includes('external perimeter'))
+        ) {
+          isNewOuter = true;
+        }
       }
 
       curX = nx;
@@ -255,6 +344,7 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
       curZ = nz;
     }
   }
+  flushSupportChain();
 
   const finalLayers = Math.max(curLayer, headerTotalLayers, 1);
   layerTimesSec[finalLayers] = Number(Math.max(0.5, layerTimeAccum).toFixed(2));
@@ -297,8 +387,20 @@ export function parseNativeSlicerGcode(gcodeText, modelName = 'cloud_sliced_mode
     model: modelName,
     engine: 'orca_bambu_headless_cli',
     totalLayers: finalLayers,
+    maxHeight: Number(maxZ.toFixed(2)),
     layerHeightMm,
     totalMoves,
+    counts: {
+      outerWall: outerWalls.length / 6,
+      innerWall: innerWalls.length / 6,
+      topBottom: topBottomShells.length / 6,
+      bridge: bridges.length / 6,
+      infill: infills.length / 6,
+      support: supports.length / 6,
+      interface: interfaces.length / 6,
+      brim: brims.length / 6,
+      seams: seams.length / 3,
+    },
     layerTimesSec,
     layerIndexTable,
     outerWalls,

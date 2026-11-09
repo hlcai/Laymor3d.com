@@ -1,0 +1,39 @@
+# ==============================================================================
+# Fly.io Configuration for Laymor3D Headless Cloud Slicer Worker
+# Region: sin (Singapore - độ trễ thấp nhất về Việt Nam ~30ms)
+# Cơ chế Scale-to-Zero: Tự động ngủ (0đ) khi không có lệnh cắt, tự thức dậy trong ~1.5s khi có request
+# ==============================================================================
+app = "laymor3d-slicer-worker"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8090"
+  NODE_ENV = "production"
+  MAX_CONCURRENT_SLICES = "2"
+
+[http_service]
+  internal_port = 8090
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 4
+    soft_limit = 2
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "8s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2048mb"

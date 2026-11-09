@@ -691,9 +691,9 @@ export function computeTreeSupport2DVolume(
   const height = Math.max(1.0, pre.maxY - pre.minY);
   const spanX = Math.max(2.0, pre.maxX - pre.minX);
   const spanZ = Math.max(2.0, pre.maxZ - pre.minZ);
-  const margin = Math.max(14.0, Math.max(spanX, spanZ) * 0.25);
+  const margin = Math.max(10.0, Math.max(spanX, spanZ) * 0.18);
 
-  const gridRes = 88;
+  const gridRes = 108;
   const boxSpan = Math.max(spanX + margin * 2, spanZ + margin * 2);
   const cellSize = boxSpan / gridRes;
   const centerX = (pre.minX + pre.maxX) * 0.5;
@@ -701,7 +701,7 @@ export function computeTreeSupport2DVolume(
   const gridMinX = centerX - boxSpan * 0.5;
   const gridMinZ = centerZ - boxSpan * 0.5;
 
-  const numLevels = Math.max(26, Math.min(72, Math.round(height / 1.38)));
+  const numLevels = Math.max(30, Math.min(82, Math.round(height / 1.15)));
   const levelStepY = height / numLevels;
 
   // Bước 2.1: Xây dựng chồng mặt cắt 2D SDF chính xác của mô hình trên toàn bộ numLevels độ cao
@@ -926,8 +926,12 @@ export function computeTreeSupport2DVolume(
       }
 
       // 2. Xử lý chạm mặt sàn mô hình bên dưới nếu ở chế độ Support Everywhere (!buildPlateOnly)
+      //    hoặc khi nhánh bị bệ rộng bên dưới chắn hoàn toàn không còn đường vòng ra mép bàn in
       const dAtTarget = sampleGridField(curSdf, nx, nz);
-      if (parentNode.allowModelFloorLanding && parentNode.ageLevels >= 3 && dAtTarget <= 0.15) {
+      const escAtTarget = sampleGridField(curEsc, nx, nz);
+      const canFallbackLandOnModel =
+        parentNode.allowModelFloorLanding || escAtTarget >= INF_ESCAPE * 0.5;
+      if (canFallbackLandOnModel && parentNode.ageLevels >= 2 && dAtTarget <= 0.22) {
         const landedNode: ITreeGraphNode = {
           id: nextNodeId++,
           level: k,
@@ -1120,20 +1124,27 @@ export function computeTreeSupport2DVolume(
           dSpawn = sampleGridField(curSdf, spawnX, spawnZ);
         }
 
-        // Nếu điểm spawn sau khi đẩy bị lệch quá xa (> 3.2mm) khỏi tấm đệm Overhang hoặc vẫn kẹt trong mẫu -> Bỏ qua
-        if (dSpawn < patchTipR * 0.75 + xyClearanceMm || Math.hypot(spawnX - px, spawnZ - pz) > 3.2) {
+        // Nếu điểm spawn sau khi đẩy bị lệch quá xa khỏi tấm đệm Overhang -> Kẹp bán kính lệch tối đa 2.2mm để ngọn luôn đỡ trúng tâm pad
+        const spawnOffset = Math.hypot(spawnX - px, spawnZ - pz);
+        if (spawnOffset > 2.2) {
+          const clampScale = 2.2 / spawnOffset;
+          spawnX = px + (spawnX - px) * clampScale;
+          spawnZ = pz + (spawnZ - pz) * clampScale;
+          dSpawn = sampleGridField(curSdf, spawnX, spawnZ);
+        }
+        if (dSpawn < -0.15) {
           continue;
         }
 
         let escHere = sampleGridField(curEsc, spawnX, spawnZ);
         if (escHere >= INF_ESCAPE * 0.5) {
           let bestProbeEsc = INF_ESCAPE;
-          for (let rStep = 0.6; rStep <= 2.2; rStep += 0.8) {
+          for (let rStep = 0.5; rStep <= 1.9; rStep += 0.7) {
             for (let a = 0; a < 8; a++) {
               const ang = (a / 8) * Math.PI * 2;
               const tx = spawnX + Math.cos(ang) * rStep;
               const tz = spawnZ + Math.sin(ang) * rStep;
-              if (sampleGridField(curSdf, tx, tz) < reqSpawnClear) continue;
+              if (sampleGridField(curSdf, tx, tz) < reqSpawnClear * 0.75) continue;
               const eVal = sampleGridField(curEsc, tx, tz);
               if (eVal < bestProbeEsc) {
                 bestProbeEsc = eVal;
@@ -1147,9 +1158,6 @@ export function computeTreeSupport2DVolume(
         }
 
         const reachableToBed = escHere < INF_ESCAPE * 0.5;
-        if (!reachableToBed && buildPlateOnly) {
-          continue;
-        }
 
         const roofBottomY = Math.max(yCur + 0.15, py - topZDistMm - interfaceHeightMm * 0.65);
         const newNode: ITreeGraphNode = {
@@ -1161,16 +1169,16 @@ export function computeTreeSupport2DVolume(
           r: patchTipR,
           ageLevels: 0,
           tipWeight: 1,
-          allowModelFloorLanding: !reachableToBed && !buildPlateOnly,
+          allowModelFloorLanding: !reachableToBed || !buildPlateOnly,
           landedOnFloor: false,
           reachedGoal: false,
           parentIds: [],
           patch,
           tipStem: {
-            x0: px + outDirX * 0.28,
+            x0: px + outDirX * 0.16,
             y0: roofBottomY,
-            z0: pz + outDirZ * 0.28,
-            r0: patchTipR * 0.88,
+            z0: pz + outDirZ * 0.16,
+            r0: patchTipR * 0.85,
           },
         };
         allGraphNodes.set(newNode.id, newNode);
@@ -1315,8 +1323,8 @@ function buildSparseSurfaceNetsTreeMesh(vol: ITreeSupport2DVolume): THREE.Buffer
 
   bMinY = Math.max(vol.minY - 1.5, bMinY);
   const maxSpan = Math.max(bMaxX - bMinX, bMaxY - bMinY, bMaxZ - bMinZ);
-  // Độ phân giải voxel mịn (0.68mm - 1.38mm) giới hạn dưới ~94^3 để chạy < 18ms
-  const vox = Math.max(0.68, Math.min(1.42, maxSpan / 92));
+  // Độ phân giải voxel mịn (0.55mm - 1.18mm) giữ ngọn cành sắc nét chuẩn Bambu Studio
+  const vox = Math.max(0.55, Math.min(1.18, maxSpan / 104));
 
   const nx = Math.max(6, Math.ceil((bMaxX - bMinX) / vox) + 3);
   const ny = Math.max(6, Math.ceil((bMaxY - bMinY) / vox) + 3);
@@ -1330,14 +1338,15 @@ function buildSparseSurfaceNetsTreeMesh(vol: ITreeSupport2DVolume): THREE.Buffer
   const touched = new Uint8Array(totalCorners);
   const touchedIndices: number[] = [];
 
-  // Đảm bảo bán kính tối thiểu >= 0.78 * vox để nhánh mao mạch nhỏ không bao giờ lọt qua khe lưới 3D
-  const minImplicitR = vox * 0.78;
+  // Giữ bán kính tối thiểu mảnh mai (0.56 * vox) và giảm hệ số hòa trộn ở đầu ngọn để nhánh không bị phình to
+  const minImplicitR = vox * 0.56;
   const smoothK = vol.smoothUnionK;
 
   for (const cap of vol.capsules) {
     const r0 = Math.max(minImplicitR, cap.r0);
     const r1 = Math.max(minImplicitR, cap.r1);
-    const maxR = Math.max(r0, r1) + smoothK + vox * 1.45;
+    const localSmoothK = cap.isNearTip ? Math.min(0.26, smoothK * 0.35) : smoothK;
+    const maxR = Math.max(r0, r1) + localSmoothK + vox * 1.35;
 
     const ix0 = Math.max(0, Math.floor((Math.min(cap.x0, cap.x1) - maxR - bMinX) / vox));
     const ix1 = Math.min(nx - 1, Math.ceil((Math.max(cap.x0, cap.x1) + maxR - bMinX) / vox));
@@ -1382,7 +1391,7 @@ function buildSparseSurfaceNetsTreeMesh(vol: ITreeSupport2DVolume): THREE.Buffer
           if (prev > 9.5) {
             field[idx] = dist;
           } else {
-            field[idx] = sminPoly(prev, dist, smoothK);
+            field[idx] = sminPoly(prev, dist, localSmoothK);
           }
 
           if (touched[idx] === 0) {

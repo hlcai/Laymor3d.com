@@ -1,6 +1,6 @@
 # ==============================================================================
-# Laymor3D Headless Cloud Slicer Worker (OrcaSlicer / Bambu Studio Engine Core)
-# Chạy không cần FUSE (--appimage-extract) + Xvfb ảo trên Railway / Fly.io / Cloud Run / VPS
+# Laymor3D Headless Cloud Slicer Worker (OrcaSlicer + PrusaSlicer C++ Core)
+# Chạy không cần FUSE (--appimage-extract) + Xvfb ảo trên Fly.io / Railway / Cloud Run / VPS
 # ==============================================================================
 FROM ubuntu:22.04
 
@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PORT=8090 \
     NODE_ENV=production
 
-# 1. Cài đặt thư viện đồ họa Headless Xvfb, Mesa OpenGL/EGL & Node.js 20 LTS
+# 1. Cài đặt thư viện đồ họa Headless Xvfb, Mesa OpenGL/EGL, PrusaSlicer CLI & Node.js 20 LTS
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     xauth \
     dbus-x11 \
+    prusa-slicer \
     libgl1-mesa-glx \
     libgl1-mesa-dri \
     libegl1-mesa \
@@ -52,7 +53,8 @@ RUN curl -fL "https://github.com/SoftFever/OrcaSlicer/releases/download/v${ORCA_
     && mv /opt/squashfs-root /opt/orcaslicer \
     && rm -f /tmp/orcaslicer.AppImage
 
-ENV SLICER_BIN="/opt/orcaslicer/AppRun"
+ENV SLICER_BIN="/opt/orcaslicer/AppRun" \
+    PRUSA_BIN="/usr/bin/prusa-slicer"
 
 # 3. Khởi tạo thư mục dịch vụ Worker
 WORKDIR /app
