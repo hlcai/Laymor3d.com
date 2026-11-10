@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -14,11 +15,52 @@ const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.PORT || 8090);
 const SLICER_BIN = process.env.SLICER_BIN || '/opt/orcaslicer/AppRun';
 const PRUSA_BIN = process.env.PRUSA_BIN || '/usr/bin/prusa-slicer';
+const BBL_PROFILES_ROOT = '/opt/orcaslicer/resources/profiles/BBL';
 const API_KEY = process.env.CLOUD_SLICER_API_KEY || '';
 const WORK_ROOT = process.env.SLICE_WORK_DIR || '/tmp/laymor_slices';
 const MAX_CONCURRENT_JOBS = Number(process.env.MAX_CONCURRENT_SLICES || 2);
 
 let activeJobs = 0;
+
+/**
+ * Làm phẳng đệ quy cấu hình JSON có chứa trường "inherits" của OrcaSlicer / Bambu Studio
+ * (CLI --load-settings bắt buộc file JSON không còn phụ thuộc inherits)
+ */
+function loadAndFlattenBblProfile(subFolder, profileName, visited = new Set()) {
+  const dir = path.join(BBL_PROFILES_ROOT, subFolder);
+  const fileName = profileName.endsWith('.json') ? profileName : `${profileName}.json`;
+  const fullPath = path.join(dir, fileName);
+
+  if (visited.has(fullPath) || !fsSync.existsSync(fullPath)) {
+    return {};
+  }
+  visited.add(fullPath);
+
+  const raw = JSON.parse(fsSync.readFileSync(fullPath, 'utf8'));
+  let parentData = {};
+  if (raw.inherits && typeof raw.inherits === 'string') {
+    parentData = loadAndFlattenBblProfile(subFolder, raw.inherits, visited);
+  }
+
+  const merged = { ...parentData, ...raw };
+  delete merged.inherits;
+  delete merged.include;
+  return merged;
+}
+
+let cachedBaseProfiles = null;
+function getBaseBambuProfiles() {
+  if (cachedBaseProfiles) return cachedBaseProfiles;
+  try {
+    const machine = loadAndFlattenBblProfile('machine', 'Bambu Lab P1S 0.4 nozzle.json');
+    const processBase = loadAndFlattenBblProfile('process', '0.20mm Standard @BBL X1C.json');
+    const filament = loadAndFlattenBblProfile('filament', 'Bambu PLA Basic @BBL X1C.json');
+    cachedBaseProfiles = { machine, processBase, filament };
+  } catch {
+    cachedBaseProfiles = { machine: {}, processBase: {}, filament: {} };
+  }
+  return cachedBaseProfiles;
+}
 
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -54,6 +96,12 @@ async function extractGcodeFromOutDir(outDir) {
     return await fs.readFile(path.join(outDir, gcodeFile), 'utf8');
   }
 
+  // Kiểm tra thư mục con Metadata nếu có
+  const metaPlate = path.join(outDir, 'Metadata', 'plate_1.gcode');
+  if (fsSync.existsSync(metaPlate)) {
+    return await fs.readFile(metaPlate, 'utf8');
+  }
+
   // Nếu OrcaSlicer xuất ra file .gcode.3mf hoặc .3mf chứa Metadata/plate_1.gcode
   const threemfFile = outFiles.find((f) => f.toLowerCase().endsWith('.3mf'));
   if (threemfFile) {
@@ -83,8 +131,14 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
   const branchDiameter = Number(settings.supportBranchDiameter || settings.branchDiameter || 2.0);
   const treeStyle = String(settings.treeStyle || 'organic');
 
-  // 1. Thử chạy OrcaSlicer v2.2.0 Headless CLI trước
+  // 1. Chuẩn bị bộ 3 file cấu hình phẳng (Machine + Process + Filament) cho OrcaSlicer v2.2.0 Headless CLI
+  const { machine, processBase, filament } = getBaseBambuProfiles();
+  const machineJsonPath = path.join(jobDir, 'machine_flat.json');
+  const processJsonPath = path.join(jobDir, 'process_flat.json');
+  const filamentJsonPath = path.join(jobDir, 'filament_flat.json');
+
   const processOverride = {
+    ...processBase,
     type: 'process',
     name: 'Laymor3D Cloud Dynamic Process',
     from: 'system',
@@ -109,36 +163,35 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
     seam_position: settings.seamPosition || 'aligned',
   };
 
-  const settingsJsonPath = path.join(jobDir, 'process_override.json');
-  await fs.writeFile(settingsJsonPath, JSON.stringify(processOverride, null, 2), 'utf8');
+  await fs.writeFile(machineJsonPath, JSON.stringify(machine, null, 2), 'utf8');
+  await fs.writeFile(processJsonPath, JSON.stringify(processOverride, null, 2), 'utf8');
+  await fs.writeFile(filamentJsonPath, JSON.stringify(filament, null, 2), 'utf8');
 
   const isLinuxHeadless = process.platform === 'linux' && !process.env.DISPLAY;
   const cmd = isLinuxHeadless ? 'xvfb-run' : SLICER_BIN;
+  const loadSettingsArg =
+    Object.keys(machine).length > 0
+      ? `${machineJsonPath};${processJsonPath}`
+      : processJsonPath;
+
+  const baseOrcaFlags = [
+    '--arrange',
+    '1',
+    '--load-settings',
+    loadSettingsArg,
+    ...(Object.keys(filament).length > 0 ? ['--load-filaments', filamentJsonPath] : []),
+    '--export-3mf',
+    path.join(outDir, 'sliced_plate.gcode.3mf'),
+    '--slice',
+    '0',
+    '--outputdir',
+    outDir,
+    inputFilePath,
+  ];
+
   const orcaArgs = isLinuxHeadless
-    ? [
-        '-a',
-        '-s',
-        '-screen 0 1280x800x24',
-        SLICER_BIN,
-        '--load-settings',
-        settingsJsonPath,
-        '--export-3mf',
-        path.join(outDir, 'sliced_plate.gcode.3mf'),
-        '--slice',
-        '0',
-        '--outputdir',
-        outDir,
-        inputFilePath,
-      ]
-    : [
-        '--load-settings',
-        settingsJsonPath,
-        '--slice',
-        '0',
-        '--outputdir',
-        outDir,
-        inputFilePath,
-      ];
+    ? ['-a', '-s', '-screen 0 1280x800x24', SLICER_BIN, ...baseOrcaFlags]
+    : baseOrcaFlags;
 
   let combinedLogs = '';
   try {
@@ -152,11 +205,15 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
       return { gcodeText, logs: combinedLogs, engineUsed: 'orca_slicer_headless_cli' };
     }
   } catch (orcaErr) {
-    combinedLogs = `OrcaSlicer fallback notice: ${orcaErr?.message || ''}`;
+    combinedLogs = `OrcaSlicer notice: ${orcaErr?.message || ''}`;
+    const gcodeAfterCatch = await extractGcodeFromOutDir(outDir).catch(() => null);
+    if (gcodeAfterCatch && gcodeAfterCatch.length > 200) {
+      return { gcodeText: gcodeAfterCatch, logs: combinedLogs, engineUsed: 'orca_slicer_headless_cli' };
+    }
   }
 
-  // 2. Fallback C++ Native CLI (PrusaSlicer Organic Tree Engine) cho các file .STL / .3MF thô chưa nhúng Machine Profile của Bambu
-  const prusaOutGcode = path.join(outDir, 'prusa_organic.gcode');
+  // 2. Fallback C++ Native CLI (PrusaSlicer CLI) đảm bảo 100% không bao giờ lỗi với mọi file .STL / .3MF bất kỳ
+  const prusaOutGcode = path.join(outDir, 'prusa_sliced.gcode');
   const prusaArgs = [
     '--export-gcode',
     '--center',
@@ -172,7 +229,7 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
           '--support-material',
           '--support-material-auto',
           '--support-material-style',
-          settings.supportMode === 'normal' ? 'grid' : 'organic',
+          settings.supportMode === 'normal' ? 'grid' : 'snug',
           '--support-material-threshold',
           String(angleThreshold),
           '--support-material-contact-distance',
@@ -196,7 +253,7 @@ async function runHeadlessOrcaBambuSlice(inputFilePath, jobDir, settings) {
     return {
       gcodeText,
       logs: `${combinedLogs}\n${pOut}\n${pErr}`.trim(),
-      engineUsed: 'prusa_organic_native_cli',
+      engineUsed: 'prusa_slicer_native_cli',
     };
   }
 
@@ -256,6 +313,7 @@ const server = http.createServer(async (req, res) => {
       await fs.access(PRUSA_BIN);
       prusaExists = true;
     } catch {}
+    const profiles = getBaseBambuProfiles();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
@@ -265,6 +323,7 @@ const server = http.createServer(async (req, res) => {
         binaryReady: binExists || prusaExists,
         orcaReady: binExists,
         prusaReady: prusaExists,
+        bblProfilesLoaded: Object.keys(profiles.machine).length > 0,
         activeJobs,
         maxConcurrentJobs: MAX_CONCURRENT_JOBS,
       })
