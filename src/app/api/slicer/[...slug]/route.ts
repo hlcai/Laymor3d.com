@@ -35,7 +35,12 @@ export interface INativeSupportData {
 }
 
 function getCloudWorkerConfig(): { url: string | null; apiKey: string } {
-  const raw = (process.env.CLOUD_SLICER_WORKER_URL || '').trim().replace(/\/+$/, '');
+  const raw = (
+    process.env.CLOUD_SLICER_WORKER_URL ||
+    'https://laymor3d-slicer-worker.fly.dev'
+  )
+    .trim()
+    .replace(/\/+$/, '');
   return {
     url: raw.length > 0 ? raw : null,
     apiKey: (process.env.CLOUD_SLICER_API_KEY || '').trim(),
@@ -1052,7 +1057,7 @@ export async function GET(
       try {
         const res = await fetch(`${cloudCfg.url}/health`, {
           method: 'GET',
-          signal: AbortSignal.timeout(4000),
+          signal: AbortSignal.timeout(12000),
         });
         if (res.ok) {
           cloudWorkerReachable = true;
