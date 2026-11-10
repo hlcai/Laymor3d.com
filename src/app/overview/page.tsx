@@ -133,25 +133,25 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 2.4',
-        title: 'Tree Support 2 tầng cô lập theo từng chi tiết & Cắt tỉa ngược chống đâm xuyên (Backtrack Pruning)',
+        title: 'Tree Support 3.0 (Lưới SDF 108×108), Hạ cánh thông minh & Cắt tỉa ngược chống đâm xuyên',
         description:
-          'Hiển thị rõ 2 tầng Tree Support (Thân cành & Đỉnh/Đế tiếp xúc), cô lập cây chống cho từng chi tiết trên bàn in và áp dụng thuật toán Backtrack Pruning loại bỏ 100% nhánh/gốc đâm xuyên qua thân mô hình.',
+          'Hiển thị rõ 2 tầng Tree Support, nâng lưới 2D-SDF lên 108×108, tự động đáp nhánh lên bệ mẫu khi BuildPlateOnly bị chắn, khóa ngọn đỡ trúng tâm Interface Pad và loại bỏ 100% nhánh đâm xuyên mẫu.',
         status: 'completed',
-        deliverable: 'Tree Support 2 Tầng Chống Xuyên Mẫu & Đọc 3MF tốc độ cao',
+        deliverable: 'Tree Support 3.0 Chống Xuyên Mẫu & Đọc 3MF tốc độ cao',
       },
     ],
   },
   {
     id: 'phase-3',
     phaseNumber: 'Phase 03',
-    title: 'Bộ Dữ Liệu Chuẩn Bambu Studio, Xuất .3MF Tùy Chọn Support, Cloud Slicer & AI Tự Học',
-    subtitle: 'Đồng bộ thông số lên mẫu 3D tức thì, nạp nguyên bản Support Bambu Studio, tùy chọn xuất .3MF kèm/không kèm Tree Support và AI RAG 12D',
-    timeline: 'Giai đoạn 3 • Đã tích hợp Xuất .3MF Kèm/Tách Support, Cloud OrcaSlicer Worker & AI RAG 12D',
-    progressPercent: 82,
+    title: 'Bộ Dữ Liệu Chuẩn Bambu Studio, Cloud Slicer Worker (Fly.io Singapore) & AI Tự Học',
+    subtitle: 'Đã triển khai trực tiếp Headless OrcaSlicer v2.2.0 + PrusaSlicer C++ CLI trên Fly.io (laymor3d-slicer-worker.fly.dev), tùy chọn xuất .3MF kèm Support và AI RAG 12D',
+    timeline: 'Giai đoạn 3 • Đã vận hành Cloud Slicer trên Fly.io Singapore, Xuất .3MF & AI RAG 12D',
+    progressPercent: 90,
     status: 'active',
-    statusLabel: 'Đạt 82% (Có tùy chọn xuất Support, Cloud Worker & AI RAG)',
+    statusLabel: 'Đạt 90% (Đã chạy Cloud Slicer Fly.io + Xuất Support + AI RAG)',
     businessValue:
-      'Mọi thông số điều chỉnh bản in đều thể hiện trực tiếp trên mẫu 3D, giữ nguyên 100% Tree Support gốc từ Bambu Studio, cho phép chọn xuất file .3MF/STL có hoặc không có Tree Support đi kèm, đồng thời lượng hóa hình học 12 chiều để AI tự học.',
+      'Mọi tệp .3MF/.STL tải lên đều được cắt thực tế bằng nhân C++ OrcaSlicer v2.2.0 trên Fly.io Singapore (Scale-to-Zero) với cấu hình gốc Bambu Lab P1S, giữ nguyên 100% Tree Support gốc và lượng hóa hình học 12 chiều để AI tự học.',
     steps: [
       {
         code: 'Bước 3.1',
@@ -163,11 +163,11 @@ const PROJECT_PHASES: ProjectPhase[] = [
       },
       {
         code: 'Bước 3.2',
-        title: 'Giữ nguyên bản Support gốc Bambu Studio (.gcode.3mf), Cloud Slicer Worker & Tùy chọn Xuất .3MF Kèm/Tách Support',
+        title: 'Vận hành Cloud Slicer Worker (Fly.io Singapore) chạy OrcaSlicer v2.2.0 C++ & Xuất .3MF Tùy chọn Support',
         description:
-          'Ưu tiên hiển thị nguyên bản 100% Tree Support từ tệp .gcode.3mf/.gcode của Bambu Studio, tích hợp Docker Headless OrcaSlicer Cloud Worker và cho phép tùy chọn xuất tệp .3MF/.STL kèm sẵn khối lưới Tree Support hoặc chỉ xuất mẫu sạch kèm Profile.',
+          'Đã triển khai Docker Headless OrcaSlicer v2.2.0 + PrusaSlicer C++ CLI tại laymor3d-slicer-worker.fly.dev (nạp đầy đủ cấu hình phẳng Bambu Lab P1S 0.4mm), kết nối trực tiếp với laymor3dcom.vercel.app và cho phép tùy chọn xuất .3MF/.STL kèm hoặc tách rời khối Tree Support.',
         status: 'completed',
-        deliverable: 'Verbatim Bambu Support, Cloud Slicer & Xuất .3MF Tùy chọn Support',
+        deliverable: 'Fly.io Cloud Slicer (Orca v2.2.0 C++) & Xuất .3MF Tùy chọn Support',
       },
       {
         code: 'Bước 3.3',

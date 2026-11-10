@@ -131,7 +131,8 @@ Dự án được chia tách thành **6 Function Modules cốt lõi** độc l�
 | :--- | :--- | :---: | :---: | :--- |
 | **Studio** | Three.js WebGL 3D Viewer & Cầu nối `/studio ↔ /3dsim` | ✅ UI - Hook - BE | 🟢 Hoàn thành | Hỗ trợ Multi-Part/Multi-Plate, đồng bộ 2 chiều |
 | **Studio / 3dsim** | Bộ cắt lớp 2D-SDF Web Worker & Cắt sợi O(S) Zero-Drop | ✅ UI - Hook - BE | 🟢 Hoàn thành | Sợi nhựa khối 3D WebGL2 Volumetric Bead Shader |
-| **Studio / 3dsim** | Tree Support 2 Tầng, Backtrack Pruning & Support Gốc Bambu | ✅ UI - Hook - BE | 🟢 Hoàn thành | Chống đâm xuyên mẫu 100%, nạp `.gcode.3mf` / `.gcode` gốc |
+| **Studio / 3dsim** | Tree Support 3.0, Backtrack Pruning & Support Gốc Bambu | ✅ UI - Hook - BE | 🟢 Hoàn thành | Chống đâm xuyên mẫu 100%, lưới SDF `108x108`, nạp `.gcode.3mf` gốc |
+| **Cloud Slicer** | Fly.io Headless OrcaSlicer v2.2.0 + PrusaSlicer C++ Worker | ✅ UI - Hook - BE | 🟢 Hoàn thành | Đã deploy tại `laymor3d-slicer-worker.fly.dev` (Singapore `sin`) |
 | **Studio / 3dsim** | Xuất `.3MF` / `.STL` Tùy chọn Kèm hoặc Tách Tree Support | ✅ UI - Hook - BE | 🟢 Hoàn thành | Đóng gói đầy đủ Bambu Studio Profile để in ngay |
 | **Studio / 3dsim** | Đặc trưng hình học 12D, Chuyên gia AI Copilot & Tự học RAG | ✅ UI - Hook - BE | 🟢 Hoàn thành | Tư vấn 6 nhóm thông số, Vision chẩn đoán ảnh lỗi |
 | **UI / Icons** | Hệ thống Icon Minimalist CAD/Architectural độc quyền | ✅ UI - Hook - BE | 🟢 Hoàn thành | Thay thế 100% icon mặc định trên 87+ tệp giao diện |
@@ -162,10 +163,10 @@ File trực quan tương tác đặt tại:
 
 ## 📌 8. Nhật Ký Cập Nhật Mới Nhất (Changelog v2.5.0 - 11/2026)
 
-1. **Hệ thống Tree Support 2.0 Chống Đâm Xuyên Mẫu & Nạp Trực Tiếp Support Gốc Bambu Studio**:
-   - **Backtrack Pruning (`supportGenerator.ts` & `SupportBuilder.ts`)**: Cắt tỉa ngược từ ngọn xuống gốc và kiểm tra va chạm đoạn thẳng (Segment Clearance), loại bỏ 100% hiện tượng nhánh hoặc gốc Tree Support đâm xuyên qua thân mô hình 3D hoặc vồng ngang vô lý.
+1. **Hệ thống Tree Support 3.0 & Triển Khai Thành Công Cloud Slicer Worker Trên Fly.io (`https://laymor3d-slicer-worker.fly.dev`)**:
+   - **Cloud Slicer Worker (`cloud-slicer-worker/`)**: Đã đóng gói và triển khai trực tiếp nhân C++ **OrcaSlicer v2.2.0** (kèm bộ giải phẳng đệ quy `loadAndFlattenBblProfile` cho 3 cấu hình gốc `Bambu Lab P1S 0.4 nozzle`, `0.20mm Standard @BBL X1C`, `Bambu PLA Basic @BBL X1C`) kết hợp **PrusaSlicer C++ CLI** lên cụm máy chủ **Fly.io Singapore (`sin`)** với cơ chế **Scale-to-Zero** (`min_machines_running = 0`), kết nối tự động với `https://laymor3dcom.vercel.app`.
+   - **Tree Support 3.0 (`supportGenerator.ts` & `SupportBuilder.ts`)**: Nâng độ phân giải lưới 2D SDF lên `108×108`, tự động cho phép nhánh bị bệ mẫu rộng chắn đường hạ cánh xuống mặt phẳng mẫu (`canFallbackLandOnModel`), khóa tâm ngọn cành (`spawnOffset <= 2.2mm`) đỡ trúng miếng đệm `interfacePads` và làm thon mượt vỏ cây 3D.
    - **Hiển thị Tree Support 2 Tầng & Cô lập theo từng chi tiết (Per-Part Isolation)**: Hỗ trợ tệp `.3MF` nhiều chi tiết (Multi-Part) và nhiều bàn in (Multi-Plate).
-   - **Nạp trực tiếp Support gốc Bambu Studio (`.gcode.3mf` / `.gcode`)**: Giải nén và giữ nguyên bản 100% đường chạy Tree Support do Bambu Studio / OrcaSlicer sinh ra ngay trên trình duyệt, kết hợp Docker Headless OrcaSlicer Cloud Worker (`cloud-slicer-worker/`).
 2. **Tùy Chọn Xuất Tệp `.3MF` / `.STL` Kèm Hoặc Không Kèm Tree Support (`ExportProfileModal.tsx`, `slicerExporter.ts`)**:
    - Cho phép người dùng bật/tắt tùy chọn xuất mô hình đã gắn sẵn khối lưới Tree Support (Baked Support Mesh) hoặc chỉ xuất mô hình gốc sạch kèm đầy đủ cấu hình Bambu Studio Profile để đưa vào Bambu Studio in ngay.
 3. **Bộ Cắt Lớp Đa Luồng 2D-SDF Web Worker, Cắt Sợi O(S) Zero-Drop & WebGL2 Volumetric Bead Shader**:
