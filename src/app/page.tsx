@@ -123,9 +123,10 @@ export default function HomePage() {
           Mỗi banner kèm nút "MUA NGAY" link tới trang sản phẩm tương ứng
          ===================================================================== */}
       <section
+        data-force-dark="true"
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
-        className="relative rounded-[32px] overflow-hidden bg-gradient-to-br from-[#121316] via-[#241B15] to-[#0F172A] text-white shadow-[0_24px_60px_rgba(15,23,42,0.22)] border border-slate-800"
+        className="relative rounded-[32px] overflow-hidden bg-gradient-to-br from-[#0B1120] via-[#0F2942] to-[#0F172A] text-white shadow-[0_24px_60px_rgba(15,23,42,0.22)] border border-slate-800"
       >
         {/* Ánh sáng studio nền */}
         <div className="absolute -top-24 right-1/4 w-[520px] h-[520px] rounded-full bg-[#3FA9F5]/15 blur-[130px] pointer-events-none" />
@@ -481,7 +482,10 @@ export default function HomePage() {
           • Mô phỏng in 3D
           Nút "Trải nghiệm ->" dẫn đến trang AI tools
          ===================================================================== */}
-      <section className="rounded-[36px] bg-gradient-to-br from-[#0B0F17] via-[#111827] to-[#0F2942] text-white p-6 sm:p-10 shadow-[0_24px_60px_rgba(15,23,42,0.18)] border border-slate-800 space-y-8">
+      <section
+        data-force-dark="true"
+        className="rounded-[36px] bg-gradient-to-br from-[#0B0F17] via-[#111827] to-[#0F2942] text-white p-6 sm:p-10 shadow-[0_24px_60px_rgba(15,23,42,0.18)] border border-slate-800 space-y-8"
+      >
         {/* Thanh chuyển đổi 2 công cụ AI ở đỉnh khung (Giống mẫu Meshy Trang 7 PDF) */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-800 pb-6">
           <div className="space-y-1 text-center sm:text-left">
@@ -903,7 +907,10 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="lg:col-span-5 flex flex-col items-center justify-center p-6 rounded-3xl bg-gradient-to-br from-[#0F2942] to-[#1D4ED8] text-white text-center space-y-4">
+            <div
+              data-force-dark="true"
+              className="lg:col-span-5 flex flex-col items-center justify-center p-6 rounded-3xl bg-gradient-to-br from-[#0F2942] to-[#1D4ED8] text-white text-center space-y-4"
+            >
               <LaymorLogo variant="wordmark" size="lg" invertOnDark />
               <p className="text-xs text-sky-100">
                 Đặt lịch hẹn trải nghiệm máy in 3D &amp; nhận mẫu in thử miễn phí tại Showroom Thủ
@@ -927,7 +934,10 @@ export default function HomePage() {
           Hãy tham gia cùng chúng tôi
           Tone theo guideline
          ===================================================================== */}
-      <section className="relative rounded-[28px] overflow-hidden bg-gradient-to-r from-[#0B192C] via-[#0F2942] to-[#1E40AF] text-white px-6 sm:px-12 py-10 sm:py-12 shadow-[0_20px_50px_rgba(15,41,66,0.25)] border border-[#1E3A8A]">
+      <section
+        data-force-dark="true"
+        className="relative rounded-[28px] overflow-hidden bg-gradient-to-r from-[#0B192C] via-[#0F2942] to-[#1E40AF] text-white px-6 sm:px-12 py-10 sm:py-12 shadow-[0_20px_50px_rgba(15,41,66,0.25)] border border-[#1E3A8A]"
+      >
         {/* Họa tiết lưới hình học chìm giống ảnh mẫu Trang 6 PDF */}
         <div
           className="absolute inset-0 opacity-15 pointer-events-none"

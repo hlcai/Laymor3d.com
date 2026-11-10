@@ -19,9 +19,12 @@ import { LaymorLogo } from '@/components/common/LaymorLogo';
 
 export function Footer() {
   return (
-    <footer className="mt-16 bg-white border-t border-slate-200 text-slate-700">
+    <footer className="mt-16 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-colors duration-300">
       {/* 1. DẢI CAM KẾT DỊCH VỤ PHÍA TRÊN FOOTER (TRANG 8 PDF - TONE XANH LAYMOR) */}
-      <div className="bg-gradient-to-r from-[#0F2942] via-[#1D4ED8] to-[#3FA9F5] text-white">
+      <div
+        data-force-dark="true"
+        className="bg-gradient-to-r from-[#0F2942] via-[#1D4ED8] to-[#3FA9F5] text-white"
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
@@ -251,7 +254,7 @@ export function Footer() {
             </div>
 
             {/* Huy hiệu ĐÃ THÔNG BÁO BỘ CÔNG THƯƠNG */}
-            <div className="pt-2">
+            <div className="pt-2" data-force-dark="true">
               <div className="inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-[#00529B] text-white shadow-xs border border-[#003F7A]">
                 <div className="w-8 h-8 rounded-full bg-white text-[#00529B] flex items-center justify-center shrink-0">
                   <CheckCircle2 className="w-5 h-5" />

@@ -8,6 +8,8 @@ interface LaymorLogoProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
   invertOnDark?: boolean;
+  /** Mặc định tự động đảo chữ đen sang trắng trên nền Dark Mode mà vẫn giữ nguyên sắc xanh LAYMOR */
+  adaptiveTheme?: boolean;
 }
 
 const SIZE_CLASSES: Record<
@@ -56,17 +58,21 @@ export function LaymorLogo({
   size = 'md',
   className = '',
   invertOnDark = false,
+  adaptiveTheme = true,
 }: LaymorLogoProps) {
   const src = SRC_MAP[variant];
   const sizeCls = SIZE_CLASSES[variant][size];
+  const filterCls = invertOnDark
+    ? 'brightness-0 invert'
+    : adaptiveTheme && variant !== 'mark'
+    ? 'laymor-logo-adaptive'
+    : '';
 
   return (
     <img
       src={src}
       alt="LAYMOR — From layers to form"
-      className={`object-contain select-none ${sizeCls} ${
-        invertOnDark ? 'brightness-0 invert' : ''
-      } ${className}`}
+      className={`object-contain select-none ${sizeCls} ${filterCls} ${className}`}
       draggable={false}
     />
   );
@@ -96,10 +102,10 @@ export function LaymorRefTag({
 
   return (
     <span
-      className={`inline-flex items-center justify-center font-semibold leading-none border bg-white whitespace-nowrap ${sizeClass} ${
+      className={`inline-flex items-center justify-center font-semibold leading-none border bg-white dark:bg-slate-900/90 whitespace-nowrap ${sizeClass} ${
         isNew
-          ? 'border-[#F59E0B] text-[#EA580C]'
-          : 'border-[#2563EB] text-[#1D4ED8]'
+          ? 'border-[#F59E0B] text-[#EA580C] dark:text-[#FBBF24]'
+          : 'border-[#2563EB] text-[#1D4ED8] dark:border-[#3FA9F5] dark:text-[#3FA9F5]'
       } ${className}`}
     >
       {isNew ? 'New' : 'Coming soon'}

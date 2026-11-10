@@ -88,16 +88,89 @@ import { useTelemetryLogger } from '@/hooks/useTelemetryLogger';
 import { IconAxis, IconLayers, IconToolpath } from '@/components/icons/MinimalIcons';
 
 export default function App() {
-  // 0. Luxury Dark / Light Theme State
+  // 0. Unified LAYMOR Dark / Light Theme State (đồng bộ 2 chiều với Trang chủ / qua localStorage & prefers-color-scheme)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    const saved = localStorage.getItem('printsim_theme');
-    return saved === 'light' ? 'light' : 'dark';
+    if (typeof window === 'undefined') return 'light';
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qTheme = params.get('theme');
+      if (qTheme === 'light' || qTheme === 'dark') return qTheme;
+      const saved =
+        localStorage.getItem('laymor_theme') || localStorage.getItem('printsim_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
   });
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('printsim_theme', theme);
+    const root = document.documentElement;
+    root.setAttribute('data-theme', theme);
+    root.classList.toggle('dark', theme === 'dark');
+
+    let meta = document.querySelector('meta[name="color-scheme"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'color-scheme';
+      document.head.appendChild(meta);
+    }
+    try {
+      const saved =
+        localStorage.getItem('laymor_theme') || localStorage.getItem('printsim_theme');
+      meta.content = saved === 'light' || saved === 'dark' ? saved : 'light dark';
+    } catch {
+      meta.content = theme;
+    }
   }, [theme]);
+
+  useEffect(() => {
+    const mql = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const syncFromExternal = () => {
+      try {
+        const saved =
+          localStorage.getItem('laymor_theme') || localStorage.getItem('printsim_theme');
+        if (saved === 'light' || saved === 'dark') {
+          setTheme(saved);
+        } else {
+          setTheme(mql?.matches ? 'dark' : 'light');
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    };
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === 'laymor_theme' || e.key === 'printsim_theme') {
+        syncFromExternal();
+      }
+    };
+    mql?.addEventListener?.('change', syncFromExternal);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      mql?.removeEventListener?.('change', syncFromExternal);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  const handleToggleTheme = React.useCallback(() => {
+    setTheme((prev) => {
+      const next: 'dark' | 'light' = prev === 'dark' ? 'light' : 'dark';
+      try {
+        const sysDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+        const sysTheme: 'dark' | 'light' = sysDark ? 'dark' : 'light';
+        if (next === sysTheme) {
+          localStorage.removeItem('laymor_theme');
+          localStorage.removeItem('printsim_theme');
+        } else {
+          localStorage.setItem('laymor_theme', next);
+          localStorage.setItem('printsim_theme', next);
+        }
+      } catch {
+        // Ignore storage quota / privacy mode errors
+      }
+      return next;
+    });
+  }, []);
 
   // 1. Model & Geometry State
   const [currentModel, setCurrentModel] = useState<ISampleModel>(SAMPLE_MODELS[0]);
@@ -118,7 +191,9 @@ export default function App() {
   // 3. UI Toggles & Engine Selection
   const [simulatorEngine, setSimulatorEngine] = useState<SimulatorEngineType>('wasm_client');
   const [isEngineModalOpen, setIsEngineModalOpen] = useState<boolean>(false);
-  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(true);
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  );
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isTimelapseModalOpen, setIsTimelapseModalOpen] = useState<boolean>(false);
   const [isSupportAIModalOpen, setIsSupportAIModalOpen] = useState<boolean>(false);
@@ -1190,7 +1265,7 @@ export default function App() {
       particleCount: 50,
       spread: 60,
       origin: { y: 0.7 },
-      colors: ['#d4b483', '#10b981'],
+      colors: ['#1a75ff', '#3fa9f5', '#10b981'],
     });
   };
 
@@ -1211,7 +1286,7 @@ export default function App() {
       particleCount: 60,
       spread: 70,
       origin: { y: 0.75 },
-      colors: ['#d4b483', '#10b981', '#38bdf8'],
+      colors: ['#1a75ff', '#3fa9f5', '#10b981'],
     });
   };
 
@@ -1253,8 +1328,8 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden select-none bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-300">
-      {/* 1. Header Toolbar (Single Unified Top Bar - No Overlap) */}
+    <div className="h-dvh w-full flex flex-col overflow-hidden select-none bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-300">
+      {/* 1. Docked Responsive Header Toolbar (Zero Clipping / Zero Missing Buttons) */}
       <SimulatorHeader
         currentModel={currentModel}
         onSelectSample={(sample) => {
@@ -1295,17 +1370,9 @@ export default function App() {
         onOpenAI3DModal={() => setIsAI3DModalOpen(true)}
         onOpenDefectKnowledgeModal={() => setIsDefectKnowledgeOpen(true)}
         theme={theme}
-        onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+        onToggleTheme={handleToggleTheme}
         onSyncToStudio={handleSyncBackToStudio}
       />
-
-      {/* Notification Toast khi nạp mô hình / Bambu Studio CLI đang cắt lát (Đặt ở bottom-24 tránh đè lên HUD Điểm Khả Thi) */}
-      {uploadSlicingStatus && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-2.5 px-5 py-2.5 glass-panel studio-gold-badge rounded-xl shadow-2xl text-xs font-semibold">
-          <span className="w-2 h-2 rounded-full bg-[var(--accent-gold)] animate-ping" />
-          <span>{uploadSlicingStatus}</span>
-        </div>
-      )}
 
       {/* Hidden File Input để nạp trực tiếp file .gcode.3mf / .gcode từ Bambu Studio */}
       <input
@@ -1320,144 +1387,167 @@ export default function App() {
         }}
       />
 
-      {/* 2. Three.js 3D Simulation Viewport */}
-      <main className="w-full h-full">
-        <PrintSimulatorViewport
-          geometry={geometry}
+      {/* 2. Middle Flex Workspace: Docked Left Sidebar (lg+) / Drawer (<lg) + Center 3D Stage */}
+      <div className="flex-1 min-h-0 relative flex overflow-hidden">
+        {/* 2.1 Profile Settings Sidebar / Mobile Drawer */}
+        <ProfileSettingsPanel
           profile={profile}
-          simulationState={simulationState}
-          slicingMetrics={slicingMetrics}
-          preflightReport={preflightReport}
-          showHeatmap={showHeatmap}
-          showToolhead={showToolhead}
-          showSupport={showSupport}
-          cameraView={cameraView}
-          onSetCameraView={setCameraView}
-          renderMode={renderMode}
-          viewMode={viewMode}
-          onToggleViewMode={setViewMode}
-          modelTransform={modelTransform}
-          onChangeTransform={setModelTransform}
-          onResetTransform={handleResetTransform}
-          onAutoLayFlat={handleAutoLayFlat}
-          onStepLayer={handleStepLayer}
-          onScrubProgress={handleScrubProgress}
-          onApplyFix={handleApplyFix}
-          onUploadFile={handleUploadFile}
-          onRegisterCaptureSnapshot={(fn) => {
-            captureSnapshotRef.current = fn;
+          onChangeProfile={(updated) => setProfile((prev) => ({ ...prev, ...updated }))}
+          onApplyPreset={(presetId) => {
+            const found = PRESET_PROFILES.find((p) => p.id === presetId);
+            if (found) {
+              setProfile(found);
+              recordSimulationLog(`Preset: ${found.material}`, found);
+            }
           }}
-          isSmoothTimelapseActive={isTimelapseModalOpen}
-          currentModel={currentModel}
-          theme={theme}
-          onOpenReportModal={() => setIsReportModalOpen(true)}
-          simulatorEngine={simulatorEngine}
-          proTelemetry={proTelemetry}
-          gcodeLines={gcodeLines}
-          isProfileOpen={isProfileOpen}
-          plates={loadedPlates.map((p) => ({
-            plateId: p.plateId,
-            plateName: p.plateName,
-            partCount: p.partCount,
-            hasNativeSupport: Boolean(p.gcodeBundle && p.gcodeBundle.supportData.segments.length > 0),
-          }))}
-          activePlateId={activePlateId}
-          onSelectPlate={handleSelectPlate}
-          hasNativeBambuSupport={hasNativeBambuSupport}
-          onImportBambuGcode={() => bambuGcodeInputRef.current?.click()}
+          isOpen={isProfileOpen}
+          onToggleOpen={() => setIsProfileOpen((prev) => !prev)}
+          onOpenSupportAIModal={() => setIsSupportAIModalOpen(true)}
+          onOpenGeminiKeyModal={() => setIsGeminiKeyModalOpen(true)}
+          onOpenLocalSlicerModal={() => setIsLocalSlicerModalOpen(true)}
         />
-      </main>
 
-      {/* 3. Profile Settings Side Drawer */}
-      <ProfileSettingsPanel
-        profile={profile}
-        onChangeProfile={(updated) => setProfile((prev) => ({ ...prev, ...updated }))}
-        onApplyPreset={(presetId) => {
-          const found = PRESET_PROFILES.find((p) => p.id === presetId);
-          if (found) {
-            setProfile(found);
-            recordSimulationLog(`Preset: ${found.material}`, found);
-          }
-        }}
-        isOpen={isProfileOpen}
-        onToggleOpen={() => setIsProfileOpen((prev) => !prev)}
-        onOpenSupportAIModal={() => setIsSupportAIModalOpen(true)}
-        onOpenGeminiKeyModal={() => setIsGeminiKeyModalOpen(true)}
-        onOpenLocalSlicerModal={() => setIsLocalSlicerModalOpen(true)}
-      />
+        {/* 2.2 Center 3D Viewport Stage + Docked Bottom Action/Timeline Bar */}
+        <div className="flex-1 min-w-0 min-h-0 relative flex flex-col overflow-hidden">
+          <main className="viewport-stage flex-1 min-h-0 relative w-full overflow-hidden">
+            {/* Simulation Run Log Pill (Docked inside top-left of 3D Stage) */}
+            <SimulationRunLogPanel
+              logs={simulationLogs}
+              isProfileOpen={isProfileOpen}
+              onRecordManualLog={() => recordSimulationLog('Ghi thủ công')}
+              onRestoreProfile={(savedProfile) => {
+                setProfile(savedProfile);
+                recordSimulationLog('Khôi phục Log', savedProfile);
+              }}
+              onClearLogs={() => setSimulationLogs((prev) => (prev.length > 0 ? [prev[0]] : []))}
+              onOpenReportWithLog={(logId) => {
+                setSelectedReportLogId(logId || null);
+                setIsLiveInspectorOpen(true);
+              }}
+            />
 
-      {/* 3.5. Simulation Run Log Panel (Ghi lại thông số các lần chạy mô phỏng) */}
-      <SimulationRunLogPanel
-        logs={simulationLogs}
-        isProfileOpen={isProfileOpen}
-        onRecordManualLog={() => recordSimulationLog('Ghi thủ công')}
-        onRestoreProfile={(savedProfile) => {
-          setProfile(savedProfile);
-          recordSimulationLog('Khôi phục Log', savedProfile);
-        }}
-        onClearLogs={() => setSimulationLogs((prev) => (prev.length > 0 ? [prev[0]] : []))}
-        onOpenReportWithLog={(logId) => {
-          setSelectedReportLogId(logId || null);
-          setIsLiveInspectorOpen(true);
-        }}
-      />
+            {/* Notification Toast khi nạp mô hình / Bambu Studio CLI đang cắt lát */}
+            {uploadSlicingStatus && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-40 pointer-events-none flex items-center gap-2.5 px-4 py-2 glass-panel studio-gold-badge rounded-xl shadow-2xl text-xs font-semibold">
+                <span className="w-2 h-2 rounded-full bg-[var(--accent-gold)] animate-ping shrink-0" />
+                <span className="truncate">{uploadSlicingStatus}</span>
+              </div>
+            )}
 
-      {/* 4. Bottom Dock: Prepare Stage Action Bar OR Playback Timeline Scrubber */}
-      <div className="fixed bottom-3 left-3 right-3 z-20 pointer-events-auto">
-        {viewMode === 'prepare' ? (
-          <div className="w-full max-w-4xl mx-auto px-4 py-2 rounded-2xl glass-panel flex items-center justify-between gap-4 whitespace-nowrap">
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg studio-gold-badge font-bold uppercase tracking-wider text-[10px]">
-                <IconAxis className="w-3.5 h-3.5" />
-                <span>Chế Độ Chuẩn Bị Bàn In</span>
-              </span>
-              <span className="text-[var(--text-secondary)] font-mono text-[11px] hidden sm:inline">
-                Kích thước: <strong className="text-[var(--text-primary)]">{Math.round(slicingMetrics.boundingBox.dimensions[0])} × {Math.round(slicingMetrics.boundingBox.dimensions[2])} × {Math.round(slicingMetrics.boundingBox.dimensions[1])} mm</strong>
-              </span>
-              <span className="text-[var(--text-muted)] font-mono text-[11px] hidden md:inline">
-                • Overhang: <strong className="text-[var(--accent-gold)]">{preflightReport.overhangRiskAreaPercent}%</strong>
-              </span>
-            </div>
+            <PrintSimulatorViewport
+              geometry={geometry}
+              profile={profile}
+              simulationState={simulationState}
+              slicingMetrics={slicingMetrics}
+              preflightReport={preflightReport}
+              showHeatmap={showHeatmap}
+              showToolhead={showToolhead}
+              showSupport={showSupport}
+              cameraView={cameraView}
+              onSetCameraView={setCameraView}
+              renderMode={renderMode}
+              viewMode={viewMode}
+              onToggleViewMode={setViewMode}
+              modelTransform={modelTransform}
+              onChangeTransform={setModelTransform}
+              onResetTransform={handleResetTransform}
+              onAutoLayFlat={handleAutoLayFlat}
+              onStepLayer={handleStepLayer}
+              onScrubProgress={handleScrubProgress}
+              onApplyFix={handleApplyFix}
+              onUploadFile={handleUploadFile}
+              onRegisterCaptureSnapshot={(fn) => {
+                captureSnapshotRef.current = fn;
+              }}
+              isSmoothTimelapseActive={isTimelapseModalOpen}
+              currentModel={currentModel}
+              theme={theme}
+              onOpenReportModal={() => setIsReportModalOpen(true)}
+              simulatorEngine={simulatorEngine}
+              proTelemetry={proTelemetry}
+              gcodeLines={gcodeLines}
+              isProfileOpen={isProfileOpen}
+              plates={loadedPlates.map((p) => ({
+                plateId: p.plateId,
+                plateName: p.plateName,
+                partCount: p.partCount,
+                hasNativeSupport: Boolean(p.gcodeBundle && p.gcodeBundle.supportData.segments.length > 0),
+              }))}
+              activePlateId={activePlateId}
+              onSelectPlate={handleSelectPlate}
+              hasNativeBambuSupport={hasNativeBambuSupport}
+              onImportBambuGcode={() => bambuGcodeInputRef.current?.click()}
+            />
+          </main>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setViewMode('cad')}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl studio-cta-primary font-bold text-xs transition-all cursor-pointer"
-              >
-                <IconLayers className="w-3.5 h-3.5" />
-                <span>Cắt Lớp &amp; Mô Phỏng CAD →</span>
-              </button>
-              <button
-                onClick={() => setViewMode('filament_preview')}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl studio-gold-badge hover:opacity-90 font-bold text-xs transition-all cursor-pointer"
-              >
-                <IconToolpath className="w-3.5 h-3.5" />
-                <span>Xem Sợi In Bambu →</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <TimeScrubber
-            state={simulationState}
-            onTogglePlay={() => {
-              if (!simulationState.isPlaying) {
-                recordSimulationLog('Chạy mô phỏng');
-              }
-              setSimulationState((prev) => {
-                if (prev.isCompleted) {
-                  return { ...prev, isPlaying: true, isCompleted: false, currentProgress: 0 };
+          {/* 3. Docked Bottom Bar: Prepare Stage Action Bar OR Playback Timeline Scrubber */}
+          <div className="shrink-0 z-20 border-t studio-border bg-[var(--bg-panel)] backdrop-blur-xl px-2.5 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
+            {viewMode === 'prepare' ? (
+              <div className="w-full max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs min-w-0">
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg studio-gold-badge font-bold uppercase tracking-wider text-[10px]">
+                    <IconAxis className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Chuẩn Bị Bàn In</span>
+                  </span>
+                  <span className="text-[var(--text-secondary)] font-mono text-[11px] hidden sm:inline">
+                    Kích thước:{' '}
+                    <strong className="text-[var(--text-primary)]">
+                      {Math.round(slicingMetrics.boundingBox.dimensions[0])} ×{' '}
+                      {Math.round(slicingMetrics.boundingBox.dimensions[2])} ×{' '}
+                      {Math.round(slicingMetrics.boundingBox.dimensions[1])} mm
+                    </strong>
+                  </span>
+                  <span className="text-[var(--text-muted)] font-mono text-[11px] hidden md:inline">
+                    • Overhang:{' '}
+                    <strong className="text-[var(--accent-gold)]">
+                      {preflightReport.overhangRiskAreaPercent}%
+                    </strong>
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 ml-auto">
+                  <button
+                    onClick={() => setViewMode('cad')}
+                    className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl studio-cta-primary font-bold text-[11px] sm:text-xs transition-all cursor-pointer"
+                  >
+                    <IconLayers className="w-3.5 h-3.5 shrink-0" />
+                    <span>Cắt Lớp &amp; Mô Phỏng CAD →</span>
+                  </button>
+                  <button
+                    onClick={() => setViewMode('filament_preview')}
+                    className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl studio-gold-badge hover:opacity-90 font-bold text-[11px] sm:text-xs transition-all cursor-pointer"
+                  >
+                    <IconToolpath className="w-3.5 h-3.5 shrink-0" />
+                    <span>Xem Sợi In Bambu →</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <TimeScrubber
+                state={simulationState}
+                onTogglePlay={() => {
+                  if (!simulationState.isPlaying) {
+                    recordSimulationLog('Chạy mô phỏng');
+                  }
+                  setSimulationState((prev) => {
+                    if (prev.isCompleted) {
+                      return { ...prev, isPlaying: true, isCompleted: false, currentProgress: 0 };
+                    }
+                    return { ...prev, isPlaying: !prev.isPlaying };
+                  });
+                }}
+                onSetSpeed={(speed: PlaybackSpeed) =>
+                  setSimulationState((prev) => ({ ...prev, playbackSpeed: speed }))
                 }
-                return { ...prev, isPlaying: !prev.isPlaying };
-              });
-            }}
-            onSetSpeed={(speed: PlaybackSpeed) => setSimulationState((prev) => ({ ...prev, playbackSpeed: speed }))}
-            onScrubProgress={handleScrubProgress}
-            onStepLayer={handleStepLayer}
-            onReset={handleReset}
-            onInstantFinish={handleInstantFinish}
-            defects={preflightReport.errors}
-          />
-        )}
+                onScrubProgress={handleScrubProgress}
+                onStepLayer={handleStepLayer}
+                onReset={handleReset}
+                onInstantFinish={handleInstantFinish}
+                defects={preflightReport.errors}
+              />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 5. Pre-flight Defect Inspection Modal */}

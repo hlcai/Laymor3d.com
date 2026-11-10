@@ -164,7 +164,9 @@ export function PrintSimulatorViewport({
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [fixedNotice, setFixedNotice] = useState<string | null>(null);
   const [isDefectDismissed, setIsDefectDismissed] = useState(false);
-  const [showSlicingLegend, setShowSlicingLegend] = useState(true);
+  const [showSlicingLegend, setShowSlicingLegend] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 960 : true
+  );
   const [filamentColorScheme, setFilamentColorScheme] = useState<FilamentColorScheme>('line_type');
   const [intraLayerProgress, setIntraLayerProgress] = useState<number>(1.0);
   const [slicingProgressPct, setSlicingProgressPct] = useState<number | null>(null);
@@ -245,26 +247,26 @@ export function PrintSimulatorViewport({
     setIsDefectDismissed(false);
   }, [simulationState.currentLayer]);
 
-  // Đồng bộ màu nền 3D Canvas & Fog theo Dark / Softened Light Mode (0xc9c6be)
+  // Đồng bộ màu nền 3D Canvas & Fog theo LAYMOR Light (#eef3f9) / Dark (#0b1120)
   useEffect(() => {
     if (!sceneRef.current) return;
-    const bgHex = theme === 'light' ? 0xc9c6be : 0x0b0c0e;
+    const bgHex = theme === 'light' ? 0xeef3f9 : 0x0b1120;
     sceneRef.current.background = new THREE.Color(bgHex);
-    sceneRef.current.fog = new THREE.FogExp2(bgHex, 0.0014);
+    sceneRef.current.fog = new THREE.FogExp2(bgHex, theme === 'light' ? 0.0011 : 0.0014);
   }, [theme]);
 
   // 1. Khởi tạo Three.js Scene, Camera, Lights, Bed
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
+    const width = Math.max(1, containerRef.current.clientWidth);
+    const height = Math.max(1, containerRef.current.clientHeight);
 
     // 1.1 Scene
     const scene = new THREE.Scene();
-    const initialBgHex = theme === 'light' ? 0xc9c6be : 0x0b0c0e;
+    const initialBgHex = theme === 'light' ? 0xeef3f9 : 0x0b1120;
     scene.background = new THREE.Color(initialBgHex);
-    scene.fog = new THREE.FogExp2(initialBgHex, 0.0014);
+    scene.fog = new THREE.FogExp2(initialBgHex, theme === 'light' ? 0.0011 : 0.0014);
     sceneRef.current = scene;
     (window as any).__scene = scene;
 
@@ -404,16 +406,22 @@ export function PrintSimulatorViewport({
     modelRootGroup.add(activeSliceGroup);
     activeSliceGroupRef.current = activeSliceGroup;
 
-    // 1.11 Window Resize Listener
+    // 1.11 Window + Container ResizeObserver Listener (giúp Canvas tự co giãn tức thì khi đóng/mở Sidebar hoặc wrap Header)
     const handleResize = () => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
+      if (w <= 0 || h <= 0) return;
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => handleResize())
+        : null;
+    resizeObserver?.observe(containerRef.current);
 
     // 1.12 Render & Animation Loop
     let animId: number;
@@ -447,6 +455,7 @@ export function PrintSimulatorViewport({
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
       transformControls.dispose();
       scene.remove(gizmoHelper as any);
       delete (window as any).__capture3DViewportSnapshot;
@@ -1465,15 +1474,13 @@ export function PrintSimulatorViewport({
       <div
         data-testid="center-printability-score-hud"
         className={`absolute ${
-          viewMode === 'prepare' ? 'top-29' : 'top-16'
-        } ${
-          isProfileOpen ? 'left-[58%]' : 'left-1/2'
-        } -translate-x-1/2 z-20 pointer-events-auto transition-all duration-300 flex flex-col items-center gap-2`}
+          viewMode === 'prepare' ? 'top-26 sm:top-15' : 'top-13 xl:top-2.5'
+        } left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-20 pointer-events-auto transition-all duration-300 flex flex-col items-center gap-1.5`}
       >
         {/* Multi-Plate Selector Bar (Hiển thị khi dự án 3MF có nhiều bàn in hoặc nhiều chi tiết) */}
         {plates.length > 0 && (
-          <div className="px-2.5 py-1.5 rounded-2xl glass-panel border border-emerald-500/30 flex items-center gap-1.5 shadow-xl">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400 px-1.5">
+          <div className="px-2.5 py-1.5 rounded-2xl glass-panel border border-emerald-500/30 flex flex-wrap items-center justify-center gap-1.5 shadow-xl max-w-full">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 px-1.5">
               Bàn in ({plates.length}):
             </span>
             {plates.map((plate) => {
@@ -1485,7 +1492,7 @@ export function PrintSimulatorViewport({
                   className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     isActive
                       ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                      : 'bg-white/5 hover:bg-white/10 studio-text-secondary hover:text-white'
+                      : 'bg-[var(--bg-subtle)] hover:bg-[var(--bg-hover)] studio-text-secondary hover:text-[var(--text-primary)]'
                   }`}
                   title={`${plate.plateName} — ${plate.partCount} chi tiết${
                     plate.hasNativeSupport ? ' • Đã nạp Support Bambu Studio' : ''
@@ -1494,7 +1501,7 @@ export function PrintSimulatorViewport({
                   <span>{plate.plateName}</span>
                   <span
                     className={`text-[9px] font-mono px-1 py-0.2 rounded ${
-                      isActive ? 'bg-slate-950/25 text-slate-950' : 'bg-white/10 opacity-75'
+                      isActive ? 'bg-slate-950/25 text-slate-950' : 'bg-[var(--bg-subtle)] opacity-80'
                     }`}
                   >
                     {plate.partCount}ct
@@ -1502,7 +1509,7 @@ export function PrintSimulatorViewport({
                   {plate.hasNativeSupport && (
                     <span
                       className={`w-1.5 h-1.5 rounded-full ${
-                        isActive ? 'bg-slate-950' : 'bg-emerald-400'
+                        isActive ? 'bg-slate-950' : 'bg-emerald-500 dark:bg-emerald-400'
                       }`}
                       title="Đã có Tree Support gốc từ Bambu Studio"
                     />
@@ -1517,13 +1524,13 @@ export function PrintSimulatorViewport({
         {profile.supportMode !== 'none' && showSupport && !hasNativeBambuSupport && (
           <div
             onClick={onImportBambuGcode}
-            className="px-3 py-1 rounded-xl glass-panel border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all shadow-lg"
+            className="px-3 py-1 rounded-xl glass-panel border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all shadow-lg max-w-full"
             title="Nhấn để đính kèm file .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] font-mono text-emerald-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-[10px] font-mono text-emerald-800 dark:text-emerald-300 truncate">
               Tree Support đang bật —{' '}
-              <strong className="underline text-emerald-200">
+              <strong className="underline text-emerald-950 dark:text-emerald-200">
                 Nhấn nạp .gcode.3mf / .gcode từ Bambu Studio
               </strong>
             </span>
@@ -1532,17 +1539,17 @@ export function PrintSimulatorViewport({
 
         <div
           onClick={onOpenReportModal}
-          className="px-3.5 py-2 rounded-2xl glass-panel hover:border-[var(--accent-gold)] flex items-center gap-3 cursor-pointer group transition-all shadow-xl"
+          className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-2xl glass-panel hover:border-[var(--accent-gold)] flex items-center gap-2.5 sm:gap-3 cursor-pointer group transition-all shadow-xl max-w-full"
           title="Nhấn để xem Báo Cáo Kiểm Định Khả Năng In 3D & Chẩn Đoán Kỹ Thuật Chi Tiết"
         >
           {/* Prominent Score Badge */}
           <div
-            className={`px-2.5 py-1 rounded-xl font-mono flex items-center gap-1.5 border ${
+            className={`px-2 sm:px-2.5 py-1 rounded-xl font-mono flex items-center gap-1.5 border shrink-0 ${
               preflightReport.printabilityScore >= 80
-                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/35'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/35'
                 : preflightReport.printabilityScore >= 50
-                ? 'bg-amber-500/15 text-amber-400 border-amber-500/35'
-                : 'bg-rose-500/15 text-rose-400 border-rose-500/35'
+                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/35'
+                : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/35'
             }`}
           >
             <IconCheckShield size={15} />
@@ -1553,9 +1560,9 @@ export function PrintSimulatorViewport({
           </div>
 
           {/* Assessment Summary & Live Diagnostics */}
-          <div className="leading-tight pr-1">
+          <div className="leading-tight pr-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider studio-text-primary">
+              <span className="text-[10px] font-bold uppercase tracking-wider studio-text-primary truncate">
                 {preflightReport.printabilityScore >= 80
                   ? 'Đạt Chuẩn An Toàn In 3D'
                   : preflightReport.printabilityScore >= 50
@@ -1563,13 +1570,13 @@ export function PrintSimulatorViewport({
                   : 'Cảnh Báo Nguy Cơ Lỗi Cao'}
               </span>
               {preflightReport.errors.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400 font-mono text-[9px] font-bold">
+                <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-600 dark:text-rose-400 font-mono text-[9px] font-bold shrink-0">
                   {preflightReport.errors.length} cảnh báo
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2.5 text-[10px] font-mono studio-text-secondary mt-0.5">
+            <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono studio-text-secondary mt-0.5">
               <span>
                 Overhang: <strong className="studio-text-gold">{preflightReport.overhangRiskAreaPercent}%</strong>
               </span>
@@ -1599,7 +1606,7 @@ export function PrintSimulatorViewport({
 
       {/* 2. Custom Full-Height Vertical Layer Scrubber (Chỉ hiện ở chế độ Mô Phỏng CAD / Sợi In Bambu) */}
       {viewMode !== 'prepare' && (
-        <div className="absolute right-3.5 top-16 bottom-24 z-20 flex flex-col items-center justify-between py-2.5 px-1.5 rounded-2xl glass-panel pointer-events-auto w-12">
+        <div className="absolute right-2.5 top-2.5 bottom-3 z-20 flex flex-col items-center justify-between py-2.5 px-1.5 rounded-2xl glass-panel pointer-events-auto w-11 sm:w-12">
           <button
             onClick={() => onStepLayer(10)}
             className="p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
@@ -1667,9 +1674,9 @@ export function PrintSimulatorViewport({
 
       {/* 3. Unified Right Studio HUD Stack (Camera View Presets + Slicing Result + Overhang Scale + Pro Slicer Local — Không chồng chéo) */}
       <div
-        className={`absolute top-16 ${
-          viewMode === 'prepare' ? 'right-4' : 'right-18'
-        } z-10 flex flex-col items-end gap-2 pointer-events-auto select-none transition-all max-h-[calc(100vh-175px)] overflow-y-auto`}
+        className={`absolute top-2.5 ${
+          viewMode === 'prepare' ? 'right-2.5 sm:right-3.5' : 'right-15 sm:right-16'
+        } z-10 flex flex-col items-end gap-2 pointer-events-auto select-none transition-all max-h-[calc(100%-20px)] overflow-y-auto no-scrollbar`}
       >
         {/* 3.1 Quick Camera Orientation Bar (3D ViewCube Presets) */}
         {onSetCameraView && (
@@ -1678,7 +1685,7 @@ export function PrintSimulatorViewport({
               <button
                 key={v}
                 onClick={() => onSetCameraView(v)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
                   cameraView === v
                     ? 'studio-pill-active'
                     : 'studio-pill-inactive'
@@ -1917,16 +1924,20 @@ export function PrintSimulatorViewport({
 
       {/* 4. Live Defect Alert Card (Góc dưới bên phải - Không đè thanh công cụ) */}
       {activeDefect && !isDefectDismissed && viewMode !== 'prepare' && (
-        <div className="absolute bottom-28 right-18 max-w-sm z-20 pointer-events-auto p-3.5 rounded-2xl glass-panel-danger text-[var(--text-primary)] shadow-2xl animate-in slide-in-from-bottom duration-200">
+        <div
+          className={`absolute ${
+            viewMode === 'filament_preview' ? 'bottom-18' : 'bottom-3'
+          } right-15 sm:right-16 max-w-[min(360px,calc(100%-72px))] z-20 pointer-events-auto p-3 sm:p-3.5 rounded-2xl glass-panel-danger text-[var(--text-primary)] shadow-2xl animate-in slide-in-from-bottom duration-200`}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2.5">
-              <div className="p-1.5 rounded-xl bg-rose-500/15 text-rose-400 shrink-0">
+              <div className="p-1.5 rounded-xl bg-rose-500/15 text-rose-500 dark:text-rose-400 shrink-0">
                 <IconAngle className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[11px] font-bold uppercase text-rose-400 tracking-wide flex items-center gap-1.5">
+                <div className="text-[11px] font-bold uppercase text-rose-600 dark:text-rose-400 tracking-wide flex items-center gap-1.5 flex-wrap">
                   <span>{activeDefect.title}</span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300">
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-700 dark:text-rose-300">
                     Lớp {activeDefect.layer}
                   </span>
                 </div>
@@ -1959,7 +1970,7 @@ export function PrintSimulatorViewport({
 
       {/* 5. Bambu Studio Horizontal Intra-Layer Nozzle Move Scrubber (Filament Preview Mode) */}
       {viewMode === 'filament_preview' && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[min(460px,calc(100vw-160px))] px-3.5 py-2 rounded-2xl glass-panel border border-[var(--border-hairline)] shadow-xl flex flex-col gap-1">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[min(460px,calc(100%-84px))] px-3.5 py-2 rounded-2xl glass-panel border border-[var(--border-hairline)] shadow-xl flex flex-col gap-1">
           <div className="flex items-center justify-between text-[10px] font-mono">
             <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold truncate">
               <span className="w-1.5 h-1.5 rounded-full bg-[#00e050] shrink-0" />
@@ -2009,13 +2020,13 @@ export function PrintSimulatorViewport({
 
       {/* 6. Async Web Worker Slicing Progress Pill */}
       {slicingProgressPct !== null && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-2xl glass-panel border border-[var(--accent-gold-border)] shadow-2xl flex items-center gap-3 pointer-events-none animate-in fade-in">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-30 px-4 py-2 rounded-2xl glass-panel border border-[var(--accent-gold-border)] shadow-2xl flex items-center gap-3 pointer-events-none animate-in fade-in">
           <div className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent-gold)] border-t-transparent animate-spin shrink-0" />
-          <div className="text-[11px] font-mono">
-            <div className="font-bold text-[var(--text-primary)]">
+          <div className="text-[11px] font-mono min-w-0">
+            <div className="font-bold text-[var(--text-primary)] truncate">
               Đang bóc tách sợi 3D SDF &amp; Tree Support... {slicingProgressPct}%
             </div>
-            <div className="w-44 h-1 mt-1 rounded-full bg-[var(--bg-subtle)] overflow-hidden">
+            <div className="w-40 sm:w-44 h-1 mt-1 rounded-full bg-[var(--bg-subtle)] overflow-hidden">
               <div
                 className="h-full bg-[var(--accent-gold)] transition-all duration-150"
                 style={{ width: `${Math.max(5, slicingProgressPct)}%` }}
@@ -2027,9 +2038,9 @@ export function PrintSimulatorViewport({
 
       {/* Auto-Fix Success Notice Toast */}
       {fixedNotice && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl studio-cta-primary font-bold text-xs shadow-2xl flex items-center gap-2 animate-in zoom-in-95">
-          <IconCheckShield className="w-4 h-4" />
-          <span>{fixedNotice}</span>
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-30 px-4 py-2 rounded-xl studio-cta-primary font-bold text-xs shadow-2xl flex items-center gap-2 animate-in zoom-in-95">
+          <IconCheckShield className="w-4 h-4 shrink-0" />
+          <span className="truncate">{fixedNotice}</span>
         </div>
       )}
     </div>

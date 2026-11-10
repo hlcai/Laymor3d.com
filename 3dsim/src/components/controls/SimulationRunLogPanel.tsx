@@ -51,27 +51,30 @@ function formatDurationShort(sec: number): string {
 
 export function SimulationRunLogPanel({
   logs,
-  isProfileOpen,
   onRecordManualLog,
   onRestoreProfile,
   onClearLogs,
 }: SimulationRunLogPanelProps) {
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  // Mặc định thu gọn dạng pill gọn gàng để không bao giờ che khuất BuildPlateToolbar hoặc bàn in 3D trên màn hình nhỏ
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const latestLog = logs[0];
 
   return (
     <div
       data-testid="simulation-run-log-panel"
-      className={`fixed top-16 z-20 pointer-events-auto transition-all duration-300 ${
-        isProfileOpen ? 'left-[376px]' : 'left-17'
-      }`}
+      className="absolute top-2.5 left-15 lg:left-3 z-20 pointer-events-auto transition-all duration-200 max-w-[calc(100%-72px)] lg:max-w-[312px]"
     >
-      <div className="rounded-2xl glass-panel overflow-hidden w-[310px] shadow-xl border studio-border">
-        {/* Header Bar: Tiêu đề, Badge số lượng, Nút Ghi log & Nút Thu gọn/Mở rộng cân đối */}
-        <div className="px-3 py-2 border-b studio-border flex items-center justify-between bg-[var(--bg-subtle)]">
+      <div
+        className={`rounded-2xl glass-panel overflow-hidden shadow-lg border studio-border transition-all ${
+          isExpanded ? 'w-[min(308px,calc(100vw-24px))]' : 'w-auto'
+        }`}
+      >
+        {/* Header Bar */}
+        <div className="px-2.5 py-1.5 flex items-center justify-between gap-2 bg-[var(--bg-subtle)]">
           <button
+            type="button"
             onClick={() => setIsExpanded((prev) => !prev)}
-            className="flex items-center gap-2 text-left cursor-pointer group flex-1 min-w-0"
+            className="flex items-center gap-2 text-left cursor-pointer group min-w-0"
             title={isExpanded ? 'Thu gọn bảng nhật ký mô phỏng' : 'Mở rộng bảng nhật ký mô phỏng'}
           >
             <div className="w-6 h-6 rounded-lg studio-gold-badge flex items-center justify-center shrink-0">
@@ -80,32 +83,35 @@ export function SimulationRunLogPanel({
             <div className="leading-tight min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider studio-text-primary whitespace-nowrap">
-                  Nhật Ký Mô Phỏng
+                  Nhật Ký
                 </span>
                 <span className="px-1.5 py-0.2 rounded studio-gold-badge font-mono text-[9px] font-bold">
                   {logs.length}
                 </span>
               </div>
-              {latestLog && (
-                <p className="text-[9px] studio-text-secondary font-mono truncate max-w-[155px]">
-                  Gần nhất: #{String(latestLog.runNumber).padStart(2, '0')} • {latestLog.material} • Điểm {latestLog.score}
+              {isExpanded && latestLog && (
+                <p className="text-[9px] studio-text-secondary font-mono truncate max-w-[145px]">
+                  #{String(latestLog.runNumber).padStart(2, '0')} • {latestLog.material} • Điểm {latestLog.score}
                 </p>
               )}
             </div>
           </button>
 
-          <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+          <div className="flex items-center gap-1 shrink-0">
             <button
+              type="button"
               data-testid="record-simulation-log-btn"
               onClick={onRecordManualLog}
-              className="px-2.5 py-1 rounded-lg studio-cta-primary text-[10px] font-semibold transition-all cursor-pointer hover:scale-105 active:scale-95 shadow-sm whitespace-nowrap"
+              className="px-2 py-1 rounded-lg studio-cta-primary text-[10px] font-semibold transition-all cursor-pointer active:scale-95 whitespace-nowrap"
               title="Lưu thông số cấu hình hiện tại vào Nhật ký mô phỏng"
             >
               + Ghi Log
             </button>
             <button
+              type="button"
               data-testid="toggle-simulation-log-btn"
               onClick={() => setIsExpanded((prev) => !prev)}
+              aria-label={isExpanded ? 'Thu gọn nhật ký' : 'Mở rộng nhật ký'}
               className="w-6 h-6 rounded-lg studio-card hover:bg-[var(--bg-hover)] studio-text-secondary hover:studio-text-primary flex items-center justify-center transition-all cursor-pointer"
               title={isExpanded ? 'Thu gọn' : 'Mở rộng'}
             >
@@ -116,7 +122,7 @@ export function SimulationRunLogPanel({
 
         {/* Expanded Log Entries List */}
         {isExpanded && (
-          <div className="p-2.5 space-y-2 max-h-64 overflow-y-auto text-[10px]">
+          <div className="p-2.5 border-t studio-border space-y-2 max-h-[min(250px,42dvh)] overflow-y-auto text-[10px]">
             {logs.map((entry, idx) => {
               const prevEntry = logs[idx + 1];
               const scoreDelta = prevEntry ? entry.score - prevEntry.score : 0;
@@ -130,7 +136,6 @@ export function SimulationRunLogPanel({
                       : 'studio-card hover:border-[var(--border-strong)]'
                   }`}
                 >
-                  {/* Top Row: Run #, Trigger, Time & Score */}
                   <div className="flex items-center justify-between gap-1 mb-1.5">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="font-mono font-bold text-[10px] studio-text-primary">
@@ -148,7 +153,7 @@ export function SimulationRunLogPanel({
                       {scoreDelta !== 0 && (
                         <span
                           className={`text-[9px] font-mono font-bold ${
-                            scoreDelta > 0 ? 'text-emerald-400' : 'text-rose-400'
+                            scoreDelta > 0 ? 'text-emerald-500' : 'text-rose-500'
                           }`}
                         >
                           {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta}đ
@@ -157,10 +162,10 @@ export function SimulationRunLogPanel({
                       <span
                         className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono font-bold text-[9px] ${
                           entry.score >= 80
-                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                             : entry.score >= 50
-                            ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                            : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
                         }`}
                       >
                         <IconCheckShield size={10} />
@@ -169,7 +174,6 @@ export function SimulationRunLogPanel({
                     </div>
                   </div>
 
-                  {/* Middle Row: Slicing Parameters */}
                   <div className="grid grid-cols-3 gap-1 font-mono text-[9px] py-1 border-y studio-border my-1 studio-text-secondary">
                     <div className="truncate" title={`Vật liệu & Nhiệt độ: ${entry.material} ${entry.nozzleTemp}°C`}>
                       <strong className="studio-text-primary">{entry.material}</strong> {entry.nozzleTemp}°C
@@ -186,23 +190,23 @@ export function SimulationRunLogPanel({
                     </div>
                   </div>
 
-                  {/* Bottom Row: Output Telemetry & Chức năng Khôi Phục Hồ Sơ Snapshot */}
                   <div className="flex items-center justify-between gap-1.5 font-mono text-[9px] pt-1">
                     <div className="flex items-center gap-1.5 studio-text-secondary text-[9px]">
                       <span>
-                        ⏱️ <strong className="studio-text-primary">{formatDurationShort(entry.estimatedTimeSec)}</strong>
+                        <strong className="studio-text-primary">{formatDurationShort(entry.estimatedTimeSec)}</strong>
                       </span>
                       <span>•</span>
                       <span>
-                        ⚖️ <strong className="studio-text-primary">{entry.filamentGrams.toFixed(1)}g</strong>
+                        <strong className="studio-text-primary">{entry.filamentGrams.toFixed(1)}g</strong>
                       </span>
                       <span>•</span>
                       <span>L{entry.totalLayers}</span>
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => onRestoreProfile(entry.profileSnapshot)}
-                      className="flex items-center gap-1 px-2.5 py-0.5 rounded-md studio-card hover:bg-[var(--bg-hover)] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 font-sans font-semibold text-[9px] transition-all cursor-pointer active:scale-95 shadow-sm shrink-0"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-md studio-card hover:bg-[var(--bg-hover)] studio-text-gold font-sans font-semibold text-[9px] transition-all cursor-pointer active:scale-95 shrink-0"
                       title="Khôi phục cấu hình của lần chạy này ra Studio 3D"
                     >
                       <IconReset size={10} />
@@ -216,6 +220,7 @@ export function SimulationRunLogPanel({
             {logs.length > 1 && (
               <div className="pt-1 flex justify-end">
                 <button
+                  type="button"
                   onClick={onClearLogs}
                   className="text-[9px] studio-text-muted hover:studio-text-primary transition-colors cursor-pointer"
                 >

@@ -1,15 +1,8 @@
 import React, { useState } from 'react';
 import { IModelTransform, DEFAULT_TRANSFORM } from '@/types/simulator';
 import {
-  Move,
-  RotateCw,
-  Maximize2,
   Crosshair,
-  RotateCcw,
   Sparkles,
-  ChevronDown,
-  ChevronUp,
-  Compass,
   ArrowUp,
   ArrowDown,
   ArrowLeft,
@@ -52,7 +45,6 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     }
   };
 
-  // Căn giữa bàn in (0, 0)
   const handleCenter = () => {
     onChangeTransform({
       ...currentTransform,
@@ -60,7 +52,6 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     });
   };
 
-  // Nudge vị trí
   const handleNudge = (dx: number, dz: number) => {
     const curX = currentTransform.position?.[0] ?? 0;
     const curZ = currentTransform.position?.[2] ?? 0;
@@ -72,7 +63,6 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     });
   };
 
-  // Xoay quanh trục bất kỳ (X, Y, Z)
   const handleRotateAxis = (axis: 'x' | 'y' | 'z', deltaDeg: number) => {
     const rad = (deltaDeg * Math.PI) / 180;
     const curRot = currentTransform.rotation || [0, 0, 0];
@@ -86,7 +76,6 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     });
   };
 
-  // Đặt góc xoay chính xác trên trục (X, Y, Z)
   const handleSetAxisAngle = (axis: 'x' | 'y' | 'z', targetDeg: number) => {
     const rad = (targetDeg * Math.PI) / 180;
     const curRot = currentTransform.rotation || [0, 0, 0];
@@ -100,7 +89,6 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     });
   };
 
-  // Sửa nhanh: Đứng thẳng (Z-Up / Y-Up)
   const handleMakeStandUp = () => {
     onChangeTransform({
       ...currentTransform,
@@ -108,12 +96,10 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     });
   };
 
-  // Lật 180° quanh trục X để sửa nhanh mô hình bị lộn ngược / nằm ngửa
   const handleFlip180 = () => {
     handleRotateAxis('x', 180);
   };
 
-  // Đổi tỉ lệ (Scale)
   const handleSetScale = (scaleValue: number) => {
     const clamped = Math.max(0.2, Math.min(2.5, scaleValue));
     onChangeTransform({
@@ -122,7 +108,6 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
     });
   };
 
-  // Tối đa hóa kích thước vừa vặn bàn in 256x256mm
   const handleFitMaxBed = () => {
     const maxDimension = Math.max(currentDim[0], currentDim[2]);
     if (maxDimension <= 0) return;
@@ -139,20 +124,19 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
   const scalePercent = Math.round((currentTransform.scale ?? 1.0) * 100);
 
   return (
-    <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-auto flex flex-col items-center select-none">
-      {/* 1. Minimalist Architectural Gizmo Dock */}
-      <div className="flex items-center gap-1 p-1 rounded-xl glass-panel">
-        {/* Model Dimensions Info */}
-        <div className="flex items-center gap-2 px-2.5 py-1 border-r studio-border hidden sm:flex">
-          <div className="text-[11px] font-mono studio-text-secondary">
+    <div className="absolute top-13 sm:top-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-auto flex flex-col items-center select-none max-w-[calc(100%-16px)]">
+      {/* 1. Responsive Gizmo Dock (Wraps cleanly on narrow screens without clipping) */}
+      <div className="flex flex-wrap items-center justify-center gap-1 p-1 rounded-xl glass-panel">
+        <div className="hidden xl:flex items-center gap-2 px-2.5 py-1 border-r studio-border">
+          <div className="text-[11px] font-mono studio-text-secondary whitespace-nowrap">
             {Math.round(currentDim[0])} × {Math.round(currentDim[2])} × {Math.round(currentDim[1])} mm
           </div>
         </div>
 
-        {/* Tab Buttons */}
         <button
+          type="button"
           onClick={() => setActiveTab(activeTab === 'move' ? null : 'move')}
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] transition-all cursor-pointer ${
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer ${
             activeTab === 'move' ? 'studio-pill-active' : 'studio-pill-inactive font-medium'
           }`}
           title="Di chuyển mô hình trên bàn in"
@@ -166,8 +150,9 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab(activeTab === 'rotate' ? null : 'rotate')}
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] transition-all cursor-pointer ${
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer ${
             activeTab === 'rotate' ? 'studio-pill-active' : 'studio-pill-inactive font-medium'
           }`}
           title="Xoay mô hình theo các góc"
@@ -181,8 +166,9 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab(activeTab === 'scale' ? null : 'scale')}
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] transition-all cursor-pointer ${
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer ${
             activeTab === 'scale' ? 'studio-pill-active' : 'studio-pill-inactive font-medium'
           }`}
           title="Phóng to / Thu nhỏ kích thước"
@@ -195,34 +181,37 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
           ) : null}
         </button>
 
-        <div className="w-[1px] h-4 bg-[var(--border-hairline)] mx-0.5" />
+        <div className="w-[1px] h-4 bg-[var(--border-hairline)] mx-0.5 hidden sm:block" />
 
-        {/* Quick Slicer Actions */}
         <button
+          type="button"
           onClick={handleMakeStandUp}
-          className="px-2.5 py-1 rounded-lg text-[11px] font-medium studio-pill-inactive transition-all cursor-pointer"
+          className="px-2 py-1 rounded-lg text-[11px] font-medium studio-pill-inactive transition-all cursor-pointer"
           title="Dựng đứng mô hình thẳng góc chuẩn (0°, 0°, 0°)"
         >
           <span>Dựng Đứng</span>
         </button>
 
         <button
+          type="button"
           onClick={onAutoLayFlat}
-          className="px-2.5 py-1 rounded-lg text-[11px] font-medium studio-gold-badge transition-all cursor-pointer"
+          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold studio-gold-badge transition-all cursor-pointer"
           title="Tự động lật mặt phẳng tiếp xúc lớn nhất xuống đáy (Auto Lay Flat)"
         >
           <span>Đặt Phẳng</span>
         </button>
 
         <button
+          type="button"
           onClick={handleFlip180}
-          className="px-2.5 py-1 rounded-lg text-[11px] font-medium studio-pill-inactive transition-all cursor-pointer"
+          className="px-2 py-1 rounded-lg text-[11px] font-medium studio-pill-inactive transition-all cursor-pointer"
           title="Lật ngược 180° quanh trục X"
         >
           <span>Lật 180°</span>
         </button>
 
         <button
+          type="button"
           onClick={onResetTransform}
           className="px-2 py-1 rounded-lg text-[11px] studio-pill-inactive transition-all cursor-pointer font-mono"
           title="Khôi phục vị trí, góc xoay và tỉ lệ 100% ban đầu"
@@ -231,16 +220,22 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
         </button>
       </div>
 
-      {/* 2. Popover Tool Panel */}
+      {/* 2. Theme-Aware Popover Tool Panel */}
       {activeTab && (
-        <div className="mt-2 p-3 rounded-2xl glass-panel w-72 animate-in fade-in zoom-in-95 duration-150">
+        <div className="mt-2 p-3 rounded-2xl glass-panel w-[min(288px,calc(100vw-24px))] max-h-[60dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between pb-2 mb-2 border-b studio-border">
             <span className="text-[11px] font-semibold uppercase studio-text-gold tracking-wider">
-              {activeTab === 'move' ? 'Tọa Độ Bàn In' : activeTab === 'rotate' ? 'Định Hướng Góc Xoay' : 'Tỉ Lệ Kích Thước'}
+              {activeTab === 'move'
+                ? 'Tọa Độ Bàn In'
+                : activeTab === 'rotate'
+                ? 'Định Hướng Góc Xoay'
+                : 'Tỉ Lệ Kích Thước'}
             </span>
             <button
+              type="button"
               onClick={() => setActiveTab(null)}
-              className="p-1 rounded-md studio-pill-inactive"
+              aria-label="Đóng bảng chỉnh sửa"
+              className="p-1 rounded-md studio-pill-inactive cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -250,18 +245,18 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
           {activeTab === 'move' && (
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-[11px] font-mono px-1">
-                <span className="text-white/60">Tọa Độ Hiện Tại:</span>
-                <span className="text-teal-300 font-bold">
+                <span className="studio-text-secondary">Tọa Độ Hiện Tại:</span>
+                <span className="studio-text-gold font-bold">
                   X: {posX > 0 ? `+${posX}` : posX} mm | Y: {posZ > 0 ? `+${posZ}` : posZ} mm
                 </span>
               </div>
 
-              {/* D-Pad Controls */}
               <div className="grid grid-cols-3 gap-1.5 max-w-[200px] mx-auto py-1">
                 <div />
                 <button
+                  type="button"
                   onClick={() => handleNudge(0, -10)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-teal-500 hover:text-black font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
+                  className="p-2 rounded-xl studio-card hover:bg-[var(--accent-primary)] hover:text-white font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
                   title="Dịch về sau (-10mm)"
                 >
                   <ArrowUp className="w-4 h-4" />
@@ -270,8 +265,9 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                 <div />
 
                 <button
+                  type="button"
                   onClick={() => handleNudge(-10, 0)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-teal-500 hover:text-black font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
+                  className="p-2 rounded-xl studio-card hover:bg-[var(--accent-primary)] hover:text-white font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
                   title="Dịch sang trái (-10mm)"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -279,8 +275,9 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                 </button>
 
                 <button
+                  type="button"
                   onClick={handleCenter}
-                  className="p-2 rounded-xl bg-teal-500/20 border border-teal-400/40 text-teal-300 hover:bg-teal-500 hover:text-black font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
+                  className="p-2 rounded-xl studio-gold-badge hover:bg-[var(--accent-primary)] hover:text-white font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
                   title="Căn giữa bàn in (0, 0)"
                 >
                   <Crosshair className="w-4 h-4" />
@@ -288,8 +285,9 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => handleNudge(10, 0)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-teal-500 hover:text-black font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
+                  className="p-2 rounded-xl studio-card hover:bg-[var(--accent-primary)] hover:text-white font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
                   title="Dịch sang phải (+10mm)"
                 >
                   <ArrowRight className="w-4 h-4" />
@@ -298,8 +296,9 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
 
                 <div />
                 <button
+                  type="button"
                   onClick={() => handleNudge(0, 10)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-teal-500 hover:text-black font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
+                  className="p-2 rounded-xl studio-card hover:bg-[var(--accent-primary)] hover:text-white font-bold flex flex-col items-center justify-center transition-all cursor-pointer"
                   title="Dịch về trước (+10mm)"
                 >
                   <ArrowDown className="w-4 h-4" />
@@ -308,48 +307,49 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                 <div />
               </div>
 
-              <p className="text-[10px] text-white/40 text-center italic">
-                * Mẹo: Bạn có thể click chuột trái kéo rê trực tiếp trên mặt bàn in.
+              <p className="text-[10px] studio-text-muted text-center italic">
+                * Mẹo: Kéo rê chuột trái trực tiếp trên mặt bàn in.
               </p>
             </div>
           )}
 
           {/* TAB 2: ROTATE */}
           {activeTab === 'rotate' && (
-            <div className="space-y-3 max-h-[390px] overflow-y-auto pr-1">
-              {/* Gizmo Notification Pill */}
-              <div className="p-2 rounded-xl bg-teal-500/15 border border-teal-500/30 text-[10px] text-teal-200 leading-tight">
-                <span className="font-bold text-teal-300">🎯 Gizmo Xoay 3D Trực Tiếp:</span> Kéo các vòng tròn màu <span className="text-rose-400 font-bold">Đỏ (X)</span>, <span className="text-emerald-400 font-bold">Xanh (Y)</span>, <span className="text-sky-400 font-bold">Lam (Z)</span> trên mô hình để xoay tự do!
+            <div className="space-y-2.5 pr-0.5">
+              <div className="p-2 rounded-xl studio-gold-badge text-[10px] studio-text-primary leading-tight">
+                <span className="font-bold studio-text-gold">Gizmo Xoay 3D:</span> Kéo các vòng{' '}
+                <span className="text-rose-500 font-bold">Đỏ (X)</span>,{' '}
+                <span className="text-emerald-500 font-bold">Xanh (Y)</span>,{' '}
+                <span className="text-[#1A75FF] dark:text-[#3FA9F5] font-bold">Lam (Z)</span> để xoay tự do.
               </div>
 
-              {/* Quick Preset Buttons */}
               <div className="grid grid-cols-2 gap-1.5">
                 <button
+                  type="button"
                   onClick={handleMakeStandUp}
-                  className="py-1.5 px-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
-                  title="Sửa nhanh mô hình bị lật ngang: Đứng thẳng trên bàn in"
+                  className="py-1.5 px-2 rounded-xl studio-gold-badge hover:opacity-90 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Đứng Thẳng (Z-Up)</span>
+                  <span>Đứng Thẳng</span>
                 </button>
                 <button
+                  type="button"
                   onClick={handleFlip180}
-                  className="py-1.5 px-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-400/30 hover:bg-amber-500 hover:text-black text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
-                  title="Lật úp / lật ngửa 180°"
+                  className="py-1.5 px-2 rounded-xl studio-card hover:bg-[var(--bg-hover)] studio-text-primary text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
                 >
                   <Repeat className="w-3.5 h-3.5" />
                   <span>Lật 180° (X)</span>
                 </button>
               </div>
 
-              {/* Trục X: Lật Trước / Sau (Pitch) */}
-              <div className="p-2 rounded-xl bg-white/5 border border-white/10 space-y-1.5">
+              {/* Trục X */}
+              <div className="p-2 rounded-xl studio-card space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-rose-300 font-bold flex items-center gap-1">
+                  <span className="text-rose-500 font-bold flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                    Trục X (Lật Trước/Sau):
+                    Trục X (Pitch):
                   </span>
-                  <span className="text-white font-bold">{rotXDeg}°</span>
+                  <span className="studio-text-primary font-bold">{rotXDeg}°</span>
                 </div>
                 <input
                   type="range"
@@ -358,38 +358,41 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                   step="5"
                   value={rotXDeg}
                   onChange={(e) => handleSetAxisAngle('x', Number(e.target.value))}
-                  className="w-full accent-rose-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+                  className="w-full cursor-pointer"
                 />
                 <div className="grid grid-cols-3 gap-1 pt-0.5">
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('x', -90)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-rose-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-rose-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     -90°
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleSetAxisAngle('x', 0)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-[var(--bg-hover)] text-[10px] font-bold transition-all cursor-pointer"
                   >
                     0°
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('x', 90)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-rose-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-rose-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     +90°
                   </button>
                 </div>
               </div>
 
-              {/* Trục Y: Xoay Tròn Đứng (Yaw) */}
-              <div className="p-2 rounded-xl bg-white/5 border border-white/10 space-y-1.5">
+              {/* Trục Y */}
+              <div className="p-2 rounded-xl studio-card space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-emerald-300 font-bold flex items-center gap-1">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                    Trục Y (Xoay Tròn Đứng):
+                    Trục Y (Yaw):
                   </span>
-                  <span className="text-white font-bold">{rotYDeg}°</span>
+                  <span className="studio-text-primary font-bold">{rotYDeg}°</span>
                 </div>
                 <input
                   type="range"
@@ -398,38 +401,41 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                   step="5"
                   value={rotYDeg < 0 ? rotYDeg + 360 : rotYDeg}
                   onChange={(e) => handleSetAxisAngle('y', Number(e.target.value))}
-                  className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+                  className="w-full cursor-pointer"
                 />
                 <div className="grid grid-cols-3 gap-1 pt-0.5">
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('y', -45)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-emerald-500 hover:text-black text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-emerald-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     -45°
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('y', 45)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-emerald-500 hover:text-black text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-emerald-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     +45°
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('y', 90)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-emerald-500 hover:text-black text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-emerald-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     +90°
                   </button>
                 </div>
               </div>
 
-              {/* Trục Z: Nghiêng Trái / Phải (Roll) */}
-              <div className="p-2 rounded-xl bg-white/5 border border-white/10 space-y-1.5">
+              {/* Trục Z */}
+              <div className="p-2 rounded-xl studio-card space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-sky-300 font-bold flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-sky-500 inline-block" />
-                    Trục Z (Nghiêng Trái/Phải):
+                  <span className="studio-text-gold font-bold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#1A75FF] inline-block" />
+                    Trục Z (Roll):
                   </span>
-                  <span className="text-white font-bold">{rotZDeg}°</span>
+                  <span className="studio-text-primary font-bold">{rotZDeg}°</span>
                 </div>
                 <input
                   type="range"
@@ -438,24 +444,27 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                   step="5"
                   value={rotZDeg}
                   onChange={(e) => handleSetAxisAngle('z', Number(e.target.value))}
-                  className="w-full accent-sky-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+                  className="w-full cursor-pointer"
                 />
                 <div className="grid grid-cols-3 gap-1 pt-0.5">
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('z', -90)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-sky-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-[#1A75FF] hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     -90°
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleSetAxisAngle('z', 0)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-[var(--bg-hover)] text-[10px] font-bold transition-all cursor-pointer"
                   >
                     0°
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleRotateAxis('z', 90)}
-                    className="py-1 rounded-lg bg-white/10 hover:bg-sky-500 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
+                    className="py-1 rounded-lg studio-card hover:bg-[#1A75FF] hover:text-white text-[10px] font-bold transition-all cursor-pointer"
                   >
                     +90°
                   </button>
@@ -468,8 +477,8 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
           {activeTab === 'scale' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-[11px] font-mono px-1">
-                <span className="text-white/60">Tỉ Lệ Hiện Tại:</span>
-                <span className="text-teal-300 font-bold">{scalePercent}%</span>
+                <span className="studio-text-secondary">Tỉ Lệ Hiện Tại:</span>
+                <span className="studio-text-gold font-bold">{scalePercent}%</span>
               </div>
 
               <input
@@ -479,25 +488,28 @@ export const BuildPlateToolbar: React.FC<BuildPlateToolbarProps> = ({
                 step="0.05"
                 value={currentTransform.scale ?? 1.0}
                 onChange={(e) => handleSetScale(Number(e.target.value))}
-                className="w-full accent-teal-400 cursor-pointer"
+                className="w-full cursor-pointer"
               />
 
               <div className="grid grid-cols-3 gap-1.5">
                 <button
+                  type="button"
                   onClick={() => handleSetScale(0.8)}
-                  className="py-1.5 rounded-xl bg-white/10 hover:bg-teal-500 hover:text-black text-xs font-bold transition-all cursor-pointer"
+                  className="py-1.5 rounded-xl studio-card hover:bg-[var(--accent-primary)] hover:text-white text-xs font-bold transition-all cursor-pointer"
                 >
                   80%
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleSetScale(1.0)}
-                  className="py-1.5 rounded-xl bg-white/10 hover:bg-teal-500 hover:text-black text-xs font-bold transition-all cursor-pointer"
+                  className="py-1.5 rounded-xl studio-card hover:bg-[var(--accent-primary)] hover:text-white text-xs font-bold transition-all cursor-pointer"
                 >
                   100%
                 </button>
                 <button
+                  type="button"
                   onClick={handleFitMaxBed}
-                  className="py-1.5 rounded-xl bg-teal-500/20 text-teal-300 hover:bg-teal-500 hover:text-black text-xs font-bold transition-all cursor-pointer"
+                  className="py-1.5 rounded-xl studio-gold-badge hover:bg-[var(--accent-primary)] hover:text-white text-xs font-bold transition-all cursor-pointer"
                   title="Tối đa hóa kích thước phủ đầy bàn in"
                 >
                   Vừa Bàn

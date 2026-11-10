@@ -1,55 +1,172 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, :root:has(> head > meta[name="color-scheme"][content="dark"]) *));
+
 /* ==========================================================================
-   APPLE VISIONOS SPATIAL LUXURY THEME: TRẮNG KEM + XANH CYAN KEM
-   Creamy White & Milk Frosted Glass • Soft Creamy Cyan & Mint Accents
+   LAYMOR UNIFIED DESIGN SYSTEM (LIGHT & DARK STUDIO)
+   Đồng bộ 100% bảng màu giữa Trang chủ (/) và 3D Print Simulator (/3dsim):
+   - LAYMOR Electric Blue: #1A75FF | Royal Blue: #1D4ED8
+   - LAYMOR Sky Cyan: #3FA9F5 | Deep Navy: #0F2942
    ========================================================================== */
 :root,
 [data-env="official"] {
-  /* Canvas Background: Warm Cream & Milk White */
-  --background: #F8F9FA;
-  --background-secondary: #F1F4F6;
+  color-scheme: light dark;
+
+  /* Brand Identity Tokens */
+  --laymor-blue: #1A75FF;
+  --laymor-royal: #1D4ED8;
+  --laymor-sky: #3FA9F5;
+  --laymor-navy: #0F2942;
+
+  /* Light Mode Defaults */
+  --background: #F8FAFC;
+  --background-secondary: #EEF3F9;
   --foreground: #0F172A;
-  
-  /* Spatial Ambient Radial Gradients */
-  --page-radial: radial-gradient(ellipse 110% 90% at 50% -10%, #E0F2FE 0%, #EFF6FF 25%, #F8FAFC 60%, #F1F5F9 100%);
-  --glow-1: rgba(6, 182, 212, 0.14);   /* Soft Pastel Cyan */
-  --glow-2: rgba(14, 165, 233, 0.12);  /* Creamy Sky Blue */
-  --glow-warm: rgba(254, 243, 199, 0.22); /* Gentle Vanilla Cream */
 
-  /* VisionOS Frosted Milk Glass Materials */
-  --vision-glass: rgba(255, 255, 255, 0.78);
-  --vision-glass-hover: rgba(255, 255, 255, 0.92);
-  --vision-glass-panel: rgba(255, 255, 255, 0.84);
-  --vision-glass-card: rgba(255, 255, 255, 0.88);
-  --vision-glass-subtle: rgba(240, 249, 255, 0.7);
+  --page-radial: radial-gradient(ellipse 110% 90% at 50% -10%, #E0F2FE 0%, #EFF6FF 28%, #F8FAFC 62%, #F1F5F9 100%);
+  --glow-1: rgba(26, 117, 255, 0.11);
+  --glow-2: rgba(63, 169, 245, 0.12);
+  --glow-warm: rgba(186, 230, 253, 0.20);
 
-  /* Glass Borders & Specular Highlights */
-  --vision-border: rgba(226, 232, 240, 0.85);
+  --vision-glass: rgba(255, 255, 255, 0.82);
+  --vision-glass-hover: rgba(255, 255, 255, 0.95);
+  --vision-glass-panel: rgba(255, 255, 255, 0.88);
+  --vision-glass-card: rgba(255, 255, 255, 0.92);
+  --vision-glass-subtle: rgba(240, 249, 255, 0.78);
+  --vision-inset-highlight: rgba(255, 255, 255, 0.92);
+
+  --vision-border: rgba(203, 213, 225, 0.85);
   --vision-border-light: rgba(255, 255, 255, 0.95);
-  --vision-border-cyan: rgba(6, 182, 212, 0.35);
+  --vision-border-cyan: rgba(26, 117, 255, 0.35);
 
-  /* Pill Buttons & Interactive Elements */
-  --vision-pill-btn: rgba(255, 255, 255, 0.9);
+  --vision-pill-btn: rgba(255, 255, 255, 0.92);
   --vision-pill-btn-hover: rgba(240, 249, 255, 1);
   --vision-pill-active: rgba(224, 242, 254, 0.95);
 
-  /* Cyan & Cream Accent Palette */
-  --vision-accent: #0891B2;           /* Deep Vibrant Cyan */
-  --vision-accent-soft: #CFFAFE;      /* Creamy Cyan Wash */
-  --vision-accent-gradient: linear-gradient(135deg, #06B6D4 0%, #0284C7 100%);
-  --vision-cream: #FEF3C7;             /* Warm Vanilla Cream */
+  --vision-accent: #1A75FF;
+  --vision-accent-soft: #E0F2FE;
+  --vision-accent-gradient: linear-gradient(135deg, #1A75FF 0%, #3FA9F5 100%);
+  --vision-cream: #FEF3C7;
   --vision-cream-soft: #FFFBEB;
-  
-  /* Text Contrast Hierarchy (Crisp Slate) */
-  --vision-text-primary: #0F172A;      /* Slate 900 */
-  --vision-text-secondary: #334155;    /* Slate 700 */
-  --vision-text-muted: #64748B;        /* Slate 500 */
-  --vision-text-cyan: #0E7490;         /* Cyan 700 */
 
-  /* Spatial Shadows */
+  --vision-text-primary: #0F172A;
+  --vision-text-secondary: #334155;
+  --vision-text-muted: #64748B;
+  --vision-text-cyan: #1D4ED8;
+
   --vision-shadow: 0 12px 36px -6px rgba(15, 23, 42, 0.06), 0 4px 16px -2px rgba(15, 23, 42, 0.03);
   --vision-panel-shadow: 0 20px 48px -8px rgba(15, 23, 42, 0.08), 0 6px 20px -3px rgba(15, 23, 42, 0.04);
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(100, 116, 139, 0.42);
+  accent-color: var(--laymor-blue);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+
+  @media (prefers-color-scheme: dark) {
+    --background: #0B1120;
+    --background-secondary: #111827;
+    --foreground: #F8FAFC;
+    --page-radial: radial-gradient(ellipse 110% 90% at 50% -10%, #0F2942 0%, #0B162C 34%, #0B1120 70%, #070B14 100%);
+    --glow-1: rgba(26, 117, 255, 0.16);
+    --glow-2: rgba(63, 169, 245, 0.14);
+    --glow-warm: rgba(30, 64, 175, 0.16);
+    --vision-glass: rgba(15, 23, 42, 0.84);
+    --vision-glass-hover: rgba(30, 41, 59, 0.92);
+    --vision-glass-panel: rgba(15, 23, 42, 0.88);
+    --vision-glass-card: rgba(15, 23, 42, 0.90);
+    --vision-glass-subtle: rgba(30, 41, 59, 0.68);
+    --vision-inset-highlight: rgba(148, 163, 184, 0.12);
+    --vision-border: rgba(51, 65, 85, 0.85);
+    --vision-border-light: rgba(71, 85, 105, 0.6);
+    --vision-border-cyan: rgba(63, 169, 245, 0.45);
+    --vision-pill-btn: rgba(30, 41, 59, 0.88);
+    --vision-pill-btn-hover: rgba(30, 58, 138, 0.55);
+    --vision-pill-active: rgba(26, 117, 255, 0.24);
+    --vision-accent: #3FA9F5;
+    --vision-accent-soft: rgba(63, 169, 245, 0.16);
+    --vision-text-primary: #F8FAFC;
+    --vision-text-secondary: #CBD5E1;
+    --vision-text-muted: #94A3B8;
+    --vision-text-cyan: #3FA9F5;
+    --vision-shadow: 0 14px 36px -6px rgba(2, 6, 23, 0.55), 0 4px 16px -2px rgba(2, 6, 23, 0.4);
+    --vision-panel-shadow: 0 20px 48px -8px rgba(2, 6, 23, 0.65), 0 6px 20px -3px rgba(2, 6, 23, 0.45);
+    --scrollbar-thumb: rgba(148, 163, 184, 0.42);
+    accent-color: var(--laymor-sky);
+  }
+
+  &:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
+  }
+  &:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: #F8FAFC;
+  --background-secondary: #EEF3F9;
+  --foreground: #0F172A;
+  --page-radial: radial-gradient(ellipse 110% 90% at 50% -10%, #E0F2FE 0%, #EFF6FF 28%, #F8FAFC 62%, #F1F5F9 100%);
+  --glow-1: rgba(26, 117, 255, 0.11);
+  --glow-2: rgba(63, 169, 245, 0.12);
+  --glow-warm: rgba(186, 230, 253, 0.20);
+  --vision-glass: rgba(255, 255, 255, 0.82);
+  --vision-glass-hover: rgba(255, 255, 255, 0.95);
+  --vision-glass-panel: rgba(255, 255, 255, 0.88);
+  --vision-glass-card: rgba(255, 255, 255, 0.92);
+  --vision-glass-subtle: rgba(240, 249, 255, 0.78);
+  --vision-inset-highlight: rgba(255, 255, 255, 0.92);
+  --vision-border: rgba(203, 213, 225, 0.85);
+  --vision-border-light: rgba(255, 255, 255, 0.95);
+  --vision-border-cyan: rgba(26, 117, 255, 0.35);
+  --vision-pill-btn: rgba(255, 255, 255, 0.92);
+  --vision-pill-btn-hover: rgba(240, 249, 255, 1);
+  --vision-pill-active: rgba(224, 242, 254, 0.95);
+  --vision-accent: #1A75FF;
+  --vision-accent-soft: #E0F2FE;
+  --vision-text-primary: #0F172A;
+  --vision-text-secondary: #334155;
+  --vision-text-muted: #64748B;
+  --vision-text-cyan: #1D4ED8;
+  --vision-shadow: 0 12px 36px -6px rgba(15, 23, 42, 0.06), 0 4px 16px -2px rgba(15, 23, 42, 0.03);
+  --vision-panel-shadow: 0 20px 48px -8px rgba(15, 23, 42, 0.08), 0 6px 20px -3px rgba(15, 23, 42, 0.04);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.42);
+  accent-color: var(--laymor-blue);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0B1120;
+  --background-secondary: #111827;
+  --foreground: #F8FAFC;
+  --page-radial: radial-gradient(ellipse 110% 90% at 50% -10%, #0F2942 0%, #0B162C 34%, #0B1120 70%, #070B14 100%);
+  --glow-1: rgba(26, 117, 255, 0.16);
+  --glow-2: rgba(63, 169, 245, 0.14);
+  --glow-warm: rgba(30, 64, 175, 0.16);
+  --vision-glass: rgba(15, 23, 42, 0.84);
+  --vision-glass-hover: rgba(30, 41, 59, 0.92);
+  --vision-glass-panel: rgba(15, 23, 42, 0.88);
+  --vision-glass-card: rgba(15, 23, 42, 0.90);
+  --vision-glass-subtle: rgba(30, 41, 59, 0.68);
+  --vision-inset-highlight: rgba(148, 163, 184, 0.12);
+  --vision-border: rgba(51, 65, 85, 0.85);
+  --vision-border-light: rgba(71, 85, 105, 0.6);
+  --vision-border-cyan: rgba(63, 169, 245, 0.45);
+  --vision-pill-btn: rgba(30, 41, 59, 0.88);
+  --vision-pill-btn-hover: rgba(30, 58, 138, 0.55);
+  --vision-pill-active: rgba(26, 117, 255, 0.24);
+  --vision-accent: #3FA9F5;
+  --vision-accent-soft: rgba(63, 169, 245, 0.16);
+  --vision-text-primary: #F8FAFC;
+  --vision-text-secondary: #CBD5E1;
+  --vision-text-muted: #94A3B8;
+  --vision-text-cyan: #3FA9F5;
+  --vision-shadow: 0 14px 36px -6px rgba(2, 6, 23, 0.55), 0 4px 16px -2px rgba(2, 6, 23, 0.4);
+  --vision-panel-shadow: 0 20px 48px -8px rgba(2, 6, 23, 0.65), 0 6px 20px -3px rgba(2, 6, 23, 0.45);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.42);
+  accent-color: var(--laymor-sky);
 }
 
 @theme inline {
@@ -64,24 +181,54 @@ body {
   color: var(--vision-text-primary);
   font-family: var(--font-sans), 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   letter-spacing: -0.012em;
+  overflow-wrap: anywhere;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Apple VisionOS Sleek Glass Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+h1, h2, h3 {
+  text-wrap: balance;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+
+p, li {
+  text-wrap: pretty;
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.35);
-  border-radius: 9999px;
+
+img, video {
+  max-inline-size: 100%;
+  block-size: auto;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.55);
+
+/* Adaptive LAYMOR Wordmark in Dark Mode:
+   Chữ đen -> trắng sắc nét trong khi dải sợi in xanh dương giữ nguyên tông xanh LAYMOR */
+:root[data-theme="dark"] .laymor-logo-adaptive {
+  filter: invert(1) hue-rotate(180deg) brightness(1.06) saturate(1.18);
+}
+
+[data-force-dark="true"] {
+  color-scheme: dark;
+}
+
+/* Legacy fallback for browsers without standard scrollbar-color */
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Crisp Focus State */
@@ -89,13 +236,13 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   outline: none;
 }
 
-/* Apple VisionOS Spatial Glass Material Classes */
+/* Spatial Glass Material Classes */
 .vision-glass {
   background: var(--vision-glass);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--vision-border);
-  box-shadow: var(--vision-shadow), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  box-shadow: var(--vision-shadow), inset 0 1px 1px var(--vision-inset-highlight);
 }
 
 .vision-glass-panel {
@@ -103,7 +250,7 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   backdrop-filter: blur(32px) saturate(190%);
   -webkit-backdrop-filter: blur(32px) saturate(190%);
   border: 1px solid var(--vision-border);
-  box-shadow: var(--vision-panel-shadow), inset 0 1px 1px rgba(255, 255, 255, 1);
+  box-shadow: var(--vision-panel-shadow), inset 0 1px 1px var(--vision-inset-highlight);
 }
 
 .vision-glass-subtle {
@@ -119,7 +266,7 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--vision-border);
   color: var(--vision-text-primary);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04), inset 0 1px 0 var(--vision-inset-highlight);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .vision-pill-btn:hover {
@@ -127,14 +274,14 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   border-color: var(--vision-border-cyan);
   color: var(--vision-text-cyan);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(6, 182, 212, 0.12), inset 0 1px 0 rgba(255, 255, 255, 1);
+  box-shadow: 0 6px 16px rgba(26, 117, 255, 0.14), inset 0 1px 0 var(--vision-inset-highlight);
 }
 
 .vision-pill-active {
-  background: #E0F2FE;
-  border: 1px solid #7DD3FC;
-  color: #0369A1;
-  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  background: var(--vision-pill-active);
+  border: 1px solid var(--vision-border-cyan);
+  color: var(--vision-text-cyan);
+  box-shadow: 0 2px 8px rgba(26, 117, 255, 0.15), inset 0 1px 0 var(--vision-inset-highlight);
 }
 
 .vision-card-hover {
@@ -144,14 +291,14 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   transform: translateY(-3px);
   background: var(--vision-glass-hover);
   border-color: var(--vision-border-cyan);
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.08), inset 0 1px 1px rgba(255, 255, 255, 1);
+  box-shadow: var(--vision-panel-shadow), inset 0 1px 1px var(--vision-inset-highlight);
 }
 
-/* Creamy & Cyan Pastel Accent Badges */
+/* Accent Badges */
 .pastel-badge-cyan {
-  background: #E0F7FA;
-  color: #0E7490;
-  border: 1px solid #A5F3FC;
+  background: var(--vision-accent-soft);
+  color: var(--vision-text-cyan);
+  border: 1px solid var(--vision-border-cyan);
 }
 
 .pastel-badge-cream {
@@ -159,11 +306,21 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   color: #92400E;
   border: 1px solid #FDE68A;
 }
+:root[data-theme="dark"] .pastel-badge-cream {
+  background: rgba(245, 158, 11, 0.16);
+  color: #FCD34D;
+  border-color: rgba(245, 158, 11, 0.35);
+}
 
 .pastel-badge-green {
   background: #DCFCE7;
   color: #166534;
   border: 1px solid #BBF7D0;
+}
+:root[data-theme="dark"] .pastel-badge-green {
+  background: rgba(16, 185, 129, 0.16);
+  color: #6EE7B7;
+  border-color: rgba(16, 185, 129, 0.35);
 }
 
 .pastel-badge-rose {
@@ -171,15 +328,81 @@ input:focus, button:focus-visible, select:focus, textarea:focus {
   color: #9F1239;
   border: 1px solid #FECDD3;
 }
+:root[data-theme="dark"] .pastel-badge-rose {
+  background: rgba(244, 63, 94, 0.16);
+  color: #FDA4AF;
+  border-color: rgba(244, 63, 94, 0.35);
+}
 
 .pastel-pill {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--vision-pill-btn);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  color: #1E293B;
+  border: 1px solid var(--vision-border);
+  color: var(--vision-text-primary);
 }
 .pastel-pill:hover {
-  background: #F0F9FF;
-  border-color: #BAE6FD;
-  color: #0369A1;
+  background: var(--vision-pill-btn-hover);
+  border-color: var(--vision-border-cyan);
+  color: var(--vision-text-cyan);
+}
+
+/* ==========================================================================
+   AUTOMATIC DARK SURFACE HARMONIZATION FOR LEGACY LIGHT UTILITY CARDS
+   Chỉ áp dụng bên ngoài các khối [data-force-dark="true"] để mọi trang
+   (/, /shop, /studio, /makers-club, /about, /profile, /admin) đồng bộ Dark Mode
+   mà không làm đổi màu các nút trắng nổi bật trên nền Hero tối!
+   ========================================================================== */
+:root[data-theme="dark"] :where(header, main, footer) :not([data-force-dark="true"], [data-force-dark="true"] *) {
+  &.bg-white,
+  &.bg-white\/85,
+  &.bg-white\/90,
+  &.bg-white\/95 {
+    background-color: rgba(15, 23, 42, 0.90);
+  }
+  &.bg-slate-50,
+  &.bg-slate-50\/70,
+  &.bg-slate-50\/80,
+  &.bg-slate-50\/95 {
+    background-color: rgba(30, 41, 59, 0.72);
+  }
+  &.bg-slate-100,
+  &.bg-slate-100\/90,
+  &.bg-\[\#E2E8F0\]\/75 {
+    background-color: rgba(30, 41, 59, 0.85);
+  }
+  &.bg-sky-50,
+  &.bg-cyan-50,
+  &.bg-blue-50 {
+    background-color: rgba(26, 117, 255, 0.16);
+  }
+  &.border-slate-100,
+  &.border-slate-200,
+  &.border-slate-200\/70,
+  &.border-slate-200\/80,
+  &.border-slate-200\/90,
+  &.border-slate-300,
+  &.border-slate-300\/70 {
+    border-color: rgba(51, 65, 85, 0.85);
+  }
+  &.border-sky-200,
+  &.border-cyan-200,
+  &.border-blue-300 {
+    border-color: rgba(63, 169, 245, 0.35);
+  }
+  &.text-slate-900,
+  &.text-slate-800,
+  &.text-\[\#0F2942\] {
+    color: #F8FAFC;
+  }
+  &.text-slate-700,
+  &.text-slate-600 {
+    color: #CBD5E1;
+  }
+  &.text-slate-500 {
+    color: #94A3B8;
+  }
+  &.text-\[\#1D4ED8\],
+  &.text-cyan-800 {
+    color: #3FA9F5;
+  }
 }

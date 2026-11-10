@@ -37,6 +37,7 @@ import { useModulePermissions } from '@/hooks/useModulePermissions';
 import { TopUpModal } from '@/components/wallet/TopUpModal';
 import { GoogleAuthModal } from '@/components/common/GoogleAuthModal';
 import { LaymorLogo, LaymorRefTag } from '@/components/common/LaymorLogo';
+import { ThemeToggle } from '@/components/common/ThemeToggle';
 import {
   LAYMOR_PRINTER_BRANDS,
   LAYMOR_PRINTERS_CATALOG,
@@ -151,7 +152,7 @@ export function Navbar() {
       <header
         ref={headerRef}
         onMouseLeave={scheduleCloseMega}
-        className="sticky top-0 z-50 w-full bg-white border-b border-slate-200/90 shadow-[0_4px_20px_rgba(15,23,42,0.04)]"
+        className="sticky top-0 z-50 w-full bg-white/95 dark:bg-slate-950/92 backdrop-blur-xl border-b border-slate-200/90 dark:border-slate-800 shadow-[0_4px_20px_rgba(15,23,42,0.04)] dark:shadow-[0_4px_24px_rgba(2,6,23,0.45)] transition-colors duration-300"
       >
         <div className="max-w-7xl mx-auto h-18 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
           {/* 1. LOGO LAYMOR CHÍNH THỨC (TRÁI - TRANG 1 PDF) */}
@@ -301,6 +302,9 @@ export function Navbar() {
                 </span>
               </button>
             )}
+
+            {/* Icon 0: Chuyển đổi Sáng / Tối (Đồng bộ với /3dsim) */}
+            <ThemeToggle variant="icon" />
 
             {/* Icon 1: Tìm kiếm (Search - Trang 1 PDF) */}
             <button
@@ -998,7 +1002,8 @@ export function Navbar() {
 
         {/* MOBILE DRAWER */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3 shadow-xl">
+          <div className="lg:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-4 py-4 space-y-3 shadow-xl">
+            <ThemeToggle variant="pill" />
             <div className="flex flex-col space-y-1">
               <Link
                 href="/"

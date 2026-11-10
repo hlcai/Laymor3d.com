@@ -208,7 +208,7 @@ export function LocalSlicerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xl animate-in fade-in">
+    <div data-theme="dark" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xl animate-in fade-in">
       <div className="relative w-full max-w-5xl rounded-3xl glass-panel border border-white/20 shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
         {/* Header Bar */}
         <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-white/5 shrink-0">

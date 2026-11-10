@@ -36,25 +36,23 @@ export function TimeScrubber({
   const percent = state.isCompleted ? 100 : Math.min(99, Math.round(state.currentProgress * 100));
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-2.5 rounded-2xl glass-panel space-y-2">
+    <div className="w-full max-w-5xl mx-auto space-y-1.5">
       {/* Row 1: Scrubber Track with Progress Fill & Defect Markers */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold studio-text-primary shrink-0 min-w-[88px]">
-          <IconLayers size={12} className="studio-text-gold" />
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold studio-text-primary shrink-0">
+          <IconLayers size={12} className="studio-text-gold shrink-0" />
           <span>
             L{state.currentLayer}
             <span className="studio-text-muted font-normal">/{state.totalLayers}</span>
           </span>
         </div>
 
-        <div className="relative flex-1 flex items-center">
-          {/* Progress Fill */}
+        <div className="relative flex-1 flex items-center min-w-[100px]">
           <div
             className="pointer-events-none absolute left-0 h-1 rounded-full bg-[var(--accent-gold)]"
             style={{ width: `${Math.max(0, Math.min(100, state.currentProgress * 100))}%` }}
           />
 
-          {/* Defect Layer Tick Markers */}
           {defects.map((err) => {
             if (!err.layerRange || state.totalLayers <= 1) return null;
             const midLayer = Math.round((err.layerRange[0] + err.layerRange[1]) / 2);
@@ -80,22 +78,25 @@ export function TimeScrubber({
             max="1000"
             value={Math.round(state.currentProgress * 1000)}
             onChange={(e) => onScrubProgress(Number(e.target.value) / 1000)}
+            aria-label="Thanh trượt tiến độ cắt lớp G-code"
             className="w-full h-1.5 rounded-full cursor-pointer relative z-0"
             title="Duyệt từng lớp cắt G-code"
           />
         </div>
 
-        <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md studio-gold-badge shrink-0 min-w-[48px] text-center">
+        <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md studio-gold-badge shrink-0 min-w-[46px] text-center">
           {percent}%
         </span>
       </div>
 
       {/* Row 2: Transport Controls + Live Telemetry + Speed Multipliers */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap">
         {/* Left: Playback Transport Buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <button
+            type="button"
             onClick={onReset}
+            aria-label="Về lớp đầu tiên"
             className="p-1.5 rounded-lg studio-card hover:bg-[var(--bg-hover)] studio-text-secondary hover:studio-text-primary transition-all active:scale-95 cursor-pointer"
             title="Về lớp đầu tiên (Lớp 1)"
           >
@@ -103,8 +104,10 @@ export function TimeScrubber({
           </button>
 
           <button
+            type="button"
             onClick={() => onStepLayer(-1)}
             disabled={state.currentLayer <= 1}
+            aria-label="Lùi 1 lớp"
             className="p-1.5 rounded-lg studio-card hover:bg-[var(--bg-hover)] studio-text-secondary hover:studio-text-primary disabled:opacity-30 transition-all cursor-pointer"
             title="Lùi 1 lớp (Phím ←)"
           >
@@ -112,8 +115,9 @@ export function TimeScrubber({
           </button>
 
           <button
+            type="button"
             onClick={onTogglePlay}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl studio-cta-primary font-semibold text-xs transition-all active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl studio-cta-primary font-semibold text-xs transition-all active:scale-95 cursor-pointer"
             title={state.isPlaying ? 'Tạm dừng (Space)' : 'Chạy mô phỏng in (Space)'}
           >
             {state.isPlaying ? (
@@ -130,8 +134,10 @@ export function TimeScrubber({
           </button>
 
           <button
+            type="button"
             onClick={() => onStepLayer(1)}
             disabled={state.currentLayer >= state.totalLayers}
+            aria-label="Tiến 1 lớp"
             className="p-1.5 rounded-lg studio-card hover:bg-[var(--bg-hover)] studio-text-secondary hover:studio-text-primary disabled:opacity-30 transition-all cursor-pointer"
             title="Tiến 1 lớp (Phím →)"
           >
@@ -140,29 +146,30 @@ export function TimeScrubber({
         </div>
 
         {/* Center: Live Print Time & Filament Readout */}
-        <div className="hidden md:flex items-center gap-3 text-[11px] studio-card px-3 py-1 rounded-xl">
-          <div className="flex items-center gap-1.5 studio-text-secondary">
-            <span>Thời gian:</span>
+        <div className="hidden sm:flex items-center gap-2.5 text-[11px] studio-card px-2.5 py-1 rounded-xl">
+          <div className="flex items-center gap-1 studio-text-secondary">
+            <span className="hidden md:inline">Thời gian:</span>
             <strong className="studio-text-primary font-mono">{formatPrintTime(state.elapsedTimeSec)}</strong>
             <span className="studio-text-muted font-mono">/ {formatPrintTime(state.totalTimeSec)}</span>
           </div>
 
           <div className="w-[1px] h-3.5 bg-[var(--border-hairline)]" />
 
-          <div className="flex items-center gap-1.5 studio-text-secondary">
-            <span>Khối lượng:</span>
+          <div className="flex items-center gap-1 studio-text-secondary">
+            <span className="hidden md:inline">Nhựa:</span>
             <strong className="studio-text-primary font-mono">{state.filamentUsedGrams.toFixed(1)}g</strong>
             <span className="studio-text-muted font-mono">/ {state.totalFilamentGrams.toFixed(1)}g</span>
           </div>
         </div>
 
         {/* Right: Speed Multipliers & Instant Finish */}
-        <div className="flex items-center gap-0.5 studio-card p-0.5 rounded-xl">
+        <div className="flex items-center gap-0.5 studio-card p-0.5 rounded-xl overflow-x-auto no-scrollbar max-w-full">
           {speeds.map((s) => (
             <button
+              type="button"
               key={s}
               onClick={() => onSetSpeed(s)}
-              className={`px-2 py-1 rounded-lg text-[11px] font-mono transition-all cursor-pointer ${
+              className={`px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono transition-all cursor-pointer shrink-0 ${
                 state.playbackSpeed === s
                   ? 'studio-pill-active'
                   : 'studio-pill-inactive font-medium'
@@ -173,8 +180,9 @@ export function TimeScrubber({
           ))}
 
           <button
+            type="button"
             onClick={onInstantFinish}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all cursor-pointer ${
+            className={`px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono font-semibold transition-all cursor-pointer shrink-0 ${
               state.isCompleted ? 'studio-gold-badge' : 'studio-pill-inactive'
             }`}
             title="Tua tới 100% thành phẩm"

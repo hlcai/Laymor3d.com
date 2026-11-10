@@ -51,7 +51,10 @@ export default function MakersClubPage() {
   return (
     <div className="space-y-14 pb-10">
       {/* 1. HERO BANNER: LAYMOR MAKERS CLUB (TRANG 6 PDF) */}
-      <section className="relative rounded-[32px] overflow-hidden bg-gradient-to-r from-[#0B192C] via-[#0F2942] to-[#1E40AF] text-white p-8 sm:p-14 shadow-[0_24px_60px_rgba(15,41,66,0.22)] border border-[#1E3A8A]">
+      <section
+        data-force-dark="true"
+        className="relative rounded-[32px] overflow-hidden bg-gradient-to-r from-[#0B192C] via-[#0F2942] to-[#1E40AF] text-white p-8 sm:p-14 shadow-[0_24px_60px_rgba(15,41,66,0.22)] border border-[#1E3A8A]"
+      >
         <div
           className="absolute inset-0 opacity-15 pointer-events-none"
           style={{

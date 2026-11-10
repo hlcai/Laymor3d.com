@@ -142,7 +142,8 @@ export function GeminiApiKeyModal({
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
+      data-theme="dark"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
     >
       <div className="relative w-full max-w-lg rounded-3xl glass-panel border border-white/20 shadow-2xl bg-slate-950/90 text-white overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}

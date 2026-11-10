@@ -147,6 +147,7 @@ export default function AboutPage() {
       {/* 3. THÔNG TIN SHOWROOM & TRỤ SỞ (TRANG 8 PDF) */}
       <section
         id="showroom"
+        data-force-dark="true"
         className="rounded-[32px] bg-gradient-to-br from-[#0F2942] via-[#1E3A8A] to-[#1D4ED8] text-white p-8 sm:p-12 shadow-xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-center"
       >
         <div className="lg:col-span-7 space-y-5">

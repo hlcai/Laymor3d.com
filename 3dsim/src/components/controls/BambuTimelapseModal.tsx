@@ -291,7 +291,7 @@ export function BambuTimelapseModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl">
+    <div data-theme="dark" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xl">
       <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl glass-panel border border-white/20 shadow-2xl overflow-hidden bg-slate-950/95 text-white">
         {/* Toast Notification */}
         {toastMessage && (

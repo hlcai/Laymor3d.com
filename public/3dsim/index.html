@@ -2,14 +2,39 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      (function () {
+        try {
+          var p = new URLSearchParams(location.search).get('theme');
+          var s =
+            p === 'dark' || p === 'light'
+              ? p
+              : localStorage.getItem('laymor_theme') || localStorage.getItem('printsim_theme');
+          var m = document.querySelector('meta[name="color-scheme"]');
+          if (m) m.content = s === 'dark' || s === 'light' ? s : 'light dark';
+          var r =
+            s === 'dark' || s === 'light'
+              ? s
+              : matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          document.documentElement.setAttribute('data-theme', r);
+          document.documentElement.classList.toggle('dark', r === 'dark');
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/3dsim/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>3D PrintSim Pro — Hệ Thống Giả Lập &amp; Kiểm Lỗi In 3D Thời Gian Thực</title>
-    <meta name="description" content="Trình mô phỏng in 3D CoreXY thời gian thực: tua nhanh thời gian in, kiểm tra khuyết tật sập góc dốc Overhang, cong vênh Warping và thử nghiệm đa profile cắt lớp." />
-    <script type="module" crossorigin src="/3dsim/assets/index-BL4rZUzl.js"></script>
-    <link rel="stylesheet" crossorigin href="/3dsim/assets/index-CiQm1XZK.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>LAYMOR 3D Print Simulator — Mô Phỏng Cắt Lớp &amp; Tree Support Thời Gian Thực</title>
+    <meta
+      name="description"
+      content="Buồng mô phỏng in 3D LAYMOR CoreXY thời gian thực: cắt lớp 2D-SDF, dựng Tree Support tự động, kiểm tra góc Overhang và xuất file .3MF chuẩn Bambu Studio."
+    />
+    <script type="module" crossorigin src="/3dsim/assets/index-B4eokv6u.js"></script>
+    <link rel="stylesheet" crossorigin href="/3dsim/assets/index-B5gIj_Y9.css">
   </head>
-  <body class="bg-[#07090e] text-white overflow-hidden">
-    <div id="root"></div>
+  <body class="overflow-hidden">
+    <div id="root"></div>
   </body>
 </html>

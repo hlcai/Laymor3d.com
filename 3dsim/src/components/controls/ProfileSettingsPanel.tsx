@@ -76,95 +76,112 @@ export function ProfileSettingsPanel({
   ];
 
   return (
-    <aside
-      className={`fixed top-16 left-3 z-20 transition-all duration-300 ${
-        isOpen ? 'w-80 md:w-[372px]' : 'w-12'
-      }`}
-    >
-      {!isOpen ? (
-        /* Symmetrical Collapsed Vertical Studio Dock */
-        <div className="w-12 rounded-2xl glass-panel py-2 px-1.5 flex flex-col items-center gap-1.5">
-          <button
-            data-testid="toggle-profile-panel-btn"
-            onClick={onToggleOpen}
-            className="w-8 h-8 rounded-xl studio-gold-badge hover:opacity-90 flex items-center justify-center transition-all cursor-pointer"
-            title="Mở bảng thông số cắt lớp Bambu Studio (Process)"
-          >
-            <IconChevronRight size={14} />
-          </button>
-
-          <div className="w-5 h-[1px] bg-[var(--border-hairline)] my-0.5" />
-
-          {tabs.map((t) => {
-            const isActive = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => {
-                  setActiveTab(t.id);
-                  onToggleOpen();
-                }}
-                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                  isActive ? 'studio-pill-active' : 'studio-pill-inactive'
-                }`}
-                title={`Mở nhanh tab: ${t.label}`}
-              >
-                {t.icon}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-2xl glass-panel overflow-hidden flex flex-col max-h-[calc(100vh-148px)]">
-          {/* Header / Collapse Toggle */}
-          <div className="px-3.5 py-2.5 border-b studio-border flex items-center justify-between bg-[var(--bg-subtle)]">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-7 h-7 rounded-lg studio-gold-badge flex items-center justify-center shrink-0">
-                <IconSliders size={13} />
-              </div>
-              <div className="leading-tight">
-                <h3 className="text-[11px] font-semibold studio-text-primary uppercase tracking-wider">
-                  Thông Số Cắt Lớp (Bambu Process)
-                </h3>
-                <p className="text-[10px] studio-text-secondary font-mono">
-                  {profile.material} • {profile.nozzleDiameter || 0.4}mm Nozzle • {profile.layerHeight}mm • {profile.infillDensity}%
-                </p>
-              </div>
-            </div>
-
+    <>
+      {isOpen && (
+        <div
+          onClick={onToggleOpen}
+          aria-hidden="true"
+          className="lg:hidden absolute inset-0 z-30 bg-slate-950/35 backdrop-blur-[1px]"
+        />
+      )}
+      <aside
+        className={`transition-all duration-200 ${
+          isOpen
+            ? 'absolute inset-y-0 left-0 z-40 w-[min(348px,calc(100vw-16px))] lg:relative lg:inset-auto lg:z-20 lg:w-[324px] xl:w-[356px] lg:shrink-0 h-full'
+            : 'absolute top-2.5 left-2.5 z-30 w-11 lg:relative lg:top-auto lg:left-auto lg:z-20 lg:w-12 lg:shrink-0 lg:h-full'
+        }`}
+      >
+        {!isOpen ? (
+          /* Symmetrical Collapsed Vertical Studio Dock */
+          <div className="w-11 lg:w-12 lg:h-full rounded-2xl lg:rounded-none glass-panel lg:border-y-0 lg:border-l-0 lg:border-r py-2 px-1.5 flex flex-col items-center gap-1.5">
             <button
+              type="button"
               data-testid="toggle-profile-panel-btn"
               onClick={onToggleOpen}
-              className="w-7 h-7 rounded-lg studio-card hover:bg-[var(--bg-hover)] studio-text-secondary hover:studio-text-primary flex items-center justify-center transition-all cursor-pointer shrink-0"
-              title="Thu gọn bảng thông số"
+              aria-label="Mở bảng thông số cắt lớp"
+              className="w-8 h-8 rounded-xl studio-gold-badge hover:opacity-90 flex items-center justify-center transition-all cursor-pointer"
+              title="Mở bảng thông số cắt lớp Bambu Studio (Process)"
             >
-              <IconChevronLeft size={13} />
+              <IconChevronRight size={14} />
             </button>
-          </div>
 
-          {/* 6-Tab Minimalist Segmented Navigation */}
-          <div className="grid grid-cols-6 border-b studio-border bg-[var(--bg-subtle)] p-1 gap-0.5">
+            <div className="w-5 h-[1px] bg-[var(--border-hairline)] my-0.5" />
+
             {tabs.map((t) => {
               const isActive = activeTab === t.id;
               return (
                 <button
+                  type="button"
                   key={t.id}
-                  onClick={() => setActiveTab(t.id)}
-                  className={`flex flex-col items-center justify-center gap-1 py-1.5 px-0.5 rounded-lg text-[10px] transition-all cursor-pointer ${
-                    isActive
-                      ? 'studio-pill-active'
-                      : 'studio-pill-inactive font-medium'
+                  onClick={() => {
+                    setActiveTab(t.id);
+                    onToggleOpen();
+                  }}
+                  aria-label={`Mở tab ${t.label}`}
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                    isActive ? 'studio-pill-active' : 'studio-pill-inactive'
                   }`}
+                  title={`Mở nhanh tab: ${t.label}`}
                 >
                   {t.icon}
-                  <span className="truncate max-w-full leading-none">{t.label}</span>
                 </button>
               );
             })}
           </div>
+        ) : (
+          <div className="h-full glass-panel lg:rounded-none rounded-r-2xl border-y-0 border-l-0 border-r studio-border overflow-hidden flex flex-col">
+            {/* Header / Collapse Toggle */}
+            <div className="px-3.5 py-2.5 border-b studio-border flex items-center justify-between bg-[var(--bg-subtle)] shrink-0">
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-7 h-7 rounded-lg studio-gold-badge flex items-center justify-center shrink-0">
+                  <IconSliders size={13} />
+                </div>
+                <div className="leading-tight min-w-0">
+                  <h3 className="text-[11px] font-semibold studio-text-primary uppercase tracking-wider truncate">
+                    Thông Số Cắt Lớp (Bambu Process)
+                  </h3>
+                  <p className="text-[10px] studio-text-secondary font-mono truncate">
+                    {profile.material} • {profile.nozzleDiameter || 0.4}mm • {profile.layerHeight}mm • {profile.infillDensity}%
+                  </p>
+                </div>
+              </div>
 
-          {/* Scrollable Inspector Body */}
-          <div className="p-3.5 space-y-3 overflow-y-auto text-xs">
+              <button
+                type="button"
+                data-testid="toggle-profile-panel-btn"
+                onClick={onToggleOpen}
+                aria-label="Thu gọn bảng thông số"
+                className="w-7 h-7 rounded-lg studio-card hover:bg-[var(--bg-hover)] studio-text-secondary hover:studio-text-primary flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Thu gọn bảng thông số"
+              >
+                <IconChevronLeft size={13} />
+              </button>
+            </div>
+
+            {/* 6-Tab Minimalist Segmented Navigation */}
+            <div className="grid grid-cols-6 border-b studio-border bg-[var(--bg-subtle)] p-1 gap-0.5 shrink-0">
+              {tabs.map((t) => {
+                const isActive = activeTab === t.id;
+                return (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => setActiveTab(t.id)}
+                    className={`flex flex-col items-center justify-center gap-1 py-1.5 px-0.5 rounded-lg text-[10px] transition-all cursor-pointer ${
+                      isActive
+                        ? 'studio-pill-active'
+                        : 'studio-pill-inactive font-medium'
+                    }`}
+                  >
+                    {t.icon}
+                    <span className="truncate max-w-full leading-none">{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Scrollable Inspector Body */}
+            <div className="flex-1 min-h-0 p-3.5 space-y-3 overflow-y-auto text-xs">
             {/* ================= TAB 1: CƠ BẢN (PRESET, FILAMENT, NOZZLE, LAYER, INFILL) ================= */}
             {activeTab === 'basic' && (
               <>
@@ -184,7 +201,7 @@ export function ProfileSettingsPanel({
                     className="w-full px-3 py-2 rounded-xl glass-input text-xs font-medium cursor-pointer"
                   >
                     {PRESET_PROFILES.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-neutral-900 text-neutral-100">
+                      <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
                     ))}
@@ -338,7 +355,7 @@ export function ProfileSettingsPanel({
                       className="w-full px-2.5 py-1.5 rounded-lg glass-input text-xs font-medium cursor-pointer"
                     >
                       {infillTypes.map((t) => (
-                        <option key={t.id} value={t.id} className="bg-neutral-900 text-neutral-100">
+                        <option key={t.id} value={t.id}>
                           {t.label}
                         </option>
                       ))}
@@ -515,16 +532,16 @@ export function ProfileSettingsPanel({
                     }
                     className="w-full px-3 py-1.5 rounded-lg glass-input text-xs font-medium cursor-pointer"
                   >
-                    <option value="aligned" className="bg-neutral-900">
+                    <option value="aligned">
                       Aligned (Dọc thẳng hàng góc cạnh)
                     </option>
-                    <option value="nearest" className="bg-neutral-900">
+                    <option value="nearest">
                       Nearest (Gần nhất - tối ưu tốc độ)
                     </option>
-                    <option value="back" className="bg-neutral-900">
+                    <option value="back">
                       Back (Giấu toàn bộ ra mặt lưng -Z)
                     </option>
-                    <option value="random" className="bg-neutral-900">
+                    <option value="random">
                       Random (Chấm ngẫu nhiên phân tán)
                     </option>
                   </select>
@@ -826,19 +843,19 @@ export function ProfileSettingsPanel({
                     }}
                     className="w-full px-3 py-1.5 rounded-lg glass-input text-xs font-medium cursor-pointer"
                   >
-                    <option value="none" className="bg-neutral-900">
+                    <option value="none">
                       No-brim (Không dùng vành Brim)
                     </option>
-                    <option value="outer_only" className="bg-neutral-900">
+                    <option value="outer_only">
                       Outer brim only (Vành bao ngoài)
                     </option>
-                    <option value="inner_only" className="bg-neutral-900">
+                    <option value="inner_only">
                       Inner brim only (Vành lòng trong)
                     </option>
-                    <option value="outer_and_inner" className="bg-neutral-900">
+                    <option value="outer_and_inner">
                       Outer and inner brim (Trong &amp; Ngoài)
                     </option>
-                    <option value="mouse_ears" className="bg-neutral-900">
+                    <option value="mouse_ears">
                       Mouse-ear brim (Tai chuột 4 góc chống vênh)
                     </option>
                   </select>
@@ -1170,6 +1187,7 @@ export function ProfileSettingsPanel({
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
