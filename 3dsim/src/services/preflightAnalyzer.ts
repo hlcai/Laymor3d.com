@@ -75,35 +75,54 @@ export function runPreflightInspection(
 
   const [dimX, dimY, dimZ] = metrics.boundingBox.dimensions;
   const positions = geometry.getAttribute('position');
-  const normals = geometry.getAttribute('normal');
-
-  let steepOverhangFaceCount = 0;
-  let flatBridgeFaceCount = 0;
-  let totalFaceCount = 0;
 
   const thresholdDeg = profile.supportAngleThreshold || 45;
-  const thresholdNy = -Math.cos((thresholdDeg * Math.PI) / 180);
+  const sinThresh = Math.sin((Math.max(15, Math.min(80, 90 - thresholdDeg)) * Math.PI) / 180);
 
-  if (positions && normals) {
-    const vertexCount = positions.count;
-    totalFaceCount = Math.floor(vertexCount / 3);
+  let totalSurfaceArea = 0;
+  let overhangArea = 0;
+  let bridgeArea = 0;
 
-    for (let i = 0; i < vertexCount; i += 3) {
-      const ny = (normals.getY(i) + normals.getY(i + 1) + normals.getY(i + 2)) / 3;
-      const py = (positions.getY(i) + positions.getY(i + 1) + positions.getY(i + 2)) / 3;
+  if (positions && positions.count >= 3) {
+    const idxAttr = geometry.getIndex();
+    const triCount = idxAttr ? Math.floor(idxAttr.count / 3) : Math.floor(positions.count / 3);
+    const sampleStep = Math.max(1, Math.floor(triCount / 120000));
+    const minBaseY = metrics.boundingBox.min[1];
 
-      if (ny < thresholdNy && py > metrics.boundingBox.min[1] + 2) {
-        steepOverhangFaceCount++;
+    for (let t = 0; t < triCount; t += sampleStep) {
+      const i0 = idxAttr ? idxAttr.getX(t * 3) : t * 3;
+      const i1 = idxAttr ? idxAttr.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = idxAttr ? idxAttr.getX(t * 3 + 2) : t * 3 + 2;
+
+      const ax = positions.getX(i0), ay = positions.getY(i0), az = positions.getZ(i0);
+      const bx = positions.getX(i1), by = positions.getY(i1), bz = positions.getZ(i1);
+      const cx = positions.getX(i2), cy = positions.getY(i2), cz = positions.getZ(i2);
+
+      const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+      const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+      const cpx = e1y * e2z - e1z * e2y;
+      const cpy = e1z * e2x - e1x * e2z;
+      const cpz = e1x * e2y - e1y * e2x;
+      const doubleArea = Math.hypot(cpx, cpy, cpz);
+      if (doubleArea < 1e-8) continue;
+
+      const ny = cpy / doubleArea;
+      const py = (ay + by + cy) / 3;
+      if (py <= minBaseY + 0.6 && ny < -0.85) continue;
+
+      totalSurfaceArea += doubleArea;
+      if (ny < -sinThresh && py > minBaseY + 1.6) {
+        overhangArea += doubleArea;
       }
-      if (ny < -0.92 && py > metrics.boundingBox.min[1] + 5) {
-        flatBridgeFaceCount++;
+      if (ny < -0.92 && py > minBaseY + 4.0) {
+        bridgeArea += doubleArea;
       }
     }
   }
 
-  const overhangRatio = totalFaceCount > 0 ? steepOverhangFaceCount / totalFaceCount : 0;
-  const bridgeRatio = totalFaceCount > 0 ? flatBridgeFaceCount / totalFaceCount : 0;
-  const overhangRiskPercent = Math.min(100, Math.round(overhangRatio * 250));
+  const overhangRatio = totalSurfaceArea > 0 ? overhangArea / totalSurfaceArea : 0;
+  const bridgeRatio = totalSurfaceArea > 0 ? bridgeArea / totalSurfaceArea : 0;
+  const overhangRiskPercent = Math.min(100, Math.round(overhangRatio * 100));
   const footprintAreaMm2 = dimX * dimZ;
   const minBaseDim = Math.max(1, Math.min(dimX, dimZ));
   const aspectRatioHeight = dimY / minBaseDim;
@@ -253,7 +272,7 @@ export function runPreflightInspection(
   // 7. LỖI HỤT LƯU LƯỢNG ĐÙN NHỰA / THIẾU NHỰA (VOLUMETRIC UNDER-EXTRUSION)
   // ============================================================================
   const maxFlow = profile.flowRateMm3s || 21;
-  if (actualVolumetricFlow > maxFlow * 0.95 || (profile.flowRatio ?? 0.98) < 0.92) {
+  if (actualVolumetricFlow > maxFlow + 0.05 || (profile.flowRatio ?? 0.98) < 0.92) {
     const penalty = 18;
     score -= penalty;
     errors.push({

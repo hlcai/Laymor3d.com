@@ -111,6 +111,32 @@ export function SimulatorHeader({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isStudioMenuOpen, setIsStudioMenuOpen] = useState(false);
   const studioMenuRef = useRef<HTMLDivElement>(null);
+  const studioBtnRef = useRef<HTMLButtonElement>(null);
+  const [studioMenuPos, setStudioMenuPos] = useState<{ top: number; left: number }>({
+    top: 56,
+    left: 16,
+  });
+
+  useEffect(() => {
+    if (!isStudioMenuOpen) return;
+
+    const updateMenuPosition = () => {
+      const btn = studioBtnRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const menuW = Math.min(328, vw - 24);
+      const clampedLeft = Math.max(12, Math.min(vw - menuW - 12, rect.right - menuW));
+      setStudioMenuPos({
+        top: Math.max(48, Math.round(rect.bottom + 8)),
+        left: Math.round(clampedLeft),
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    return () => window.removeEventListener('resize', updateMenuPosition);
+  }, [isStudioMenuOpen]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -359,9 +385,9 @@ export function SimulatorHeader({
 
         {/* =====================================================================
             3. CỤM PHẢI: AI & STUDIO TOOLS + THEME TOGGLE + ĐẶT IN + XUẤT
-            Không bao giờ bị tràn ra ngoài cạnh phải màn hình!
+            Không bao giờ bị tràn ra ngoài cạnh phải hoặc bị cắt xén cạnh trái!
            ===================================================================== */}
-        <div className="order-2 xl:order-3 flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto xl:ml-0">
+        <div className="order-2 xl:order-3 flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
           {/* Quick AI Consultant Button */}
           <button
             type="button"
@@ -417,6 +443,7 @@ export function SimulatorHeader({
               <div className="hidden sm:block w-[1px] h-3.5 bg-[var(--border-hairline)]" />
 
               <button
+                ref={studioBtnRef}
                 type="button"
                 data-testid="studio-tools-menu-btn"
                 onClick={() => setIsStudioMenuOpen((prev) => !prev)}
@@ -437,9 +464,15 @@ export function SimulatorHeader({
               </button>
             </div>
 
-            {/* Dropdown Menu chứa toàn bộ công cụ nâng cao (Đảm bảo màn hình nhỏ không mất bất kỳ chức năng nào) */}
+            {/* Dropdown Menu kẹp tọa độ an toàn trong khung nhìn (Không bao giờ bị cắt mất cạnh trái/phải hay xuyên chữ nền) */}
             {isStudioMenuOpen && (
-              <div className="absolute right-0 mt-2 w-[min(320px,calc(100vw-16px))] max-h-[calc(100dvh-80px)] overflow-y-auto rounded-2xl glass-panel p-3 space-y-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+              <div
+                style={{
+                  top: `${studioMenuPos.top}px`,
+                  left: `${studioMenuPos.left}px`,
+                }}
+                className="fixed w-[min(328px,calc(100vw-24px))] max-h-[calc(100dvh-76px)] overflow-y-auto rounded-2xl studio-popover p-3 space-y-1.5 z-[120] animate-in fade-in zoom-in-95 duration-150"
+              >
                 <div className="px-1.5 pb-1.5 border-b studio-border flex items-center justify-between">
                   <span className="text-[10px] font-semibold uppercase tracking-widest studio-text-muted">
                     BỘ CÔNG CỤ KỸ THUẬT &amp; AI
@@ -711,8 +744,8 @@ export function SimulatorHeader({
             )}
           </div>
 
-          {/* Inline Secondary Pills trên màn hình rộng >= 1536px (2xl) */}
-          <div className="hidden 2xl:flex items-center rounded-xl studio-card p-0.5 shrink-0">
+          {/* Inline Secondary Pills trên màn hình siêu rộng >= 1820px (Giữ thanh tiêu đề 1 dòng gọn gàng trên laptop 125% DPI / 1536px) */}
+          <div className="hidden min-[1820px]:flex items-center rounded-xl studio-card p-0.5 shrink-0">
             {onOpenDefectKnowledgeModal && (
               <button
                 type="button"

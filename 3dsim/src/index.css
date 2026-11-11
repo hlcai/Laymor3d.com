@@ -13,6 +13,7 @@
   /* Default Light Studio Tokens */
   --bg-canvas: #eef3f9;
   --bg-panel: rgba(255, 255, 255, 0.92);
+  --bg-popover: rgba(255, 255, 255, 0.99);
   --bg-subtle: rgba(15, 41, 66, 0.055);
   --bg-hover: rgba(26, 117, 255, 0.09);
   --bg-input: rgba(241, 245, 249, 0.96);
@@ -27,6 +28,7 @@
   --accent-gold-bg: rgba(26, 117, 255, 0.11);
   --accent-gold-border: rgba(26, 117, 255, 0.28);
   --shadow-panel: 0 12px 32px -6px rgba(15, 23, 42, 0.10), inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
+  --shadow-popover: 0 24px 56px -10px rgba(15, 23, 42, 0.24), 0 0 0 1px rgba(15, 41, 66, 0.08);
   --track-bg: rgba(15, 41, 66, 0.15);
   --thumb-bg: #1a75ff;
   --thumb-border: #ffffff;
@@ -38,6 +40,7 @@
   @media (prefers-color-scheme: dark) {
     --bg-canvas: #0b1120;
     --bg-panel: rgba(15, 23, 42, 0.90);
+    --bg-popover: rgba(11, 18, 34, 0.985);
     --bg-subtle: rgba(148, 163, 184, 0.085);
     --bg-hover: rgba(63, 169, 245, 0.14);
     --bg-input: rgba(15, 23, 42, 0.92);
@@ -52,6 +55,7 @@
     --accent-gold-bg: rgba(63, 169, 245, 0.15);
     --accent-gold-border: rgba(63, 169, 245, 0.34);
     --shadow-panel: 0 16px 40px -8px rgba(2, 6, 23, 0.72), inset 0 1px 0 0 rgba(148, 163, 184, 0.10);
+    --shadow-popover: 0 28px 64px -10px rgba(2, 6, 23, 0.92), inset 0 1px 0 0 rgba(148, 163, 184, 0.16);
     --track-bg: rgba(148, 163, 184, 0.22);
     --thumb-bg: #3fa9f5;
     --thumb-border: #0f172a;
@@ -71,6 +75,7 @@
   color-scheme: light;
   --bg-canvas: #eef3f9;
   --bg-panel: rgba(255, 255, 255, 0.92);
+  --bg-popover: rgba(255, 255, 255, 0.99);
   --bg-subtle: rgba(15, 41, 66, 0.055);
   --bg-hover: rgba(26, 117, 255, 0.09);
   --bg-input: rgba(241, 245, 249, 0.96);
@@ -85,6 +90,7 @@
   --accent-gold-bg: rgba(26, 117, 255, 0.11);
   --accent-gold-border: rgba(26, 117, 255, 0.28);
   --shadow-panel: 0 12px 32px -6px rgba(15, 23, 42, 0.10), inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
+  --shadow-popover: 0 24px 56px -10px rgba(15, 23, 42, 0.24), 0 0 0 1px rgba(15, 41, 66, 0.08);
   --track-bg: rgba(15, 41, 66, 0.15);
   --thumb-bg: #1a75ff;
   --thumb-border: #ffffff;
@@ -96,6 +102,7 @@
   color-scheme: dark;
   --bg-canvas: #0b1120;
   --bg-panel: rgba(15, 23, 42, 0.90);
+  --bg-popover: rgba(11, 18, 34, 0.985);
   --bg-subtle: rgba(148, 163, 184, 0.085);
   --bg-hover: rgba(63, 169, 245, 0.14);
   --bg-input: rgba(15, 23, 42, 0.92);
@@ -110,6 +117,7 @@
   --accent-gold-bg: rgba(63, 169, 245, 0.15);
   --accent-gold-border: rgba(63, 169, 245, 0.34);
   --shadow-panel: 0 16px 40px -8px rgba(2, 6, 23, 0.72), inset 0 1px 0 0 rgba(148, 163, 184, 0.10);
+  --shadow-popover: 0 28px 64px -10px rgba(2, 6, 23, 0.92), inset 0 1px 0 0 rgba(148, 163, 184, 0.16);
   --track-bg: rgba(148, 163, 184, 0.22);
   --thumb-bg: #3fa9f5;
   --thumb-border: #0f172a;
@@ -181,6 +189,15 @@
   box-shadow: var(--shadow-panel);
   color: var(--text-primary);
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.studio-popover {
+  background: var(--bg-popover);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
 }
 
 .glass-panel-subtle {

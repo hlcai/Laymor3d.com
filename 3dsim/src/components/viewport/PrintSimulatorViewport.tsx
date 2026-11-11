@@ -700,8 +700,8 @@ export function PrintSimulatorViewport({
       defectGroupRef.current = null;
     }
 
-    // Khi ở chế độ 'defects' hoặc khi có lỗi nghiêm trọng, đính kèm mô hình lỗi thực tế
-    const showVisualDefects = renderMode === 'defects' || preflightReport.printabilityScore < 85;
+    // Chỉ đính kèm lớp phủ mô phỏng khuyết tật 3D khi người dùng chủ động bật chế độ phân tích 'defects'
+    const showVisualDefects = renderMode === 'defects';
     if (showVisualDefects) {
       const defects = generateDefect3DGroup(clonedGeom, profile, slicingMetrics, preflightReport);
       parentGroup.add(defects);
@@ -1477,9 +1477,10 @@ export function PrintSimulatorViewport({
           viewMode === 'prepare' ? 'top-26 sm:top-15' : 'top-13 xl:top-2.5'
         } left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-20 pointer-events-auto transition-all duration-300 flex flex-col items-center gap-1.5`}
       >
-        {/* Multi-Plate Selector Bar (Hiển thị khi dự án 3MF có nhiều bàn in hoặc nhiều chi tiết) */}
-        {plates.length > 0 && (
-          <div className="px-2.5 py-1.5 rounded-2xl glass-panel border border-emerald-500/30 flex flex-wrap items-center justify-center gap-1.5 shadow-xl max-w-full">
+        {/* Multi-Plate Selector Bar (Chỉ hiển thị khi dự án 3MF có từ 2 bàn in trở lên hoặc bàn có nhiều chi tiết rời / G-code gốc) */}
+        {(plates.length > 1 ||
+          (plates.length === 1 && (plates[0].partCount > 1 || plates[0].hasNativeSupport))) && (
+          <div className="px-2.5 py-1 rounded-2xl glass-panel border border-emerald-500/30 flex flex-wrap items-center justify-center gap-1.5 shadow-xl max-w-full">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 px-1.5">
               Bàn in ({plates.length}):
             </span>
@@ -1489,7 +1490,7 @@ export function PrintSimulatorViewport({
                 <button
                   key={plate.plateId}
                   onClick={() => onSelectPlate?.(plate.plateId)}
-                  className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2.5 py-0.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     isActive
                       ? 'bg-emerald-500 text-slate-950 shadow-sm'
                       : 'bg-[var(--bg-subtle)] hover:bg-[var(--bg-hover)] studio-text-secondary hover:text-[var(--text-primary)]'
@@ -1520,78 +1521,78 @@ export function PrintSimulatorViewport({
           </div>
         )}
 
-        {/* Nút nạp nhanh file .gcode.3mf / .gcode từ Bambu Studio để đồng bộ 100% G-code Tree Support gốc */}
-        {profile.supportMode !== 'none' && showSupport && !hasNativeBambuSupport && (
+        <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-full">
           <div
-            onClick={onImportBambuGcode}
-            className="px-3 py-1 rounded-xl glass-panel border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all shadow-lg max-w-full"
-            title="Nhấn để đính kèm file .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio"
+            onClick={onOpenReportModal}
+            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl glass-panel hover:border-[var(--accent-gold)] flex items-center gap-2.5 sm:gap-3 cursor-pointer group transition-all shadow-xl max-w-full"
+            title="Nhấn để xem Báo Cáo Kiểm Định Khả Năng In 3D & Chẩn Đoán Kỹ Thuật Chi Tiết"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
-            <span className="text-[10px] font-mono text-emerald-800 dark:text-emerald-300 truncate">
-              Tree Support đang bật —{' '}
-              <strong className="underline text-emerald-950 dark:text-emerald-200">
-                Nhấn nạp .gcode.3mf / .gcode từ Bambu Studio
-              </strong>
-            </span>
-          </div>
-        )}
-
-        <div
-          onClick={onOpenReportModal}
-          className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-2xl glass-panel hover:border-[var(--accent-gold)] flex items-center gap-2.5 sm:gap-3 cursor-pointer group transition-all shadow-xl max-w-full"
-          title="Nhấn để xem Báo Cáo Kiểm Định Khả Năng In 3D & Chẩn Đoán Kỹ Thuật Chi Tiết"
-        >
-          {/* Prominent Score Badge */}
-          <div
-            className={`px-2 sm:px-2.5 py-1 rounded-xl font-mono flex items-center gap-1.5 border shrink-0 ${
-              preflightReport.printabilityScore >= 80
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/35'
-                : preflightReport.printabilityScore >= 50
-                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/35'
-                : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/35'
-            }`}
-          >
-            <IconCheckShield size={15} />
-            <div className="leading-none">
-              <span className="text-sm font-black">{preflightReport.printabilityScore}</span>
-              <span className="text-[9px] opacity-75">/100</span>
-            </div>
-          </div>
-
-          {/* Assessment Summary & Live Diagnostics */}
-          <div className="leading-tight pr-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider studio-text-primary truncate">
-                {preflightReport.printabilityScore >= 80
-                  ? 'Đạt Chuẩn An Toàn In 3D'
+            {/* Prominent Score Badge */}
+            <div
+              className={`px-2 sm:px-2.5 py-1 rounded-xl font-mono flex items-center gap-1.5 border shrink-0 ${
+                preflightReport.printabilityScore >= 80
+                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/35'
                   : preflightReport.printabilityScore >= 50
-                  ? 'Cần Tối Ưu Thông Số In'
-                  : 'Cảnh Báo Nguy Cơ Lỗi Cao'}
-              </span>
-              {preflightReport.errors.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-600 dark:text-rose-400 font-mono text-[9px] font-bold shrink-0">
-                  {preflightReport.errors.length} cảnh báo
-                </span>
-              )}
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/35'
+                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/35'
+              }`}
+            >
+              <IconCheckShield size={15} />
+              <div className="leading-none">
+                <span className="text-sm font-black">{preflightReport.printabilityScore}</span>
+                <span className="text-[9px] opacity-75">/100</span>
+              </div>
             </div>
 
-            <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono studio-text-secondary mt-0.5">
-              <span>
-                Overhang: <strong className="studio-text-gold">{preflightReport.overhangRiskAreaPercent}%</strong>
-              </span>
-              <span>•</span>
-              <span>
-                Support:{' '}
-                <strong className="studio-text-primary uppercase">
-                  {profile.supportMode === 'none' ? 'Tắt' : profile.supportMode}
-                </strong>
-              </span>
-              <span className="studio-text-gold font-sans font-semibold group-hover:underline ml-1">
-                Chẩn đoán →
-              </span>
+            {/* Assessment Summary & Live Diagnostics */}
+            <div className="leading-tight pr-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider studio-text-primary truncate">
+                  {preflightReport.printabilityScore >= 80
+                    ? 'Đạt Chuẩn An Toàn In 3D'
+                    : preflightReport.printabilityScore >= 50
+                    ? 'Cần Tối Ưu Thông Số In'
+                    : 'Cảnh Báo Nguy Cơ Lỗi Cao'}
+                </span>
+                {preflightReport.errors.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-600 dark:text-rose-400 font-mono text-[9px] font-bold shrink-0">
+                    {preflightReport.errors.length} cảnh báo
+                  </span>
+                )}
+              </div>
+
+              <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono studio-text-secondary mt-0.5">
+                <span>
+                  Overhang: <strong className="studio-text-gold">{preflightReport.overhangRiskAreaPercent}%</strong>
+                </span>
+                <span>•</span>
+                <span>
+                  Support:{' '}
+                  <strong className="studio-text-primary uppercase">
+                    {profile.supportMode === 'none' ? 'Tắt' : profile.supportMode}
+                  </strong>
+                </span>
+                <span className="studio-text-gold font-sans font-semibold group-hover:underline ml-1">
+                  Chẩn đoán →
+                </span>
+              </div>
             </div>
           </div>
+
+          {/* Nút gọn nạp file .gcode.3mf / .gcode từ Bambu Studio nằm cùng hàng ngang (Không chắn dọc màn hình) */}
+          {profile.supportMode !== 'none' && showSupport && !hasNativeBambuSupport && onImportBambuGcode && (
+            <button
+              type="button"
+              onClick={onImportBambuGcode}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-2 rounded-2xl glass-panel border border-emerald-500/35 hover:bg-emerald-500/15 cursor-pointer transition-all shadow-lg shrink-0"
+              title="Đính kèm file .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio để đồng bộ G-code Tree Support gốc"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
+              <span className="text-[10px] font-mono font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                + Nạp .gcode.3mf
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1606,7 +1607,7 @@ export function PrintSimulatorViewport({
 
       {/* 2. Custom Full-Height Vertical Layer Scrubber (Chỉ hiện ở chế độ Mô Phỏng CAD / Sợi In Bambu) */}
       {viewMode !== 'prepare' && (
-        <div className="absolute right-2.5 top-2.5 bottom-3 z-20 flex flex-col items-center justify-between py-2.5 px-1.5 rounded-2xl glass-panel pointer-events-auto w-11 sm:w-12">
+        <div className="group/vslider absolute right-2.5 top-2.5 bottom-3 z-20 flex flex-col items-center justify-between py-2.5 px-1.5 rounded-2xl glass-panel pointer-events-auto w-11 sm:w-12">
           <button
             onClick={() => onStepLayer(10)}
             className="p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
@@ -1630,12 +1631,12 @@ export function PrintSimulatorViewport({
               <div className="absolute bottom-3/4 left-0 right-0 h-[1px] bg-[var(--border-strong)]" />
             </div>
 
-            {/* Visual Thumb Handle + Floating Z-Height Tooltip */}
+            {/* Visual Thumb Handle + Hover-Only Floating Z-Height Tooltip (Tránh đè lên nút NOZZLE & Slicing Result) */}
             <div
               className="pointer-events-none absolute left-1/2 -translate-x-1/2 w-4 h-2.5 rounded-sm bg-[var(--text-primary)] border border-[var(--accent-gold)] shadow-md transition-all duration-75 flex items-center justify-center"
               style={{ bottom: `calc(${layerPercent}% - 5px)` }}
             >
-              <div className="absolute right-6 px-2 py-0.5 rounded-md glass-panel border border-[var(--accent-gold-border)] text-[10px] font-mono font-bold text-[var(--accent-gold)] whitespace-nowrap shadow-lg">
+              <div className="opacity-0 group-hover/vslider:opacity-100 group-active/vslider:opacity-100 transition-opacity duration-150 absolute right-6 px-2 py-0.5 rounded-md studio-popover text-[10px] font-mono font-bold text-[var(--accent-gold)] whitespace-nowrap">
                 L{simulationState.currentLayer} • {currentZMm}mm
               </div>
             </div>

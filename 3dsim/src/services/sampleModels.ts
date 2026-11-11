@@ -843,10 +843,22 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
         vTransformed[i + 2] = tz;
       }
 
-      // Kiểm tra định hướng thể tích có dấu (Signed Volume) trên từng khối mesh
-      const refX = vTransformed[0];
-      const refY = vTransformed[1];
-      const refZ = vTransformed[2];
+      // Kiểm tra định hướng thể tích có dấu quanh trọng tâm thực + định thức ma trận 3x3 (hỗ trợ chuẩn xác cả subtool ZBrush hở đáy)
+      let sumVx = 0, sumVy = 0, sumVz = 0;
+      let bMinX = Infinity, bMaxX = -Infinity;
+      let bMinY = Infinity, bMaxY = -Infinity;
+      let bMinZ = Infinity, bMaxZ = -Infinity;
+      const vCount = vTransformed.length / 3;
+      for (let i = 0; i < vTransformed.length; i += 3) {
+        const vx = vTransformed[i], vy = vTransformed[i + 1], vz = vTransformed[i + 2];
+        sumVx += vx; sumVy += vy; sumVz += vz;
+        if (vx < bMinX) bMinX = vx; if (vx > bMaxX) bMaxX = vx;
+        if (vy < bMinY) bMinY = vy; if (vy > bMaxY) bMaxY = vy;
+        if (vz < bMinZ) bMinZ = vz; if (vz > bMaxZ) bMaxZ = vz;
+      }
+      const refX = sumVx / Math.max(1, vCount);
+      const refY = sumVy / Math.max(1, vCount);
+      const refZ = sumVz / Math.max(1, vCount);
       let signedVolume6 = 0;
       for (let i = 0; i < t.length; i += 3) {
         const i1 = t[i] * 3;
@@ -867,9 +879,15 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
           az * (bx * cy - by * cx);
       }
 
-      // Chú ý: Khi ánh xạ (x - cx, z, y - cy) sang Three.js, trục Y và Z hoán vị (det = -1),
-      // nên nếu signedVolume6 > 0 ở hệ Z-up thì sau khi hoán vị Y<->Z cần đảo v2<->v3 để pháp tuyến hướng ra ngoài
-      const swapForThreeYZ = signedVolume6 > 0;
+      const m = worldMatrix;
+      const det3x3 =
+        m[0] * (m[4] * m[8] - m[7] * m[5]) -
+        m[3] * (m[1] * m[8] - m[7] * m[2]) +
+        m[6] * (m[1] * m[5] - m[4] * m[2]);
+      const bboxVol6 = Math.max(1e-3, (bMaxX - bMinX) * (bMaxY - bMinY) * (bMaxZ - bMinZ) * 6);
+      // Nếu subtool là mảng hở mỏng (|signedVolume| rất nhỏ), bám chuẩn đặc tả 3MF CCW theo dấu det3x3 >= 0
+      const swapForThreeYZ =
+        Math.abs(signedVolume6) > bboxVol6 * 0.005 ? signedVolume6 > 0 : det3x3 >= 0;
       for (let i = 0; i < t.length; i += 3) {
         const i1 = t[i] * 3;
         const i2 = t[i + 1] * 3;
