@@ -159,8 +159,11 @@ export function SimulatorHeader({
             />
             <img
               src="/3dsim/brand/laymor-wordmark.png"
+              width={82}
+              height={18}
+              style={{ height: '18px', maxHeight: '18px', width: 'auto' }}
               alt="LAYMOR"
-              className="h-4 sm:h-4.5 w-auto object-contain select-none laymor-logo-adaptive"
+              className="h-4 sm:h-[18px] w-auto object-contain select-none shrink-0 laymor-logo-adaptive"
             />
           </a>
 

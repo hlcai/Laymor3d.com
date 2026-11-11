@@ -14,35 +14,35 @@ interface LaymorLogoProps {
 
 const SIZE_CLASSES: Record<
   NonNullable<LaymorLogoProps['variant']>,
-  Record<NonNullable<LaymorLogoProps['size']>, string>
+  Record<NonNullable<LaymorLogoProps['size']>, { cls: string; w: number; h: number }>
 > = {
   wordmark: {
-    xs: 'h-4.5 w-auto',
-    sm: 'h-6 w-auto',
-    md: 'h-7 sm:h-8 w-auto',
-    lg: 'h-9 sm:h-11 w-auto',
-    xl: 'h-12 sm:h-14 w-auto',
+    xs: { cls: 'h-[18px] w-auto', w: 82, h: 18 },
+    sm: { cls: 'h-6 w-auto', w: 109, h: 24 },
+    md: { cls: 'h-7 sm:h-8 w-auto', w: 146, h: 32 },
+    lg: { cls: 'h-9 sm:h-10 w-auto', w: 182, h: 40 },
+    xl: { cls: 'h-12 sm:h-14 w-auto', w: 255, h: 56 },
   },
   'wordmark-slogan': {
-    xs: 'h-7 w-auto',
-    sm: 'h-9 w-auto',
-    md: 'h-11 sm:h-12 w-auto',
-    lg: 'h-14 sm:h-16 w-auto',
-    xl: 'h-18 sm:h-20 w-auto',
+    xs: { cls: 'h-7 w-auto', w: 95, h: 28 },
+    sm: { cls: 'h-9 w-auto', w: 122, h: 36 },
+    md: { cls: 'h-11 sm:h-12 w-auto', w: 162, h: 48 },
+    lg: { cls: 'h-14 sm:h-16 w-auto', w: 216, h: 64 },
+    xl: { cls: 'h-18 sm:h-20 w-auto', w: 270, h: 80 },
   },
   full: {
-    xs: 'h-10 w-auto',
-    sm: 'h-14 w-auto',
-    md: 'h-20 w-auto',
-    lg: 'h-28 w-auto',
-    xl: 'h-36 w-auto',
+    xs: { cls: 'h-10 w-auto', w: 43, h: 40 },
+    sm: { cls: 'h-14 w-auto', w: 60, h: 56 },
+    md: { cls: 'h-20 w-auto', w: 85, h: 80 },
+    lg: { cls: 'h-28 w-auto', w: 119, h: 112 },
+    xl: { cls: 'h-36 w-auto', w: 153, h: 144 },
   },
   mark: {
-    xs: 'h-5 w-auto',
-    sm: 'h-7 w-auto',
-    md: 'h-9 w-auto',
-    lg: 'h-12 w-auto',
-    xl: 'h-16 w-auto',
+    xs: { cls: 'h-5 w-auto', w: 18, h: 20 },
+    sm: { cls: 'h-7 w-auto', w: 25, h: 28 },
+    md: { cls: 'h-9 w-auto', w: 32, h: 36 },
+    lg: { cls: 'h-12 w-auto', w: 43, h: 48 },
+    xl: { cls: 'h-16 w-auto', w: 57, h: 64 },
   },
 };
 
@@ -61,7 +61,7 @@ export function LaymorLogo({
   adaptiveTheme = true,
 }: LaymorLogoProps) {
   const src = SRC_MAP[variant];
-  const sizeCls = SIZE_CLASSES[variant][size];
+  const spec = SIZE_CLASSES[variant][size];
   const filterCls = invertOnDark
     ? 'brightness-0 invert'
     : adaptiveTheme && variant !== 'mark'
@@ -71,8 +71,11 @@ export function LaymorLogo({
   return (
     <img
       src={src}
+      width={spec.w}
+      height={spec.h}
+      style={{ height: `${spec.h}px`, maxHeight: `${spec.h}px`, width: 'auto' }}
       alt="LAYMOR — From layers to form"
-      className={`object-contain select-none ${sizeCls} ${filterCls} ${className}`}
+      className={`object-contain select-none shrink-0 ${spec.cls} ${filterCls} ${className}`}
       draggable={false}
     />
   );

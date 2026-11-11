@@ -169,15 +169,15 @@ export function Navbar() {
           </Link>
 
           {/* 2. THANH MENU TRUNG TÂM 5 MỤC: HOME | SHOP | AI STUDIO | MAKERS CLUB | ABOUT */}
-          <nav className="hidden lg:flex items-center gap-8 xl:gap-10">
+          <nav className="hidden lg:flex items-center gap-5 xl:gap-8 2xl:gap-10 whitespace-nowrap shrink-0">
             {/* HOME */}
             <Link
               href="/"
               onMouseEnter={() => setActiveMegaMenu(null)}
-              className={`text-sm font-bold uppercase tracking-wider py-6 border-b-2 transition-colors ${
+              className={`whitespace-nowrap text-sm font-bold uppercase tracking-wider py-6 border-b-2 transition-colors ${
                 pathname === '/'
-                  ? 'border-[#1A75FF] text-[#1A75FF]'
-                  : 'border-transparent text-slate-900 hover:text-[#1A75FF]'
+                  ? 'border-[#1A75FF] text-[#1A75FF] dark:border-[#3FA9F5] dark:text-[#3FA9F5]'
+                  : 'border-transparent text-slate-900 dark:text-slate-100 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5]'
               }`}
             >
               HOME
@@ -190,16 +190,18 @@ export function Navbar() {
             >
               <Link
                 href="/shop"
-                className={`flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider border-b-2 pb-0.5 transition-colors ${
+                className={`whitespace-nowrap flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider border-b-2 pb-0.5 transition-colors ${
                   pathname.startsWith('/shop') || activeMegaMenu === 'shop'
-                    ? 'border-[#1A75FF] text-[#1A75FF]'
-                    : 'border-transparent text-slate-900 hover:text-[#1A75FF]'
+                    ? 'border-[#1A75FF] text-[#1A75FF] dark:border-[#3FA9F5] dark:text-[#3FA9F5]'
+                    : 'border-transparent text-slate-900 dark:text-slate-100 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5]'
                 }`}
               >
                 <span>SHOP</span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                    activeMegaMenu === 'shop' ? 'rotate-180 text-[#1A75FF]' : 'text-slate-500'
+                  className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
+                    activeMegaMenu === 'shop'
+                      ? 'rotate-180 text-[#1A75FF] dark:text-[#3FA9F5]'
+                      : 'text-slate-500 dark:text-slate-400'
                   }`}
                 />
               </Link>
@@ -213,17 +215,19 @@ export function Navbar() {
               >
                 <Link
                   href="/studio"
-                  className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider border-b-2 pb-0.5 transition-colors ${
+                  className={`whitespace-nowrap flex items-center gap-2 text-sm font-bold uppercase tracking-wider border-b-2 pb-0.5 transition-colors ${
                     pathname.startsWith('/studio') || activeMegaMenu === 'ai_studio'
-                      ? 'border-[#1A75FF] text-[#1A75FF]'
-                      : 'border-transparent text-slate-900 hover:text-[#1A75FF]'
+                      ? 'border-[#1A75FF] text-[#1A75FF] dark:border-[#3FA9F5] dark:text-[#3FA9F5]'
+                      : 'border-transparent text-slate-900 dark:text-slate-100 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5]'
                   }`}
                 >
                   <span>AI STUDIO</span>
                   <LaymorRefTag type="new" size="xs" />
                   <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                      activeMegaMenu === 'ai_studio' ? 'rotate-180 text-[#1A75FF]' : 'text-slate-500'
+                    className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
+                      activeMegaMenu === 'ai_studio'
+                        ? 'rotate-180 text-[#1A75FF] dark:text-[#3FA9F5]'
+                        : 'text-slate-500 dark:text-slate-400'
                     }`}
                   />
                 </Link>
@@ -237,18 +241,18 @@ export function Navbar() {
             >
               <Link
                 href="/makers-club"
-                className={`flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider border-b-2 pb-0.5 transition-colors ${
+                className={`whitespace-nowrap flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider border-b-2 pb-0.5 transition-colors ${
                   pathname.startsWith('/makers-club') || activeMegaMenu === 'makers_club'
-                    ? 'border-[#1A75FF] text-[#1A75FF]'
-                    : 'border-transparent text-slate-900 hover:text-[#1A75FF]'
+                    ? 'border-[#1A75FF] text-[#1A75FF] dark:border-[#3FA9F5] dark:text-[#3FA9F5]'
+                    : 'border-transparent text-slate-900 dark:text-slate-100 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5]'
                 }`}
               >
                 <span>MAKERS CLUB</span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                  className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
                     activeMegaMenu === 'makers_club'
-                      ? 'rotate-180 text-[#1A75FF]'
-                      : 'text-slate-500'
+                      ? 'rotate-180 text-[#1A75FF] dark:text-[#3FA9F5]'
+                      : 'text-slate-500 dark:text-slate-400'
                   }`}
                 />
               </Link>
@@ -258,10 +262,10 @@ export function Navbar() {
             <Link
               href="/about"
               onMouseEnter={() => setActiveMegaMenu(null)}
-              className={`text-sm font-bold uppercase tracking-wider py-6 border-b-2 transition-colors ${
+              className={`whitespace-nowrap text-sm font-bold uppercase tracking-wider py-6 border-b-2 transition-colors ${
                 pathname.startsWith('/about')
-                  ? 'border-[#1A75FF] text-[#1A75FF]'
-                  : 'border-transparent text-slate-900 hover:text-[#1A75FF]'
+                  ? 'border-[#1A75FF] text-[#1A75FF] dark:border-[#3FA9F5] dark:text-[#3FA9F5]'
+                  : 'border-transparent text-slate-900 dark:text-slate-100 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5]'
               }`}
             >
               ABOUT
@@ -269,19 +273,19 @@ export function Navbar() {
           </nav>
 
           {/* 3. CỤM BIỂU TƯỢNG BÊN PHẢI: SEARCH | CART | ACCOUNT (+ ADMIN / WALLET KHI ĐĂNG NHẬP) */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 whitespace-nowrap">
             {/* Nút Quản Trị nhanh cho Admin/Mod */}
             {hasAdminAccess && (
               <Link
                 href="/admin"
-                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                className={`hidden sm:flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
                   pathname === '/admin'
-                    ? 'bg-blue-50 text-[#1D4ED8] border-blue-300'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                    ? 'bg-blue-50 dark:bg-blue-500/20 text-[#1D4ED8] dark:text-[#3FA9F5] border-blue-300 dark:border-sky-500/40'
+                    : 'bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
                 }`}
                 title="Trung tâm Quản trị hệ thống"
               >
-                <Building2 className="w-3.5 h-3.5 text-[#1A75FF]" />
+                <Building2 className="w-3.5 h-3.5 text-[#1A75FF] dark:text-[#3FA9F5] shrink-0" />
                 <span className="hidden xl:inline">Quản Trị</span>
               </Link>
             )}
@@ -290,11 +294,11 @@ export function Navbar() {
             {currentUser && isModuleVisible('wallet') && (
               <button
                 onClick={() => setIsTopUpModalOpen(true)}
-                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 hover:bg-sky-100 border border-sky-200 text-slate-800 text-xs font-bold transition-all cursor-pointer"
+                className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-500/15 hover:bg-sky-100 dark:hover:bg-sky-500/25 border border-sky-200 dark:border-sky-500/35 text-slate-800 dark:text-slate-100 text-xs font-bold transition-all cursor-pointer"
                 title="Số dư ví LAYMOR"
               >
-                <Wallet className="w-3.5 h-3.5 text-[#1A75FF]" />
-                <span suppressHydrationWarning className="font-mono text-[#0F2942]">
+                <Wallet className="w-3.5 h-3.5 text-[#1A75FF] dark:text-[#3FA9F5] shrink-0" />
+                <span suppressHydrationWarning className="font-mono text-[#0F2942] dark:text-slate-100">
                   {new Intl.NumberFormat('en-US').format(
                     currentUser.walletBalanceVnd ?? balanceVnd
                   )}{' '}
@@ -310,7 +314,7 @@ export function Navbar() {
             <button
               type="button"
               onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="p-2 rounded-full text-slate-800 hover:text-[#1A75FF] hover:bg-slate-100 transition-colors cursor-pointer"
+              className="p-2 rounded-full text-slate-800 dark:text-slate-200 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               title="Tìm kiếm máy in, nhựa in & mô hình 3D"
             >
               <Search className="w-5 h-5" />
@@ -319,7 +323,7 @@ export function Navbar() {
             {/* Icon 2: Giỏ hàng (Cart - Trang 1 PDF) */}
             <Link
               href="/shop"
-              className="relative p-2 rounded-full text-slate-800 hover:text-[#1A75FF] hover:bg-slate-100 transition-colors"
+              className="relative p-2 rounded-full text-slate-800 dark:text-slate-200 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               title="Giỏ hàng & Cửa hàng LAYMOR"
             >
               <ShoppingCart className="w-5 h-5" />
@@ -330,10 +334,10 @@ export function Navbar() {
               <button
                 type="button"
                 onClick={() => setIsLoginModalOpen(true)}
-                className="p-2 rounded-full text-slate-800 hover:text-[#1A75FF] hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1.5"
+                className="p-2 rounded-full text-slate-800 dark:text-slate-200 hover:text-[#1A75FF] dark:hover:text-[#3FA9F5] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1.5"
                 title="Đăng nhập tài khoản LAYMOR"
               >
-                <div className="w-7 h-7 rounded-full border-2 border-slate-800 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-full border-2 border-slate-800 dark:border-slate-300 flex items-center justify-center">
                   <User className="w-4 h-4" />
                 </div>
               </button>
@@ -341,7 +345,7 @@ export function Navbar() {
               <div className="relative shrink-0" ref={userMenuRef}>
                 <button
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="flex items-center gap-1.5 p-1 pr-2 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 p-1 pr-2 rounded-full bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
                 >
                   <div className="relative w-7 h-7 rounded-full overflow-hidden bg-[#1A75FF] text-white flex items-center justify-center font-bold text-xs">
                     {currentUser.avatar ? (
