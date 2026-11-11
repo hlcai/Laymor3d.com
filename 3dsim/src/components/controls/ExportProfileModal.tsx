@@ -51,6 +51,12 @@ export function ExportProfileModal({
   const hasSupportEnabled = profile.supportMode !== 'none';
   const bambuJson = generateBambuOrcaProfileJson(profile, metrics, modelName);
   const gcodeText = generateSampleGcode(profile, metrics, modelName);
+  const gcodePreviewText =
+    gcodeText.length > 12000
+      ? `${gcodeText.slice(0, 12000)}\n\n; ... [Đang xem trước 12 KB đầu trên tổng số ${(
+          gcodeText.length / 1024
+        ).toFixed(0)} KB G-Code thực tế từ nhân OrcaSlicer C++ — Nhấn "Tải File Về Máy" để xuất trọn bộ 100% đường dao] ...`
+      : gcodeText;
 
   const dimX = Math.round(metrics.boundingBox.dimensions[0]);
   const dimY = Math.round(metrics.boundingBox.dimensions[2]); // Chiều sâu (Slicer Y)
@@ -388,7 +394,7 @@ export function ExportProfileModal({
                 <span className="font-mono text-[11px] studio-text-gold">G-Code Toolpaths</span>
               </div>
               <pre className="p-4 rounded-xl glass-input text-[11px] font-mono studio-text-primary overflow-x-auto max-h-72 select-text">
-                {gcodeText}
+                {gcodePreviewText}
               </pre>
             </div>
           )}

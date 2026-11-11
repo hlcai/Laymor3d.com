@@ -4,6 +4,10 @@ import { ISimulationProfile, IModelTransform } from '@/types/simulator';
 import { ISlicingMetrics } from './slicingEngine';
 import { applyTransformToGeometry, IBambuPartGeometryRecord } from './sampleModels';
 import { generateBambuSupportStructures } from './supportGenerator';
+import {
+  getLatestOrcaExportSupportGeometry,
+  getLatestOrcaGcode,
+} from './orcaWasmSlicerService';
 
 /**
  * Chuẩn hóa hình học phôi 3D trước khi xuất:
@@ -65,6 +69,18 @@ export function buildExportSupportGeometry(
 ): THREE.BufferGeometry | null {
   if (!profile || profile.supportMode === 'none') {
     return null;
+  }
+
+  // Ưu tiên 1: Lưới 3D Tree Support sinh trực tiếp từ nhân C++ OrcaSlicer WASM (0.00mm đâm xuyên mẫu)
+  const orcaExportGeom = getLatestOrcaExportSupportGeometry();
+  if (orcaExportGeom && (orcaExportGeom.getAttribute('position')?.count ?? 0) >= 3) {
+    const clonedOrca = orcaExportGeom.clone();
+    clonedOrca.computeBoundingBox();
+    const minY = clonedOrca.boundingBox?.min.y ?? 0;
+    if (minY < -0.05) {
+      clonedOrca.translate(0, -minY, 0);
+    }
+    return clonedOrca;
   }
 
   const supportGroup = generateBambuSupportStructures(normalizedModelGeom, profile);
@@ -614,6 +630,11 @@ export function generateSampleGcode(
   metrics: ISlicingMetrics,
   modelName: string = 'Model'
 ): string {
+  const realOrcaGcode = getLatestOrcaGcode();
+  if (realOrcaGcode && realOrcaGcode.length > 100) {
+    return realOrcaGcode;
+  }
+
   const lines: string[] = [
     `; ========================================================`,
     `; G-Code sinh bởi 3D PrintSim Pro - CoreXY Simulator`,

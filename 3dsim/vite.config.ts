@@ -14,12 +14,17 @@ export default defineConfig({
     },
   },
   resolve: {
+    preserveSymlinks: true,
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
       'lucide-react': path.resolve(import.meta.dirname, './src/components/icons/MinimalIcons.tsx'),
     },
   },
+  worker: {
+    format: 'es',
+  },
   build: {
+    target: 'es2022',
     outDir: process.env.VERCEL ? 'dist' : '../public/3dsim',
     emptyOutDir: true,
   },

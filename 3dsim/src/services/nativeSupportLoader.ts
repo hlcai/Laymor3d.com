@@ -13,6 +13,8 @@ export interface INativeSupportData {
   engine: string;
   totalMoves: number;
   totalSegments: number;
+  layerHeightMm?: number;
+  lineWidthMm?: number;
   segments: INativeSupportSegment[];
 }
 
@@ -217,19 +219,21 @@ export function buildNativeSupportMesh(data: INativeSupportData): THREE.Group {
       const x = poly[k * 3];
       const y = poly[k * 3 + 1];
       const z = poly[k * 3 + 2];
+      const yTop = y + h;
+      const yBot = Math.max(0, y - h);
 
       // 0: OuterTop, 1: OuterBot, 2: InnerBot, 3: InnerTop
       posArr.push(
-        x + nx * w, y + h, z + nz * w,
-        x + nx * w, y - h, z + nz * w,
-        x - nx * w, y - h, z - nz * w,
-        x - nx * w, y + h, z - nz * w
+        x + nx * w, yTop, z + nz * w,
+        x + nx * w, yBot, z + nz * w,
+        x - nx * w, yBot, z - nz * w,
+        x - nx * w, yTop, z - nz * w
       );
 
       normArr.push(
         nx * 0.95, 0.31, nz * 0.95,
-        nx * 0.98, -0.20, nz * 0.98,
-        -nx * 0.98, -0.20, -nz * 0.98,
+        nx * 0.95, -0.31, nz * 0.95,
+        -nx * 0.95, -0.31, -nz * 0.95,
         -nx * 0.95, 0.31, -nz * 0.95
       );
     }
@@ -243,6 +247,29 @@ export function buildNativeSupportMesh(data: INativeSupportData): THREE.Group {
       idxArr.push(b0 + 3, b0, b1, b0 + 3, b1, b1 + 3);
       // Inner vertical wall
       idxArr.push(b0 + 2, b0 + 3, b1 + 3, b0 + 2, b1 + 3, b1 + 2);
+      // Bottom cap (khép kín khối 3D manifold khi xuất .3MF / .STL)
+      idxArr.push(b0 + 1, b0 + 2, b1 + 2, b0 + 1, b1 + 2, b1 + 1);
+    }
+
+    if (isClosed && m >= 3) {
+      const bLast = startVert + (m - 1) * 4;
+      const bFirst = startVert;
+      const closeDist = Math.hypot(
+        poly[(m - 1) * 3] - poly[0],
+        poly[(m - 1) * 3 + 2] - poly[2]
+      );
+      if (closeDist > 1e-4) {
+        idxArr.push(bLast, bLast + 1, bFirst + 1, bLast, bFirst + 1, bFirst);
+        idxArr.push(bLast + 3, bLast, bFirst, bLast + 3, bFirst, bFirst + 3);
+        idxArr.push(bLast + 2, bLast + 3, bFirst + 3, bLast + 2, bFirst + 3, bFirst + 2);
+        idxArr.push(bLast + 1, bLast + 2, bFirst + 2, bLast + 1, bFirst + 2, bFirst + 1);
+      }
+    } else {
+      // Khép 2 nắp đầu-cuối cho đoạn hở (Start cap & End cap)
+      const s0 = startVert;
+      const sN = startVert + (m - 1) * 4;
+      idxArr.push(s0, s0 + 3, s0 + 2, s0, s0 + 2, s0 + 1);
+      idxArr.push(sN, sN + 1, sN + 2, sN, sN + 2, sN + 3);
     }
   };
 
@@ -316,17 +343,20 @@ export function buildNativeSupportMesh(data: INativeSupportData): THREE.Group {
       continue;
     }
 
+    const halfW = data.lineWidthMm ? Math.max(0.18, data.lineWidthMm * 0.52) : 0.30;
+    const halfH = data.layerHeightMm ? Math.max(0.05, data.layerHeightMm * 0.56) : 0.14;
+
     // Gom các cặp đoạn thẳng liên tiếp [x1,y1,z1, x2,y2,z2] thành polyline liên tục
     let curPoly: number[] = [];
     const flushPoly = () => {
       if (curPoly.length >= 6) {
         const yLayer = curPoly[1];
         if (!seg.isInterface && yLayer <= 0.32) {
-          extrudeHorizontalPolyline(curPoly, brimPos, brimNorm, brimIdx, 0.32, 0.10);
+          extrudeHorizontalPolyline(curPoly, brimPos, brimNorm, brimIdx, halfW * 1.05, Math.min(0.11, halfH));
         } else if (seg.isInterface) {
-          extrudeHorizontalPolyline(curPoly, ifPos, ifNorm, ifIdx, 0.30, 0.15);
+          extrudeHorizontalPolyline(curPoly, ifPos, ifNorm, ifIdx, halfW * 0.96, halfH * 0.92);
         } else {
-          extrudeHorizontalPolyline(curPoly, trunkPos, trunkNorm, trunkIdx, 0.32, 0.16);
+          extrudeHorizontalPolyline(curPoly, trunkPos, trunkNorm, trunkIdx, halfW, halfH);
         }
       }
       curPoly = [];

@@ -28,6 +28,13 @@ import {
   sliceUniversalGeometry,
   sliceUniversalGeometryAsync,
 } from '@/services/universalSlicerEngine';
+import {
+  sliceGeometryWithOrcaWasm,
+  buildOrcaGpuToolpathGroup,
+  warmupOrcaWasmEngine,
+  type IOrcaWasmSliceBundle,
+  type IOrcaWasmSliceStats,
+} from '@/services/orcaWasmSlicerService';
 import type {
   FilamentColorScheme,
   IActiveMoveTelemetry,
@@ -85,6 +92,13 @@ interface PrintSimulatorViewportProps {
   onSelectPlate?: (plateId: number) => void;
   hasNativeBambuSupport?: boolean;
   onImportBambuGcode?: () => void;
+  onOrcaStatsReady?: (stats: IOrcaWasmSliceStats) => void;
+  onOrcaStatusChange?: (status: {
+    active: boolean;
+    ready: boolean;
+    percent: number | null;
+    label: string | null;
+  }) => void;
 }
 
 export function PrintSimulatorViewport({
@@ -123,6 +137,8 @@ export function PrintSimulatorViewport({
   onSelectPlate,
   hasNativeBambuSupport = false,
   onImportBambuGcode,
+  onOrcaStatsReady,
+  onOrcaStatusChange,
 }: PrintSimulatorViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -165,13 +181,35 @@ export function PrintSimulatorViewport({
   const [fixedNotice, setFixedNotice] = useState<string | null>(null);
   const [isDefectDismissed, setIsDefectDismissed] = useState(false);
   const [showSlicingLegend, setShowSlicingLegend] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerWidth >= 960 : true
+    typeof window !== 'undefined' ? window.innerWidth >= 1600 : false
   );
   const [filamentColorScheme, setFilamentColorScheme] = useState<FilamentColorScheme>('line_type');
   const [intraLayerProgress, setIntraLayerProgress] = useState<number>(1.0);
   const [slicingProgressPct, setSlicingProgressPct] = useState<number | null>(null);
+  const [orcaProgressLabel, setOrcaProgressLabel] = useState<string | null>(null);
+  const [orcaSliceBundle, setOrcaSliceBundle] = useState<IOrcaWasmSliceBundle | null>(null);
+  const [showTravelMoves, setShowTravelMoves] = useState<boolean>(false);
   const [activeMoveTelemetry, setActiveMoveTelemetry] = useState<IActiveMoveTelemetry | null>(null);
   const sliceJobTokenRef = useRef<number>(0);
+
+  // Khởi động ấm nhân C++ OrcaSlicer WASM ở chế độ nền
+  useEffect(() => {
+    const id = window.setTimeout(() => warmupOrcaWasmEngine(), 500);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  // Tự động mở bảng chú giải màu khi người dùng chuyển sang chế độ Sợi In
+  useEffect(() => {
+    if (viewMode === 'filament_preview') {
+      setShowSlicingLegend(true);
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (fullFilamentGroupRef.current?.userData?.setTravelVisible) {
+      fullFilamentGroupRef.current.userData.setTravelVisible(showTravelMoves);
+    }
+  }, [showTravelMoves]);
 
   // Khi chuyển sang lớp dọc mới, đặt lại thanh kéo ngang của lớp đó về 100% giống Bambu Studio
   useEffect(() => {
@@ -725,21 +763,29 @@ export function PrintSimulatorViewport({
       let old: THREE.Object3D | undefined;
       while ((old = parentGroup.getObjectByName('full_filament_preview_group')) !== undefined) {
         parentGroup.remove(old);
-        old.traverse((c) => {
-          if (c instanceof THREE.LineSegments || c instanceof THREE.Points || c instanceof THREE.Mesh) {
-            c.geometry.dispose();
-            if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-            else c.material.dispose();
-          }
-        });
+        if (old.userData?.dispose) {
+          old.userData.dispose();
+        } else {
+          old.traverse((c) => {
+            if (c instanceof THREE.LineSegments || c instanceof THREE.Points || c instanceof THREE.Mesh) {
+              c.geometry.dispose();
+              if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+              else c.material.dispose();
+            }
+          });
+        }
       }
       fullFilamentGroupRef.current = null;
     };
     removeExistingFilament();
 
-    // Chỉ cắt toàn bộ sợi in ngay lập tức nếu đang ở chế độ 'filament_preview'
-    // (Nếu đang ở chế độ 'cad' hoặc 'prepare', việc cắt 200 lớp sẽ được thực hiện tức thì khi bấm sang tab 'Sợi In')
-    if (viewMode === 'filament_preview') {
+    const isExplicitBambuGcode = Boolean(
+      String((currentModel as any)?.path || '').startsWith('bambu-gcode-') ||
+        String((currentModel as any)?.path || '').startsWith('bambu-native-')
+    );
+
+    // Nếu mô hình có sẵn G-code gốc do người dùng nạp (.gcode.3mf / .gcode) và đang ở tab Sợi In -> hiển thị ngay
+    if (viewMode === 'filament_preview' && isExplicitBambuGcode) {
       const token = ++sliceJobTokenRef.current;
       const modelKey = currentModel?.name || currentModel?.id || 'custom_model';
       const sliceKey = `${modelKey}_${profile.layerHeight}_${profile.infillType}_${profile.infillDensity}_${profile.wallLoops}_${profile.supportMode}_${profile.treeStyle}_${profile.seamPosition}_${profile.brimEnabled}`;
@@ -894,14 +940,17 @@ export function PrintSimulatorViewport({
     (currentModel as any)?.path,
   ]);
 
-  // 2.5.5 Tự động nạp và dựng lại Tree Support & Toolpaths khi có dữ liệu mới từ Slicer
+  // 2.5.5 Khi người dùng nạp file .gcode.3mf / .gcode gốc từ Bambu Studio -> giữ nguyên 100% đường dao Bambu
   useEffect(() => {
     const parentGroup = modelRootGroupRef.current;
     if (!parentGroup || !sceneRef.current) return;
+    const pathStr = String((currentModel as any)?.path || '');
+    const isExplicitBambuGcode =
+      pathStr.startsWith('bambu-gcode-') || pathStr.startsWith('bambu-native-');
+    if (!isExplicitBambuGcode) return;
 
-    // 1. Nạp và đính kèm Tree Support Native từ Bambu Studio G-code
     if (profile.supportMode !== 'none') {
-      loadNativeBambuSupport(currentModel?.name || currentModel?.id, (currentModel as any)?.path).then((nativeData) => {
+      loadNativeBambuSupport(currentModel?.name || currentModel?.id, pathStr).then((nativeData) => {
         if (!modelRootGroupRef.current) return;
         const curSupportGroup = modelRootGroupRef.current.getObjectByName('support_structures_group');
         if (curSupportGroup && nativeData && nativeData.segments && nativeData.segments.length > 0) {
@@ -930,20 +979,23 @@ export function PrintSimulatorViewport({
       });
     }
 
-    // 2. Nạp và đính kèm Full Filament Toolpaths Preview
-    loadFullBambuToolpaths(currentModel?.name || currentModel?.id, (currentModel as any)?.path).then((toolpathsData) => {
+    loadFullBambuToolpaths(currentModel?.name || currentModel?.id, pathStr).then((toolpathsData) => {
       if (!modelRootGroupRef.current) return;
       if (toolpathsData && toolpathsData.outerWalls && toolpathsData.outerWalls.length > 0) {
         let old: THREE.Object3D | undefined;
         while ((old = modelRootGroupRef.current.getObjectByName('full_filament_preview_group')) !== undefined) {
           modelRootGroupRef.current.remove(old);
-          old.traverse((c) => {
-            if (c instanceof THREE.LineSegments || c instanceof THREE.Points || c instanceof THREE.Mesh) {
-              c.geometry.dispose();
-              if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-              else c.material.dispose();
-            }
-          });
+          if (old.userData?.dispose) {
+            old.userData.dispose();
+          } else {
+            old.traverse((c) => {
+              if (c instanceof THREE.LineSegments || c instanceof THREE.Points || c instanceof THREE.Mesh) {
+                c.geometry.dispose();
+                if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+                else c.material.dispose();
+              }
+            });
+          }
         }
         const filamentGroup = buildFullFilamentPreviewMesh(toolpathsData, profile);
         filamentGroup.visible = viewMode === 'filament_preview';
@@ -962,6 +1014,199 @@ export function PrintSimulatorViewport({
       }
     });
   }, [currentModel?.id, currentModel?.name, (currentModel as any)?.path, profile.supportMode]);
+
+  // 2.5.6 Nhân C++ OrcaSlicer WASM (TreeSupport.cpp + Arachne + Gyroid) tự động giải nhánh Tree Support 3D & Sợi đùn GPU
+  useEffect(() => {
+    const pathStr = String((currentModel as any)?.path || '');
+    const isExplicitBambuGcode =
+      pathStr.startsWith('bambu-gcode-') || pathStr.startsWith('bambu-native-');
+    if (isExplicitBambuGcode) {
+      setOrcaSliceBundle(null);
+      setSlicingProgressPct(null);
+      setOrcaProgressLabel(null);
+      onOrcaStatusChange?.({ active: false, ready: true, percent: null, label: 'Bambu G-Code' });
+      return;
+    }
+
+    let cancelled = false;
+    const token = ++sliceJobTokenRef.current;
+
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      const modelLabel = currentModel?.name || currentModel?.id || 'Model';
+      setSlicingProgressPct(6);
+      setOrcaProgressLabel('Khởi chạy nhân OrcaSlicer C++ WASM...');
+      onOrcaStatusChange?.({
+        active: true,
+        ready: false,
+        percent: 6,
+        label: 'Đang cắt Orca C++...',
+      });
+
+      sliceGeometryWithOrcaWasm(geometry, modelLabel, profile, {
+        onProgress: (pct, stageText) => {
+          if (cancelled || sliceJobTokenRef.current !== token) return;
+          setSlicingProgressPct(pct);
+          setOrcaProgressLabel(stageText);
+          onOrcaStatusChange?.({
+            active: pct < 100,
+            ready: pct >= 100,
+            percent: pct,
+            label: stageText,
+          });
+        },
+        buildSupportExportMesh: buildNativeSupportMesh,
+      })
+        .then((bundle) => {
+          if (cancelled || sliceJobTokenRef.current !== token) return;
+          setSlicingProgressPct(null);
+          setOrcaProgressLabel(null);
+
+          if (!bundle || !modelRootGroupRef.current) {
+            onOrcaStatusChange?.({ active: false, ready: false, percent: null, label: null });
+            return;
+          }
+
+          setOrcaSliceBundle(bundle);
+          onOrcaStatsReady?.(bundle.stats);
+          onOrcaStatusChange?.({
+            active: false,
+            ready: true,
+            percent: 100,
+            label:
+              profile.supportMode === 'tree'
+                ? `Orca C++ Tree (${bundle.stats.totalLayers} lớp)`
+                : `Orca C++ (${bundle.stats.totalLayers} lớp)`,
+          });
+
+          const parentGroup = modelRootGroupRef.current;
+
+          // 1. Thay thế lưới Tree Support tạm thời bằng lưới 3D Organic Tree Support chuẩn xác 100% từ OrcaSlicer C++
+          let curSupportGroup = parentGroup.getObjectByName(
+            'support_structures_group'
+          ) as THREE.Group | undefined;
+          if (profile.supportMode !== 'none') {
+            if (!curSupportGroup) {
+              curSupportGroup = new THREE.Group();
+              curSupportGroup.name = 'support_structures_group';
+              parentGroup.add(curSupportGroup);
+              supportGroupRef.current = curSupportGroup;
+            }
+            while (curSupportGroup.children.length > 0) {
+              const c = curSupportGroup.children[0];
+              curSupportGroup.remove(c);
+              if (c instanceof THREE.Mesh || c instanceof THREE.LineSegments) {
+                c.geometry?.dispose();
+                if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+                else c.material?.dispose();
+              }
+            }
+            if (bundle.supportData.segments.length > 0) {
+              const orcaTreeMesh = buildNativeSupportMesh(bundle.supportData);
+              orcaTreeMesh.name = 'orca_cpp_tree_support';
+              if (clippingPlaneRef.current) {
+                orcaTreeMesh.traverse((child) => {
+                  if ((child as THREE.Mesh).isMesh) {
+                    const mat = (child as THREE.Mesh).material;
+                    if (Array.isArray(mat))
+                      mat.forEach((m) => (m.clippingPlanes = [clippingPlaneRef.current!]));
+                    else if (mat) mat.clippingPlanes = [clippingPlaneRef.current!];
+                  }
+                });
+              }
+              curSupportGroup.add(orcaTreeMesh);
+            }
+            curSupportGroup.visible = viewMode !== 'filament_preview' && showSupport;
+          }
+
+          // 2. Dựng ngay hệ thống Sợi In 3D GPU-Instanced (three-slicer-viewer/toolpath) để chuyển tab 0ms!
+          let oldFg: THREE.Object3D | undefined;
+          while (
+            (oldFg = parentGroup.getObjectByName('full_filament_preview_group')) !== undefined
+          ) {
+            parentGroup.remove(oldFg);
+            if (oldFg.userData?.dispose) {
+              oldFg.userData.dispose();
+            } else {
+              oldFg.traverse((c) => {
+                if (
+                  c instanceof THREE.LineSegments ||
+                  c instanceof THREE.Points ||
+                  c instanceof THREE.Mesh
+                ) {
+                  c.geometry.dispose();
+                  if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+                  else c.material.dispose();
+                }
+              });
+            }
+          }
+
+          const gpuGroup = buildOrcaGpuToolpathGroup(bundle.segData, profile);
+          const isFilamentActive = viewMode === 'filament_preview';
+          gpuGroup.visible = isFilamentActive;
+          parentGroup.add(gpuGroup);
+          fullFilamentGroupRef.current = gpuGroup;
+
+          gpuGroup.userData?.setColorScheme?.(filamentColorScheme);
+          gpuGroup.userData?.setIntraLayerProgress?.(intraLayerProgress);
+          gpuGroup.userData?.setTravelVisible?.(showTravelMoves);
+          gpuGroup.userData?.updateLayer?.(
+            bundle.stats.totalLayers,
+            simulationState.currentProgress
+          );
+
+          if (isFilamentActive) {
+            if (modelMeshRef.current) modelMeshRef.current.visible = false;
+            if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+            if (supportGroupRef.current) supportGroupRef.current.visible = false;
+            if (activeSliceGroupRef.current) activeSliceGroupRef.current.visible = false;
+          }
+        })
+        .catch(() => {
+          if (!cancelled && sliceJobTokenRef.current === token) {
+            setSlicingProgressPct(null);
+            setOrcaProgressLabel(null);
+            onOrcaStatusChange?.({ active: false, ready: false, percent: null, label: null });
+          }
+        });
+    }, 240);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    geometry,
+    currentModel?.id,
+    currentModel?.name,
+    (currentModel as any)?.path,
+    profile.layerHeight,
+    profile.firstLayerHeight,
+    profile.lineWidth,
+    profile.outerWallLineWidth,
+    profile.wallLoops,
+    profile.topShellLayers,
+    profile.bottomShellLayers,
+    profile.infillDensity,
+    profile.infillType,
+    profile.seamPosition,
+    profile.ironingEnabled,
+    profile.supportMode,
+    profile.treeStyle,
+    profile.supportAngleThreshold,
+    profile.supportTopZDistance,
+    profile.supportBranchDiameter,
+    profile.supportBranchAngle,
+    profile.supportInterfaceLayers,
+    profile.supportOnBuildPlateOnly,
+    profile.brimEnabled,
+    profile.brimWidthMm,
+    profile.raftLayers,
+    profile.printSpeed,
+    profile.nozzleTemp,
+    profile.bedTemp,
+  ]);
 
   // 2.6 Đồng bộ Transform khi người dùng tương tác với Bảng Điều Khiển Bàn In hoặc Kéo chuột
   useEffect(() => {
@@ -1426,14 +1671,20 @@ export function PrintSimulatorViewport({
     setTimeout(() => setFixedNotice(null), 3500);
   };
 
-  // Tính toán khối lượng nhựa thực tế (Model + Support) dựa trên slicingMetrics
-  const totalGrams = Math.max(1.2, slicingMetrics.estimatedFilamentGrams);
+  // Tính toán khối lượng nhựa thực tế (ưu tiên số liệu vật lý chính xác từ nhân C++ OrcaSlicer WASM)
+  const totalGrams = orcaSliceBundle
+    ? Math.max(0.2, orcaSliceBundle.stats.totalFilamentGrams)
+    : Math.max(1.2, slicingMetrics.estimatedFilamentGrams);
   const supportRatio =
     profile.supportMode === 'none'
       ? 0
       : Math.min(0.28, Math.max(0.08, (preflightReport.overhangRiskAreaPercent || 12) * 0.008));
-  const supportGrams = Number((totalGrams * supportRatio).toFixed(1));
-  const modelGrams = Number(Math.max(0.8, totalGrams - supportGrams).toFixed(1));
+  const supportGrams = orcaSliceBundle
+    ? orcaSliceBundle.stats.supportGrams
+    : Number((totalGrams * supportRatio).toFixed(1));
+  const modelGrams = orcaSliceBundle
+    ? orcaSliceBundle.stats.modelGrams
+    : Number(Math.max(0.8, totalGrams - supportGrams).toFixed(1));
   const totalMeters = Number((totalGrams / 2.98).toFixed(1));
   const currentZMm = (simulationState.currentProgress * slicingMetrics.boundingBox.dimensions[1]).toFixed(2);
   const layerPercent =
@@ -1470,19 +1721,18 @@ export function PrintSimulatorViewport({
         />
       )}
 
-      {/* 1.5. Centerpiece Printability Score & Technical Assessment Bar + Multi-Plate Selector */}
+      {/* 1.5. Sleek Single-Row Printability & Orca C++ Status Capsule + Multi-Plate Selector */}
       <div
         data-testid="center-printability-score-hud"
         className={`absolute ${
-          viewMode === 'prepare' ? 'top-26 sm:top-15' : 'top-13 xl:top-2.5'
-        } left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-20 pointer-events-auto transition-all duration-300 flex flex-col items-center gap-1.5`}
+          viewMode === 'prepare' ? 'top-24 sm:top-14' : 'top-12 xl:top-2.5'
+        } left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-20 pointer-events-auto transition-all duration-300 flex flex-col items-center gap-1`}
       >
-        {/* Multi-Plate Selector Bar (Chỉ hiển thị khi dự án 3MF có từ 2 bàn in trở lên hoặc bàn có nhiều chi tiết rời / G-code gốc) */}
         {(plates.length > 1 ||
           (plates.length === 1 && (plates[0].partCount > 1 || plates[0].hasNativeSupport))) && (
-          <div className="px-2.5 py-1 rounded-2xl glass-panel border border-emerald-500/30 flex flex-wrap items-center justify-center gap-1.5 shadow-xl max-w-full">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 px-1.5">
-              Bàn in ({plates.length}):
+          <div className="px-2.5 py-0.5 rounded-full glass-panel border border-emerald-500/30 flex flex-wrap items-center justify-center gap-1 shadow-lg max-w-full">
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 px-1">
+              Bàn ({plates.length}):
             </span>
             {plates.map((plate) => {
               const isActive = plate.plateId === activePlateId;
@@ -1490,31 +1740,21 @@ export function PrintSimulatorViewport({
                 <button
                   key={plate.plateId}
                   onClick={() => onSelectPlate?.(plate.plateId)}
-                  className={`px-2.5 py-0.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     isActive
-                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      ? 'bg-emerald-500 text-slate-950 shadow-xs'
                       : 'bg-[var(--bg-subtle)] hover:bg-[var(--bg-hover)] studio-text-secondary hover:text-[var(--text-primary)]'
                   }`}
-                  title={`${plate.plateName} — ${plate.partCount} chi tiết${
-                    plate.hasNativeSupport ? ' • Đã nạp Support Bambu Studio' : ''
-                  }`}
+                  title={`${plate.plateName} — ${plate.partCount} chi tiết`}
                 >
                   <span>{plate.plateName}</span>
                   <span
-                    className={`text-[9px] font-mono px-1 py-0.2 rounded ${
-                      isActive ? 'bg-slate-950/25 text-slate-950' : 'bg-[var(--bg-subtle)] opacity-80'
+                    className={`text-[9px] font-mono px-1 rounded-full ${
+                      isActive ? 'bg-slate-950/20 text-slate-950' : 'opacity-75'
                     }`}
                   >
                     {plate.partCount}ct
                   </span>
-                  {plate.hasNativeSupport && (
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        isActive ? 'bg-slate-950' : 'bg-emerald-500 dark:bg-emerald-400'
-                      }`}
-                      title="Đã có Tree Support gốc từ Bambu Studio"
-                    />
-                  )}
                 </button>
               );
             })}
@@ -1524,12 +1764,11 @@ export function PrintSimulatorViewport({
         <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-full">
           <div
             onClick={onOpenReportModal}
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl glass-panel hover:border-[var(--accent-gold)] flex items-center gap-2.5 sm:gap-3 cursor-pointer group transition-all shadow-xl max-w-full"
-            title="Nhấn để xem Báo Cáo Kiểm Định Khả Năng In 3D & Chẩn Đoán Kỹ Thuật Chi Tiết"
+            className="px-2.5 py-1 rounded-full glass-panel hover:border-[var(--accent-gold)] flex items-center gap-2 cursor-pointer group transition-all shadow-lg max-w-full"
+            title="Nhấn để xem Báo Cáo Kiểm Định Khả Năng In 3D & Chẩn Đoán Chi Tiết"
           >
-            {/* Prominent Score Badge */}
             <div
-              className={`px-2 sm:px-2.5 py-1 rounded-xl font-mono flex items-center gap-1.5 border shrink-0 ${
+              className={`px-2 py-0.5 rounded-full font-mono flex items-center gap-1 border text-[11px] font-bold shrink-0 ${
                 preflightReport.printabilityScore >= 80
                   ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/35'
                   : preflightReport.printabilityScore >= 50
@@ -1537,57 +1776,44 @@ export function PrintSimulatorViewport({
                   : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/35'
               }`}
             >
-              <IconCheckShield size={15} />
-              <div className="leading-none">
-                <span className="text-sm font-black">{preflightReport.printabilityScore}</span>
-                <span className="text-[9px] opacity-75">/100</span>
-              </div>
+              <IconCheckShield size={12} />
+              <span>{preflightReport.printabilityScore}/100</span>
             </div>
 
-            {/* Assessment Summary & Live Diagnostics */}
-            <div className="leading-tight pr-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider studio-text-primary truncate">
-                  {preflightReport.printabilityScore >= 80
-                    ? 'Đạt Chuẩn An Toàn In 3D'
-                    : preflightReport.printabilityScore >= 50
-                    ? 'Cần Tối Ưu Thông Số In'
-                    : 'Cảnh Báo Nguy Cơ Lỗi Cao'}
-                </span>
-                {preflightReport.errors.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-600 dark:text-rose-400 font-mono text-[9px] font-bold shrink-0">
-                    {preflightReport.errors.length} cảnh báo
-                  </span>
-                )}
-              </div>
-
-              <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono studio-text-secondary mt-0.5">
-                <span>
-                  Overhang: <strong className="studio-text-gold">{preflightReport.overhangRiskAreaPercent}%</strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Support:{' '}
-                  <strong className="studio-text-primary uppercase">
-                    {profile.supportMode === 'none' ? 'Tắt' : profile.supportMode}
+            <div className="flex items-center gap-1.5 text-[10px] font-mono studio-text-secondary min-w-0">
+              <span className="hidden sm:inline">
+                Overhang <strong className="studio-text-gold">{preflightReport.overhangRiskAreaPercent}%</strong>
+              </span>
+              <span className="hidden sm:inline opacity-40">•</span>
+              <span className="truncate">
+                {orcaSliceBundle ? (
+                  <strong className="text-emerald-600 dark:text-emerald-400">
+                    ✓ Orca C++ {profile.supportMode === 'tree' ? `Tree (${profile.treeStyle || 'organic'})` : profile.supportMode === 'normal' ? 'Grid' : 'Clean'}
                   </strong>
+                ) : (
+                  <strong className="studio-text-primary uppercase">
+                    {profile.supportMode === 'none' ? 'Không Support' : `Support ${profile.supportMode}`}
+                  </strong>
+                )}
+              </span>
+              {preflightReport.errors.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[9px] font-bold shrink-0">
+                  {preflightReport.errors.length} lưu ý
                 </span>
-                <span className="studio-text-gold font-sans font-semibold group-hover:underline ml-1">
-                  Chẩn đoán →
-                </span>
-              </div>
+              )}
+              <span className="studio-text-gold font-sans font-semibold group-hover:underline shrink-0">
+                Chi tiết →
+              </span>
             </div>
           </div>
 
-          {/* Nút gọn nạp file .gcode.3mf / .gcode từ Bambu Studio nằm cùng hàng ngang (Không chắn dọc màn hình) */}
           {profile.supportMode !== 'none' && showSupport && !hasNativeBambuSupport && onImportBambuGcode && (
             <button
               type="button"
               onClick={onImportBambuGcode}
-              className="hidden md:flex items-center gap-1.5 px-2.5 py-2 rounded-2xl glass-panel border border-emerald-500/35 hover:bg-emerald-500/15 cursor-pointer transition-all shadow-lg shrink-0"
-              title="Đính kèm file .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio để đồng bộ G-code Tree Support gốc"
+              className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-full glass-panel border border-emerald-500/30 hover:bg-emerald-500/15 cursor-pointer transition-all shadow-md shrink-0"
+              title="Nạp trực tiếp file .gcode.3mf hoặc .gcode đã cắt lát từ Bambu Studio"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
               <span className="text-[10px] font-mono font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
                 + Nạp .gcode.3mf
               </span>
@@ -1856,12 +2082,26 @@ export function PrintSimulatorViewport({
                   </div>
                 </div>
 
-                {/* Integrated Live Z-Height & Active Extrusion Task */}
-                <div className="border-t studio-border pt-1.5 flex items-center justify-between text-[10px] font-mono">
-                  <div className="text-[var(--text-muted)]">
+                {/* Integrated Live Z-Height, Travel Toggle & Active Extrusion Task */}
+                <div className="border-t studio-border pt-1.5 flex items-center justify-between gap-1.5 text-[10px] font-mono">
+                  <div className="text-[var(--text-muted)] shrink-0">
                     Z: <strong className="text-[var(--text-primary)]">{currentZMm}mm</strong>
                   </div>
-                  <span className="px-1.5 py-0.5 rounded studio-gold-badge font-bold uppercase text-[9px] truncate max-w-[140px]">
+                  {viewMode === 'filament_preview' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTravelMoves((prev) => !prev)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer border ${
+                        showTravelMoves
+                          ? 'bg-sky-500/20 text-sky-400 border-sky-500/40'
+                          : 'bg-[var(--bg-subtle)] text-[var(--text-muted)] border-transparent hover:text-[var(--text-primary)]'
+                      }`}
+                      title="Bật/tắt hiển thị đường di chuyển không đùn (Travel moves)"
+                    >
+                      Travel
+                    </button>
+                  )}
+                  <span className="px-1.5 py-0.5 rounded studio-gold-badge font-bold uppercase text-[9px] truncate max-w-[130px]">
                     {viewMode === 'filament_preview' && activeMoveTelemetry && intraLayerProgress < 0.998
                       ? `${activeMoveTelemetry.speedMmS}mm/s • ${activeMoveTelemetry.flowMm3S}mm³/s`
                       : simulationState.activeToolpathType === 'perimeter'
@@ -1869,19 +2109,25 @@ export function PrintSimulatorViewport({
                       : simulationState.activeToolpathType === 'infill'
                       ? `Infill (${profile.infillType})`
                       : simulationState.activeToolpathType === 'support'
-                      ? 'Support'
-                      : 'Travel'}
+                      ? 'Tree Support'
+                      : 'Ready'}
                   </span>
                 </div>
               </div>
             ) : (
               <button
                 onClick={() => setShowSlicingLegend(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-panel text-[var(--text-primary)] hover:border-[var(--accent-gold)] text-xs font-semibold transition-all cursor-pointer shrink-0"
-                title="Mở bảng chú giải màu & khối lượng nhựa Bambu Studio"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-panel text-[var(--text-primary)] hover:border-[var(--accent-gold)] text-[11px] font-mono font-semibold transition-all cursor-pointer shrink-0 shadow-md"
+                title="Mở bảng chú giải màu & khối lượng nhựa thực tế"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-gold)]" />
-                <span>Slicing Result</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <span>
+                  {totalGrams.toFixed(1)}g
+                  {profile.supportMode !== 'none' ? ` (Tree ${supportGrams}g)` : ''}
+                </span>
+                <span className="text-[9px] text-[var(--accent-gold)] font-sans font-bold">
+                  Chi tiết ▾
+                </span>
               </button>
             )}
           </>
@@ -1889,7 +2135,7 @@ export function PrintSimulatorViewport({
 
         {/* 3.3 Overhang Heatmap Scale Indicator */}
         {(showHeatmap || renderMode === 'defects') && (
-          <div className="w-64 p-2.5 rounded-2xl glass-panel-danger text-xs space-y-1 shadow-2xl animate-in fade-in shrink-0">
+          <div className="w-60 p-2.5 rounded-2xl glass-panel-danger text-xs space-y-1 shadow-xl animate-in fade-in shrink-0">
             <div className="flex items-center gap-1.5 font-bold text-rose-400 text-[11px]">
               <IconAngle className="w-3.5 h-3.5" />
               <span>Thước Đo Góc Overhang</span>
@@ -1911,7 +2157,7 @@ export function PrintSimulatorViewport({
           </div>
         )}
 
-        {/* 3.4 Engine 2: Pro Slicer Local Telemetry Card (Được chuyển sang cột HUD bên phải để không bị che bởi Menu trái) */}
+        {/* 3.4 Engine 2: Pro Slicer Local Telemetry Card */}
         {simulatorEngine === 'pro_local' && proTelemetry && (
           <div className="shrink-0">
             <ProSlicerTelemetryPanel
@@ -1923,15 +2169,18 @@ export function PrintSimulatorViewport({
         )}
       </div>
 
-      {/* 4. Live Defect Alert Card (Góc dưới bên phải - Không đè thanh công cụ) */}
-      {activeDefect && !isDefectDismissed && viewMode !== 'prepare' && (
+      {/* 4. Live Defect Alert Card (Chỉ hiển thị khi đang tua lớp hoặc bật chế độ Defects để không che khuất góc nhìn 3D mặc định) */}
+      {activeDefect &&
+        !isDefectDismissed &&
+        viewMode !== 'prepare' &&
+        (!simulationState.isCompleted || simulationState.isPlaying || renderMode === 'defects') && (
         <div
           className={`absolute ${
             viewMode === 'filament_preview' ? 'bottom-18' : 'bottom-3'
-          } right-15 sm:right-16 max-w-[min(360px,calc(100%-72px))] z-20 pointer-events-auto p-3 sm:p-3.5 rounded-2xl glass-panel-danger text-[var(--text-primary)] shadow-2xl animate-in slide-in-from-bottom duration-200`}
+          } right-15 sm:right-16 max-w-[min(340px,calc(100%-72px))] z-20 pointer-events-auto p-3 rounded-2xl glass-panel-danger text-[var(--text-primary)] shadow-xl animate-in slide-in-from-bottom duration-200`}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2.5">
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex items-start gap-2">
               <div className="p-1.5 rounded-xl bg-rose-500/15 text-rose-500 dark:text-rose-400 shrink-0">
                 <IconAngle className="w-4 h-4" />
               </div>
@@ -2019,20 +2268,15 @@ export function PrintSimulatorViewport({
         </div>
       )}
 
-      {/* 6. Async Web Worker Slicing Progress Pill */}
+      {/* 6. Real C++ OrcaSlicer WASM Slicing Progress Pill */}
       {slicingProgressPct !== null && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-30 px-4 py-2 rounded-2xl glass-panel border border-[var(--accent-gold-border)] shadow-2xl flex items-center gap-3 pointer-events-none animate-in fade-in">
-          <div className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent-gold)] border-t-transparent animate-spin shrink-0" />
-          <div className="text-[11px] font-mono min-w-0">
-            <div className="font-bold text-[var(--text-primary)] truncate">
-              Đang bóc tách sợi 3D SDF &amp; Tree Support... {slicingProgressPct}%
-            </div>
-            <div className="w-40 sm:w-44 h-1 mt-1 rounded-full bg-[var(--bg-subtle)] overflow-hidden">
-              <div
-                className="h-full bg-[var(--accent-gold)] transition-all duration-150"
-                style={{ width: `${Math.max(5, slicingProgressPct)}%` }}
-              />
-            </div>
+        <div className="absolute bottom-3.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-30 px-3.5 py-2 rounded-full glass-panel border border-emerald-500/40 shadow-2xl flex items-center gap-2.5 pointer-events-none animate-in fade-in">
+          <div className="w-3.5 h-3.5 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
+          <div className="text-[11px] font-mono min-w-0 flex items-center gap-2.5">
+            <span className="font-bold text-[var(--text-primary)] truncate">
+              {orcaProgressLabel || 'Nhân OrcaSlicer C++ WASM đang cắt lớp...'}
+            </span>
+            <span className="text-emerald-400 font-bold shrink-0">{slicingProgressPct}%</span>
           </div>
         </div>
       )}
@@ -2536,16 +2780,22 @@ function updateSupportStructures(
     supportGroup.name = 'support_structures_group';
     parent.add(supportGroup);
 
-    const cachedNative = getCachedNativeSupport(modelIdentifier, modelPath);
-    if (cachedNative && cachedNative.segments && cachedNative.segments.length > 0) {
-      const nativeMesh = buildNativeSupportMesh(cachedNative);
-      nativeMesh.name = 'native_bambu_toolpaths';
-      applyClipPlane(nativeMesh);
-      supportGroup.add(nativeMesh);
-      return supportGroup;
+    const pathStr = String(modelPath || '');
+    const isExplicitBambuGcode =
+      pathStr.startsWith('bambu-gcode-') || pathStr.startsWith('bambu-native-');
+
+    if (isExplicitBambuGcode) {
+      const cachedNative = getCachedNativeSupport(modelIdentifier, pathStr);
+      if (cachedNative && cachedNative.segments && cachedNative.segments.length > 0) {
+        const nativeMesh = buildNativeSupportMesh(cachedNative);
+        nativeMesh.name = 'native_bambu_toolpaths';
+        applyClipPlane(nativeMesh);
+        supportGroup.add(nativeMesh);
+        return supportGroup;
+      }
     }
 
-    // Dựng ngay Tree Support 2.0 ôm sát từng chi tiết trên bàn in khi file chưa có G-code từ Bambu Studio
+    // Stage 1 (< 0.1s): Dựng nhanh Tree Support SDF tức thì trong lúc chờ nhân OrcaSlicer C++ WASM hoàn tất
     const conformalFallback = generateBambuSupportStructures(geometry, profile);
     supportGroup.userData.treeVolume = conformalFallback.userData?.treeVolume;
     supportGroup.userData.treeVolumes = conformalFallback.userData?.treeVolumes;
@@ -2553,26 +2803,6 @@ function updateSupportStructures(
       supportGroup.add(conformalFallback.children[0]);
     }
     applyClipPlane(supportGroup);
-
-    loadNativeBambuSupport(modelIdentifier, modelPath).then((nativeData) => {
-      if (parent.getObjectByName('support_structures_group') !== supportGroup) return;
-
-      if (nativeData && nativeData.segments && nativeData.segments.length > 0) {
-        while (supportGroup.children.length > 0) {
-          const child = supportGroup.children[0];
-          supportGroup.remove(child);
-          if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
-            child.geometry?.dispose();
-            if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
-            else child.material?.dispose();
-          }
-        }
-        const nativeMesh = buildNativeSupportMesh(nativeData);
-        nativeMesh.name = 'native_bambu_toolpaths';
-        applyClipPlane(nativeMesh);
-        supportGroup.add(nativeMesh);
-      }
-    });
 
     return supportGroup;
   }

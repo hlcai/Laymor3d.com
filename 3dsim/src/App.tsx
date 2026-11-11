@@ -69,7 +69,14 @@ import { LiveReportInspectorModal } from '@/components/controls/LiveReportInspec
 import { SupabaseHubModal } from '@/components/controls/SupabaseHubModal';
 import { fetchSupabaseStatus } from '@/services/telemetryService';
 import { ExportProfileModal } from '@/components/controls/ExportProfileModal';
-import { SimulatorHeader } from '@/components/header/SimulatorHeader';
+import {
+  SimulatorHeader,
+  IOrcaEngineHeaderStatus,
+} from '@/components/header/SimulatorHeader';
+import {
+  clearOrcaWasmCaches,
+  IOrcaWasmSliceStats,
+} from '@/services/orcaWasmSlicerService';
 import { EngineComparisonModal } from '@/components/controls/EngineComparisonModal';
 import { BambuTimelapseModal } from '@/components/controls/BambuTimelapseModal';
 import { BambuSupportAIAssistantModal } from '@/components/controls/BambuSupportAIAssistantModal';
@@ -247,8 +254,33 @@ export default function App() {
   const [loadedPlates, setLoadedPlates] = useState<ILoadedBambuPlate[]>([]);
   const [activePlateId, setActivePlateId] = useState<number>(1);
   const [hasNativeBambuSupport, setHasNativeBambuSupport] = useState<boolean>(true);
+  const [orcaStatus, setOrcaStatus] = useState<IOrcaEngineHeaderStatus>({
+    active: false,
+    ready: false,
+    percent: null,
+    label: null,
+  });
   const bambuGcodeInputRef = useRef<HTMLInputElement | null>(null);
   const isEmbedded = embedProtocol.getIsEmbedded();
+
+  const handleOrcaStatsReady = useCallback((stats: IOrcaWasmSliceStats) => {
+    setHasNativeBambuSupport(true);
+    setSimulationState((prev) => {
+      const nextLayers = Math.max(1, stats.totalLayers);
+      const nextTime = Math.max(10, stats.totalTimeSec);
+      const nextGrams = Math.max(0.1, stats.totalFilamentGrams);
+      const curLayer = Math.min(nextLayers, Math.max(1, Math.round(prev.currentProgress * nextLayers)));
+      return {
+        ...prev,
+        totalLayers: nextLayers,
+        currentLayer: curLayer,
+        totalTimeSec: nextTime,
+        elapsedTimeSec: Math.round(prev.currentProgress * nextTime),
+        totalFilamentGrams: nextGrams,
+        filamentUsedGrams: Number((prev.currentProgress * nextGrams).toFixed(1)),
+      };
+    });
+  }, []);
 
   // 4. Compute Slicing Metrics & Pre-flight Report
   const slicingMetrics = React.useMemo(() => {
@@ -380,6 +412,7 @@ export default function App() {
         if (payload.stlBuffer instanceof ArrayBuffer) {
           try {
             clearAllSupportCaches();
+    clearOrcaWasmCaches();
             const customGeom = parseCADFile(payload.stlBuffer, payload.modelName || 'Studio_Model.stl');
             customGeom.computeBoundingBox();
             const bbox = customGeom.boundingBox || new THREE.Box3();
@@ -547,6 +580,7 @@ export default function App() {
   // Chọn Sample Model
   const handleSelectSample = (sample: ISampleModel) => {
     clearAllSupportCaches();
+    clearOrcaWasmCaches();
     setViewMode('cad');
     setCurrentModel(sample);
     setModelTransform(DEFAULT_TRANSFORM);
@@ -571,6 +605,7 @@ export default function App() {
   const handleSelectPlate = (plateId: number) => {
     const target = loadedPlates.find((p) => p.plateId === plateId);
     if (!target) return;
+    clearOrcaWasmCaches();
     setActivePlateId(plateId);
     setModelTransform(DEFAULT_TRANSFORM);
     setBaseGeometry(target.geometry);
@@ -800,6 +835,7 @@ export default function App() {
       if (!buffer) return;
       try {
         clearAllSupportCaches();
+    clearOrcaWasmCaches();
         setViewMode('cad');
         setShowSupport(true);
         setProfile((prev) => ({
@@ -1067,9 +1103,9 @@ export default function App() {
         } else {
           const totalParts = firstPlate?.partCount || 1;
           setUploadSlicingStatus(
-            `✓ Đã nạp ${cleanName} (${builtPlates.length} bàn in, ${totalParts} chi tiết, ${dimX}×${dimZ}×${dimY} mm) — Nạp thêm file .gcode.3mf để xem Tree Support từ Bambu Studio`
+            `✓ Đã nạp ${cleanName} (${builtPlates.length} bàn in, ${totalParts} chi tiết, ${dimX}×${dimZ}×${dimY} mm) — Đang tự động dựng Tree Support bằng nhân OrcaSlicer C++ WASM...`
           );
-          setTimeout(() => setUploadSlicingStatus(null), 4500);
+          setTimeout(() => setUploadSlicingStatus(null), 3800);
         }
       } catch (err: any) {
         alert('Không thể đọc file: ' + err.message);
@@ -1081,6 +1117,7 @@ export default function App() {
   // Nạp geometry tùy chỉnh từ ModelLibraryModal
   const handleLoadCustomGeometry = (geom: THREE.BufferGeometry, modelInfo: ISampleModel) => {
     clearAllSupportCaches();
+    clearOrcaWasmCaches();
     setViewMode('cad');
     setShowSupport(true);
     setLoadedPlates([]);
@@ -1414,6 +1451,7 @@ export default function App() {
         onSyncToStudio={handleSyncBackToStudio}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        orcaStatus={orcaStatus}
       />
 
       {/* Hidden File Input để nạp trực tiếp file .gcode.3mf / .gcode từ Bambu Studio */}
@@ -1470,7 +1508,7 @@ export default function App() {
 
             {/* Notification Toast khi nạp mô hình / Bambu Studio CLI đang cắt lát */}
             {uploadSlicingStatus && (
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-40 pointer-events-none flex items-center gap-2.5 px-4 py-2 glass-panel studio-gold-badge rounded-xl shadow-2xl text-xs font-semibold">
+              <div className="absolute top-12 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-40 pointer-events-none flex items-center gap-2.5 px-4 py-2 glass-panel studio-gold-badge rounded-xl shadow-2xl text-xs font-semibold">
                 <span className="w-2 h-2 rounded-full bg-[var(--accent-gold)] animate-ping shrink-0" />
                 <span className="truncate">{uploadSlicingStatus}</span>
               </div>
@@ -1519,6 +1557,8 @@ export default function App() {
               onSelectPlate={handleSelectPlate}
               hasNativeBambuSupport={hasNativeBambuSupport}
               onImportBambuGcode={() => bambuGcodeInputRef.current?.click()}
+              onOrcaStatsReady={handleOrcaStatsReady}
+              onOrcaStatusChange={setOrcaStatus}
             />
           </main>
 
