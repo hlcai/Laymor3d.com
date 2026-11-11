@@ -231,10 +231,10 @@ export function buildNativeSupportMesh(data: INativeSupportData): THREE.Group {
       );
 
       normArr.push(
-        nx * 0.95, 0.31, nz * 0.95,
-        nx * 0.95, -0.31, nz * 0.95,
-        -nx * 0.95, -0.31, -nz * 0.95,
-        -nx * 0.95, 0.31, -nz * 0.95
+        nx * 0.98, 0.18, nz * 0.98,
+        nx * 0.98, -0.18, nz * 0.98,
+        -nx * 0.98, -0.18, -nz * 0.98,
+        -nx * 0.98, 0.18, -nz * 0.98
       );
     }
 
@@ -343,8 +343,8 @@ export function buildNativeSupportMesh(data: INativeSupportData): THREE.Group {
       continue;
     }
 
-    const halfW = data.lineWidthMm ? Math.max(0.18, data.lineWidthMm * 0.52) : 0.30;
-    const halfH = data.layerHeightMm ? Math.max(0.05, data.layerHeightMm * 0.56) : 0.14;
+    const halfW = data.lineWidthMm ? Math.max(0.16, data.lineWidthMm * 0.46) : 0.22;
+    const halfH = data.layerHeightMm ? Math.max(0.06, data.layerHeightMm * 0.66) : 0.14;
 
     // Gom các cặp đoạn thẳng liên tiếp [x1,y1,z1, x2,y2,z2] thành polyline liên tục
     let curPoly: number[] = [];

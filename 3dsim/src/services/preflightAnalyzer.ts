@@ -152,7 +152,7 @@ export function runPreflightInspection(
   // ============================================================================
   // 2. LỖI VÕNG CẦU NGANG (BRIDGING SAGGING)
   // ============================================================================
-  if (bridgeRatio > 0.015 && (profile.coolingFanSpeed < 60 || profile.printSpeed > 220)) {
+  if (bridgeRatio > 0.015 && profile.coolingFanSpeed < 60) {
     const penalty = 12;
     score -= penalty;
     errors.push({
@@ -160,11 +160,11 @@ export function runPreflightInspection(
       type: 'bridging',
       severity: 'warning',
       title: 'Nguy cơ võng sợi bắc cầu ngang (Bridging Sagging)',
-      description: `Mô hình có các nhịp cầu ngang phẳng trên cao nhưng quạt làm mát chỉ đạt ${profile.coolingFanSpeed}% hoặc tốc độ kéo quá nhanh (${profile.printSpeed} mm/s) khiến sợi nhựa chưa kịp đông cứng đã bị chùng xuống.`,
+      description: `Mô hình có các nhịp cầu ngang phẳng trên cao nhưng quạt làm mát Part Fan chỉ đạt ${profile.coolingFanSpeed}% khiến sợi nhựa chưa kịp đông cứng đã bị chùng xuống.`,
       rootCause: 'Lưu lượng gió làm mát Part Fan không đủ làm đông cứng tức thời sợi nhựa kéo căng giữa 2 trụ.',
-      suggestedFix: 'Tăng quạt làm mát Part Fan lên 90-100% và giảm tốc độ in nhịp cầu để sợi căng phẳng.',
+      suggestedFix: 'Tăng quạt làm mát Part Fan lên 90-100% để sợi bắc cầu căng phẳng.',
       impactScorePenalty: penalty,
-      autoFixAction: { coolingFanSpeed: 100, printSpeed: Math.min(profile.printSpeed, 160) },
+      autoFixAction: { coolingFanSpeed: 100 },
     });
   }
 
@@ -174,25 +174,29 @@ export function runPreflightInspection(
   const isHighShrinkMaterial =
     profile.material === 'ABS' ||
     profile.material === 'ASA' ||
-    profile.material === 'PA-CF' ||
-    profile.material === 'PETG';
-  if ((isHighShrinkMaterial || Math.max(dimX, dimZ) > 65) && !profile.brimEnabled) {
-    const penalty = profile.material === 'ABS' || profile.material === 'ASA' || profile.material === 'PA-CF' ? 22 : 14;
+    profile.material === 'PA-CF';
+  const maxBaseSpan = Math.max(dimX, dimZ);
+  const needsBrimForWarping =
+    isHighShrinkMaterial ||
+    (profile.material === 'PETG' && maxBaseSpan > 115) ||
+    (profile.material === 'PLA' && maxBaseSpan > 165);
+  if (needsBrimForWarping && !profile.brimEnabled) {
+    const penalty = isHighShrinkMaterial ? 22 : 12;
     score -= penalty;
     errors.push({
       id: 'err-warping-corner-lift',
       type: 'warping',
       severity: penalty >= 20 ? 'critical' : 'warning',
       title: `Nguy cơ cong vênh bốc góc khỏi bàn in (Warping với ${profile.material})`,
-      description: `Nhựa ${profile.material} có độ co ngót nhiệt lớn khi nguội. Chân đế mô hình (${Math.round(dimX)}×${Math.round(dimZ)}mm) chưa bật vành Brim dễ bị lực ứng suất nội kéo cong 4 góc khỏi tấm PEI.`,
+      description: `Chân đế mô hình rộng (${Math.round(dimX)}×${Math.round(dimZ)}mm) với vật liệu ${profile.material} chưa bật vành Brim dễ bị lực ứng suất nhiệt kéo cong mép khỏi tấm PEI.`,
       rootCause: 'Chênh lệch nhiệt độ giữa các lớp trên đang nguội co lại và lớp đáy dẫn đến mô-men uốn cong mép.',
-      suggestedFix: 'Bật vành bám bàn Brim (Outer Brim hoặc Mouse-Ears 6mm) và tăng nhiệt độ bàn in phù hợp.',
+      suggestedFix: 'Bật vành bám bàn Brim (Outer Brim hoặc Mouse-Ears 6mm) và duy trì nhiệt độ bàn in ổn định.',
       impactScorePenalty: penalty,
       autoFixAction: {
         brimEnabled: true,
         brimType: 'outer_only',
         brimWidthMm: 6,
-        bedTemp: profile.material === 'ABS' || profile.material === 'ASA' ? 100 : Math.max(profile.bedTemp, 70),
+        bedTemp: profile.material === 'ABS' || profile.material === 'ASA' ? 100 : Math.max(profile.bedTemp, 60),
       },
     });
   }
@@ -200,7 +204,7 @@ export function runPreflightInspection(
   // ============================================================================
   // 4. LỖI ĐẦU PHUN QUẸT ĐỔ MẪU CAO MẢNH (TALL SLENDER KNOCK-OVER)
   // ============================================================================
-  if (aspectRatioHeight > 2.1 && (!profile.brimEnabled || (profile.zHopMm ?? 0.4) < 0.3)) {
+  if (aspectRatioHeight > 2.8 && (!profile.brimEnabled || (profile.zHopMm ?? 0.4) < 0.3)) {
     const penalty = 16;
     score -= penalty;
     errors.push({
@@ -208,7 +212,7 @@ export function runPreflightInspection(
       type: 'knock_over',
       severity: 'critical',
       title: `Nguy cơ đầu phun quẹt gãy/đổ phôi cao mảnh (Tỷ lệ Cao/Đáy ${aspectRatioHeight.toFixed(1)}x)`,
-      description: `Mô hình có chiều cao ${dimY.toFixed(0)}mm nhưng tiết diện đáy nhỏ (${minBaseDim.toFixed(0)}mm). Khi in lên các lớp trên cao, momen lực ngang từ đầu phun di chuyển nhanh rất dễ đánh bật mẫu khỏi bàn in.`,
+      description: `Mô hình có chiều cao ${dimY.toFixed(0)}mm nhưng tiết diện đáy nhỏ (${minBaseDim.toFixed(0)}mm). Khi in lên các lớp trên cao, momen lực ngang từ đầu phun di chuyển nhanh dễ đánh bật mẫu khỏi bàn in.`,
       rootCause: 'Cánh tay đòn mô-men lớn ở đỉnh mô hình cộng hưởng với Z-Hop thấp hoặc thiếu vành Brim giữ chân.',
       suggestedFix: 'Bật Brim rộng 8mm, nâng Z-Hop lên 0.6mm và giảm tốc độ chạy không tải (Travel Speed).',
       impactScorePenalty: penalty,
@@ -272,20 +276,29 @@ export function runPreflightInspection(
   // 7. LỖI HỤT LƯU LƯỢNG ĐÙN NHỰA / THIẾU NHỰA (VOLUMETRIC UNDER-EXTRUSION)
   // ============================================================================
   const maxFlow = profile.flowRateMm3s || 21;
-  if (actualVolumetricFlow > maxFlow + 0.05 || (profile.flowRatio ?? 0.98) < 0.92) {
+  const effectiveFlowRatio = profile.flowRatio ?? 0.98;
+  const flowExceeded = actualVolumetricFlow > maxFlow * 1.08;
+  const flowRatioTooLow = effectiveFlowRatio < 0.9;
+  if (flowExceeded || flowRatioTooLow) {
     const penalty = 18;
     score -= penalty;
     errors.push({
       id: 'err-volumetric-under-extrusion',
       type: 'under_extrusion',
       severity: 'critical',
-      title: `Hụt lưu lượng nung chảy đầu phun (${actualVolumetricFlow.toFixed(1)} > ${maxFlow} mm³/s)`,
-      description: `Tốc độ in ${profile.printSpeed}mm/s ở lớp dày ${profile.layerHeight}mm đòi hỏi lưu lượng ${actualVolumetricFlow.toFixed(1)} mm³/s, vượt quá khả năng nung chảy của Hotend (${maxFlow} mm³/s) hoặc hệ số Flow Ratio (${profile.flowRatio ?? 0.98}) quá thấp. Sản phẩm sẽ bị rỗ xốp, đứt nét và giòn gãy.`,
-      rootCause: 'Lõi gia nhiệt Hotend không kịp truyền nhiệt vào tâm sợi nhựa khi tốc độ đẩy qua kim quá cao.',
+      title: flowExceeded
+        ? `Hụt lưu lượng nung chảy đầu phun (${actualVolumetricFlow.toFixed(1)} > ${maxFlow} mm³/s)`
+        : `Hệ số đùn nhựa Flow Ratio quá thấp (${effectiveFlowRatio.toFixed(2)}) gây rỗ thiếu nhựa`,
+      description: flowExceeded
+        ? `Tốc độ in ${profile.printSpeed}mm/s ở lớp dày ${profile.layerHeight}mm đòi hỏi lưu lượng ${actualVolumetricFlow.toFixed(1)} mm³/s, vượt quá khả năng nung chảy liên tục của Hotend (${maxFlow} mm³/s). Sản phẩm dễ bị rỗ xốp và giòn liên kết lớp.`
+        : `Hệ số Flow Ratio (${effectiveFlowRatio.toFixed(2)}) thấp hơn ngưỡng chuẩn Bambu (0.95–0.98) sẽ khiến các đường tường không khít nhau và thiếu nhựa bề mặt.`,
+      rootCause: flowExceeded
+        ? 'Lõi gia nhiệt Hotend không kịp truyền nhiệt vào tâm sợi nhựa khi tốc độ đẩy qua kim vượt ngưỡng thiết kế.'
+        : 'Hệ số bù lưu lượng đùn nhựa đang bị giảm quá sâu so với tiết diện sợi 1.75mm tiêu chuẩn.',
       suggestedFix: 'Giảm tốc độ in tương ứng với giới hạn Volumetric Flow hoặc khôi phục Flow Ratio về 0.98.',
       impactScorePenalty: penalty,
       autoFixAction: {
-        printSpeed: Math.max(60, Math.floor((maxFlow * 0.85) / (lineWidth * profile.layerHeight))),
+        printSpeed: Math.max(60, Math.floor((maxFlow * 0.92) / (lineWidth * profile.layerHeight))),
         flowRatio: 0.98,
       },
     });
@@ -545,21 +558,18 @@ export function runPreflightInspection(
     // Tránh trùng lặp nếu đã có cùng ID
     if (errors.some((e) => e.id === rule.id)) continue;
 
-    // Kiểm tra điều kiện kích hoạt thông minh dựa trên tags / defectType / material
-    const ruleText = `${rule.title} ${rule.triggerCondition || ''} ${(rule.tags || []).join(' ')}`.toUpperCase();
+    // Kiểm tra điều kiện kích hoạt chính xác dựa trên ngữ cảnh rủi ro thực sự của bản in
     let matchesContext = false;
 
-    if (ruleText.includes(profile.material.toUpperCase())) {
+    if (rule.defectType === 'overhang' && profile.supportMode === 'none' && overhangRatio > 0.03) {
       matchesContext = true;
-    } else if (rule.defectType === 'overhang' && profile.supportMode === 'none' && overhangRatio > 0.02) {
+    } else if (rule.defectType === 'warping' && needsBrimForWarping && !profile.brimEnabled) {
       matchesContext = true;
-    } else if (rule.defectType === 'warping' && !profile.brimEnabled) {
+    } else if (rule.defectType === 'stringing' && (profile.retractionDistanceMm ?? 0.8) < 0.5) {
       matchesContext = true;
-    } else if (rule.defectType === 'stringing' && (profile.retractionDistanceMm ?? 0.8) < 0.8) {
+    } else if (rule.defectType === 'ringing' && outerSpeed > 200) {
       matchesContext = true;
-    } else if (rule.defectType === 'ringing' && profile.printSpeed > 220) {
-      matchesContext = true;
-    } else if (rule.defectType === 'custom_defect') {
+    } else if (rule.defectType === 'under_extrusion' && (flowExceeded || flowRatioTooLow)) {
       matchesContext = true;
     }
 

@@ -71,6 +71,28 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async headers() {
+    const isolationHeaders = [
+      {
+        key: 'Cross-Origin-Opener-Policy',
+        value: 'same-origin',
+      },
+      {
+        key: 'Cross-Origin-Embedder-Policy',
+        value: 'credentialless',
+      },
+    ];
+    return [
+      {
+        source: '/3dsim',
+        headers: isolationHeaders,
+      },
+      {
+        source: '/3dsim/:path*',
+        headers: isolationHeaders,
+      },
+    ];
+  },
   async rewrites() {
     const rules = [
       {

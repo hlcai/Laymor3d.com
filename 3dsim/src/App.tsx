@@ -1521,11 +1521,15 @@ export default function App() {
               slicingMetrics={slicingMetrics}
               preflightReport={preflightReport}
               showHeatmap={showHeatmap}
+              onToggleHeatmap={() => setShowHeatmap((prev) => !prev)}
               showToolhead={showToolhead}
+              onToggleToolhead={() => setShowToolhead((prev) => !prev)}
               showSupport={showSupport}
+              onToggleSupport={() => setShowSupport((prev) => !prev)}
               cameraView={cameraView}
               onSetCameraView={setCameraView}
               renderMode={renderMode}
+              onSetRenderMode={setRenderMode}
               viewMode={viewMode}
               onToggleViewMode={setViewMode}
               modelTransform={modelTransform}

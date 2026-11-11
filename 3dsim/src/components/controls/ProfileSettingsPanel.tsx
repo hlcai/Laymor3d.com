@@ -91,7 +91,9 @@ export function ProfileSettingsPanel({
           supportMode: 'tree',
           treeStyle: 'organic',
           supportTopZDistance: 0.2,
-          supportAngleThreshold: 40,
+          supportAngleThreshold: 30,
+          brimEnabled: false,
+          brimType: 'none',
           printSpeed: 180,
         }),
     },
@@ -113,6 +115,9 @@ export function ProfileSettingsPanel({
           supportMode: 'tree',
           treeStyle: 'organic',
           supportTopZDistance: 0.2,
+          supportAngleThreshold: 30,
+          brimEnabled: false,
+          brimType: 'none',
           printSpeed: 220,
         }),
     },
@@ -131,6 +136,9 @@ export function ProfileSettingsPanel({
           infillType: 'gyroid',
           supportMode: 'tree',
           treeStyle: 'strong',
+          supportAngleThreshold: 30,
+          brimEnabled: false,
+          brimType: 'none',
           printSpeed: 160,
         }),
     },
@@ -598,24 +606,24 @@ export function ProfileSettingsPanel({
                             Góc nghiêng cần đỡ (Threshold)
                           </span>
                           <span className="font-mono font-semibold px-2 py-0.5 rounded studio-gold-badge">
-                            {profile.supportAngleThreshold || 45}°
+                            {profile.supportAngleThreshold ?? 30}°
                           </span>
                         </div>
                         <input
                           type="range"
-                          min="15"
-                          max="70"
+                          min="10"
+                          max="55"
                           step="5"
-                          value={profile.supportAngleThreshold || 45}
+                          value={profile.supportAngleThreshold ?? 30}
                           onChange={(e) =>
                             onChangeProfile({ supportAngleThreshold: Number(e.target.value) })
                           }
                           className="w-full cursor-pointer"
                         />
                         <div className="flex justify-between text-[9px] studio-text-muted font-mono">
-                          <span>20° (Đỡ kỹ)</span>
-                          <span>45° (Chuẩn)</span>
-                          <span>65° (Đỡ ít)</span>
+                          <span>15° (Đỡ ít)</span>
+                          <span>30° (Chuẩn Bambu)</span>
+                          <span>45° (Đỡ kỹ)</span>
                         </div>
                       </div>
 

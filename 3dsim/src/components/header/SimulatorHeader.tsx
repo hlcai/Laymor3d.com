@@ -489,7 +489,7 @@ export function SimulatorHeader({
 
   return (
     <header className="relative z-30 shrink-0 w-full border-b studio-border bg-[var(--bg-panel)] backdrop-blur-xl px-2 sm:px-3 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top,0px))]">
-      <div className="flex flex-wrap xl:flex-nowrap items-center justify-between gap-x-2 gap-y-1.5">
+      <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-x-2 gap-y-1.5">
         {/* =====================================================================
             1. CỤM TRÁI: NHẬN DIỆN LAYMOR & CHỌN / TẢI FILE 3D
            ===================================================================== */}
@@ -592,16 +592,15 @@ export function SimulatorHeader({
         </div>
 
         {/* =====================================================================
-            2. CỤM GIỮA: QUY TRÌNH 3 BƯỚC RÕ RÀNG & CHẾ ĐỘ HIỂN THỊ KHUNG NHÌN
+            2. CỤM GIỮA: QUY TRÌNH 3 BƯỚC RÕ RÀNG (KHÔNG BAO GIỜ BỊ CẮT XÉN)
            ===================================================================== */}
-        <div className="order-3 xl:order-2 w-full xl:w-auto flex items-center justify-between sm:justify-center gap-1.5 overflow-x-auto no-scrollbar pt-1.5 xl:pt-0 border-t xl:border-t-0 studio-border min-w-0">
-          {/* 3-Step Guided Workflow Switcher */}
+        <div className="order-3 lg:order-2 w-full lg:w-auto flex items-center justify-center pt-1.5 lg:pt-0 border-t lg:border-t-0 studio-border shrink-0">
           <div className="flex items-center p-0.5 rounded-xl studio-card shrink-0">
             <button
               type="button"
               data-testid="view-mode-prepare-btn"
               onClick={() => onSetViewMode('prepare')}
-              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'prepare' ? 'studio-pill-active' : 'studio-pill-inactive font-medium'
               }`}
               title="Bước 1: Định vị, Xoay góc & Phóng to/thu nhỏ phôi trên bàn in"
@@ -614,7 +613,7 @@ export function SimulatorHeader({
               type="button"
               data-testid="view-mode-cad-btn"
               onClick={() => onSetViewMode('cad')}
-              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'cad' ? 'studio-pill-active' : 'studio-pill-inactive font-medium'
               }`}
               title="Bước 2: Xem phôi 3D hoàn chỉnh kèm Tree Support hữu cơ C++"
@@ -627,81 +626,15 @@ export function SimulatorHeader({
               type="button"
               data-testid="view-mode-filament-btn"
               onClick={() => onSetViewMode('filament_preview')}
-              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'filament_preview'
                   ? 'studio-pill-active'
                   : 'studio-pill-inactive font-medium'
               }`}
-              title="Bước 3: Soi từng đường đùn sợi nhựa 3D (G-code Toolpath thực tế)"
+              title="Bước 3: Soi từng đường đùn sợi nhựa 3D (G-code Toolpath GPU thực tế)"
             >
               <IconToolpath size={12} />
               <span>3. Sợi In</span>
-            </button>
-          </div>
-
-          {/* Compact Viewport Overlay Capsule */}
-          <div className="flex items-center gap-0.5 p-0.5 rounded-xl studio-card shrink-0">
-            <div className="flex items-center gap-1 px-2 py-1 rounded-lg">
-              <IconLayers size={12} className="studio-text-gold shrink-0" />
-              <select
-                value={renderMode}
-                onChange={(e) => onSetRenderMode(e.target.value as SlicerRenderMode)}
-                aria-label="Chế độ hiển thị bề mặt kỹ thuật"
-                className="bg-transparent text-[11px] font-medium studio-text-primary focus:outline-none cursor-pointer"
-                title="Chế độ tô màu bề mặt mô hình"
-              >
-                {renderModes.map((rm) => (
-                  <option key={rm.id} value={rm.id}>
-                    {rm.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
-
-            <button
-              type="button"
-              onClick={onToggleToolhead}
-              aria-label="Ẩn/Hiện cụm đầu phun CoreXY"
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap ${
-                showToolhead ? 'studio-gold-badge font-semibold' : 'studio-pill-inactive'
-              }`}
-              title="Ẩn/Hiện cụm đầu phun CoreXY"
-            >
-              <IconNozzle size={13} />
-              <span className="hidden 2xl:inline">Đầu In</span>
-            </button>
-
-            {hasSupport && (
-              <button
-                type="button"
-                onClick={onToggleSupport}
-                aria-label="Ẩn/Hiện cấu trúc Tree Support"
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap ${
-                  showSupport
-                    ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/35 font-semibold'
-                    : 'studio-pill-inactive'
-                }`}
-                title="Ẩn/Hiện cấu trúc Cây Đỡ (Tree Support)"
-              >
-                <IconSupport size={13} />
-                <span className="hidden sm:inline">Tree</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onToggleHeatmap}
-              aria-label="Phân tích góc nghiêng Overhang"
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap ${
-                showHeatmap
-                  ? 'bg-rose-500/15 text-rose-500 border border-rose-500/30 font-semibold'
-                  : 'studio-pill-inactive'
-              }`}
-              title="Bật/Tắt vùng cảnh báo góc nghiêng Overhang (>45°)"
-            >
-              <IconAngle size={12} />
             </button>
           </div>
         </div>
@@ -709,11 +642,11 @@ export function SimulatorHeader({
         {/* =====================================================================
             3. CỤM PHẢI: TRẠNG THÁI C++, AI, CÔNG CỤ, TÀI KHOẢN & XUẤT FILE (1 DÒNG GỌN GÀNG)
            ===================================================================== */}
-        <div className="order-2 xl:order-3 flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
+        <div className="order-2 lg:order-3 flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto lg:ml-0">
           {/* Live OrcaSlicer C++ WASM Status Indicator */}
           {orcaStatus?.active ? (
             <div
-              className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-semibold shrink-0"
+              className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 dark:text-emerald-400 text-[10px] font-mono font-semibold shrink-0"
               title={orcaStatus.label || 'OrcaSlicer C++ WASM đang tính toán Tree Support...'}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
@@ -721,8 +654,8 @@ export function SimulatorHeader({
             </div>
           ) : orcaStatus?.ready ? (
             <div
-              className="hidden 2xl:flex items-center gap-1 px-2 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-500 text-[10px] font-mono font-semibold shrink-0"
-              title="Đã dựng Tree Support & G-code bằng nhân OrcaSlicer C++ WASM chính gốc"
+              className="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-semibold shrink-0"
+              title={orcaStatus.label || 'Đã dựng Tree Support & G-code bằng nhân OrcaSlicer C++ WASM chính gốc'}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               <span>Orca C++</span>

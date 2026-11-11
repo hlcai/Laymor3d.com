@@ -126,84 +126,66 @@ export function generateProceduralGeometry(type: ISampleModel['geometryType']): 
     }
 
     case 'benchy': {
-      // Mô hình 3D Benchy chân thực với đầy đủ các bộ phận nhận diện
+      // Mô hình #3DBenchy chuẩn kín nước (Manifold): Đáy áp sát bàn in Y=0, thân vát tự đỡ 56°, mái cabin & mũi tàu nhô Overhang thực tế để C++ TreeSupport3D mọc thân cây cong hữu cơ từ mặt bàn!
       const geoms: THREE.BufferGeometry[] = [];
 
-      // 1. Đáy thân tàu và sống tàu (Hull & Keel)
-      const keel = new THREE.BoxGeometry(42, 3, 6);
-      keel.translate(0, 1.5, 0);
-      geoms.push(keel);
-
-      // Thân tàu loe cong (Lofted Hull)
-      const hullLower = new THREE.CylinderGeometry(15, 6, 12, 24, 4);
-      hullLower.scale(1.9, 1, 1.05);
-      hullLower.translate(-2, 7.5, 0);
+      // 1. Thân tàu loe tự đỡ đặt phẳng hoàn toàn trên mặt bàn in (Y = 0 -> 14mm, góc nghiêng 56° chuẩn #3DBenchy)
+      const hullLower = new THREE.CylinderGeometry(14.2, 9.6, 14, 28, 1);
+      hullLower.scale(1.88, 1, 1.02);
+      hullLower.translate(-1.5, 7, 0);
       geoms.push(hullLower);
 
-      // 2. Mũi tàu vuốt nhọn (Curved Bow)
-      const bowProw = new THREE.ConeGeometry(13, 20, 20);
-      bowProw.rotateZ(Math.PI / 2.35);
-      bowProw.translate(18, 10, 0);
+      // 2. Mũi tàu vươn cao loe 24° chuẩn #3DBenchy (Overhanging Bow Deck -> Mọc thân Tree Support hữu cơ đỡ mũi tàu)
+      const bowProw = new THREE.CylinderGeometry(11.5, 4.2, 14, 24);
+      bowProw.scale(1.35, 1, 0.85);
+      bowProw.rotateZ(-0.36);
+      bowProw.translate(21.0, 9.5, 0);
       geoms.push(bowProw);
 
-      // 3. Sàn tàu và be tàu (Deck with Raised Gunwale)
-      const deckRim = new THREE.TorusGeometry(17, 1.8, 12, 32);
-      deckRim.scale(1.6, 1, 0.85);
-      deckRim.rotateX(Math.PI / 2);
-      deckRim.translate(-1, 14, 0);
+      // 3. Be tàu vát 45° tự đỡ (Self-supporting Chamfered Gunwale — Không tạo bức tường Support đặc dưới mạn tàu)
+      const deckFlare = new THREE.CylinderGeometry(15.2, 14.2, 1.8, 28);
+      deckFlare.scale(1.88, 1, 1.02);
+      deckFlare.translate(-1.5, 14.8, 0);
+      geoms.push(deckFlare);
+
+      const deckRim = new THREE.CylinderGeometry(15.2, 15.2, 1.3, 28);
+      deckRim.scale(1.88, 1, 1.02);
+      deckRim.translate(-1.5, 16.25, 0);
       geoms.push(deckRim);
 
       // 4. Khoang hàng sau lái (Cargo Well Box)
-      const cargoWell = new THREE.BoxGeometry(12, 6, 14);
-      cargoWell.translate(-16, 16, 0);
+      const cargoWell = new THREE.BoxGeometry(11, 4.5, 13);
+      cargoWell.translate(-15.5, 17.2, 0);
       geoms.push(cargoWell);
 
-      // 5. Cabin buồng lái (Pilothouse)
-      const cabinBody = new THREE.BoxGeometry(18, 16, 16);
-      cabinBody.translate(0, 21, 0);
+      // 5. Cabin buồng lái (Pilothouse — Trụ đứng có mái che nhô Overhang rõ rệt)
+      const cabinBody = new THREE.BoxGeometry(15.2, 14.5, 13.4);
+      cabinBody.translate(0.5, 22.5, 0);
       geoms.push(cabinBody);
 
-      // Cửa sổ kính chắn gió phía trước cabin
-      const frontWindow = new THREE.BoxGeometry(1.5, 6, 10);
-      frontWindow.translate(9, 23, 0);
-      geoms.push(frontWindow);
+      // 6. Mái che cabin cong nhô rộng (Overhanging Roof Canopy -> Mọc các nhánh Tree Support hữu cơ uốn vòng qua mạn tàu!)
+      const roofEave = new THREE.BoxGeometry(27.0, 1.8, 23.4);
+      roofEave.translate(1.8, 29.8, 0);
+      geoms.push(roofEave);
 
-      // Cửa vòm hai bên (Arch doorways)
-      const doorArchL = new THREE.CylinderGeometry(3.5, 3.5, 10, 16);
-      doorArchL.rotateX(Math.PI / 2);
-      doorArchL.translate(0, 21, 8.2);
-      geoms.push(doorArchL);
+      const roofCrown = new THREE.CylinderGeometry(11.7, 11.7, 27.0, 24);
+      roofCrown.rotateZ(Math.PI / 2);
+      roofCrown.scale(1, 0.22, 1);
+      roofCrown.translate(1.8, 30.5, 0);
+      geoms.push(roofCrown);
 
-      const doorArchR = new THREE.CylinderGeometry(3.5, 3.5, 10, 16);
-      doorArchR.rotateX(Math.PI / 2);
-      doorArchR.translate(0, 21, -8.2);
-      geoms.push(doorArchR);
-
-      // 6. Mái che cabin cong có viền nhô overhang (Roof Canopy)
-      const roof = new THREE.CylinderGeometry(15, 15, 23, 24, 2, false, 0, Math.PI);
-      roof.rotateZ(Math.PI / 2);
-      roof.scale(1, 0.28, 0.85);
-      roof.translate(0, 30.5, 0);
-      geoms.push(roof);
-
-      // 7. Ống khói rỗng (Cylindrical Smokestack with inner bore)
-      const chimneyOuter = new THREE.CylinderGeometry(3.8, 3.8, 15, 20);
-      chimneyOuter.translate(7.5, 34, 0);
+      // 7. Ống khói trụ với cổ vát 45° tự đỡ chuẩn in 3D (Self-supporting chamfered smokestack)
+      const chimneyOuter = new THREE.CylinderGeometry(3.5, 3.5, 13.5, 20);
+      chimneyOuter.translate(6.8, 35.2, 0);
       geoms.push(chimneyOuter);
 
-      const chimneyCollar = new THREE.TorusGeometry(4.2, 0.9, 12, 20);
-      chimneyCollar.rotateX(Math.PI / 2);
-      chimneyCollar.translate(7.5, 41, 0);
-      geoms.push(chimneyCollar);
+      const chimneyFlare = new THREE.CylinderGeometry(4.2, 3.5, 1.3, 20);
+      chimneyFlare.translate(6.8, 41.5, 0);
+      geoms.push(chimneyFlare);
 
-      // 8. Lỗ luồn neo ở mũi (Hawse pipes)
-      const hawseL = new THREE.TorusGeometry(1.6, 0.6, 8, 16);
-      hawseL.translate(22, 12, 5);
-      geoms.push(hawseL);
-
-      const hawseR = new THREE.TorusGeometry(1.6, 0.6, 8, 16);
-      hawseR.translate(22, 12, -5);
-      geoms.push(hawseR);
+      const chimneyRim = new THREE.CylinderGeometry(4.2, 4.2, 1.1, 20);
+      chimneyRim.translate(6.8, 42.6, 0);
+      geoms.push(chimneyRim);
 
       const merged = mergeBufferGeometries(geoms);
       return centerAndGroundGeometry(merged);
@@ -524,13 +506,26 @@ interface I3MFMeshObjectNode {
 }
 
 function parseSingleMeshBlock(meshText: string): { vertices: Float32Array; triangles: Uint32Array } | null {
-  const verts: number[] = [];
+  const estVertFloats = Math.max(384, Math.ceil(meshText.length / 18) * 3);
+  let vertBuf = new Float32Array(estVertFloats);
+  let vCursor = 0;
+  const pushVert = (x: number, y: number, z: number) => {
+    if (vCursor + 3 > vertBuf.length) {
+      const grown = new Float32Array(vertBuf.length * 2);
+      grown.set(vertBuf);
+      vertBuf = grown;
+    }
+    vertBuf[vCursor++] = x;
+    vertBuf[vCursor++] = y;
+    vertBuf[vCursor++] = z;
+  };
+
   const vFastRegex = /<(?:\w+:)?vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"/gi;
   let vMatch: RegExpExecArray | null;
   while ((vMatch = vFastRegex.exec(meshText)) !== null) {
-    verts.push(parseFloat(vMatch[1]), parseFloat(vMatch[2]), parseFloat(vMatch[3]));
+    pushVert(parseFloat(vMatch[1]), parseFloat(vMatch[2]), parseFloat(vMatch[3]));
   }
-  if (verts.length === 0) {
+  if (vCursor === 0) {
     const vTagRegex = /<(?:\w+:)?vertex\s+([^>]+)>/gi;
     while ((vMatch = vTagRegex.exec(meshText)) !== null) {
       const attrs = vMatch[1];
@@ -538,13 +533,26 @@ function parseSingleMeshBlock(meshText: string): { vertices: Float32Array; trian
       const ym = attrs.match(/\by="([^"]+)"/i);
       const zm = attrs.match(/\bz="([^"]+)"/i);
       if (!xm || !ym || !zm) continue;
-      verts.push(parseFloat(xm[1]), parseFloat(ym[1]), parseFloat(zm[1]));
+      pushVert(parseFloat(xm[1]), parseFloat(ym[1]), parseFloat(zm[1]));
     }
   }
-  const vertCount = verts.length / 3;
+  const vertCount = vCursor / 3;
   if (vertCount < 3) return null;
 
-  const tris: number[] = [];
+  const estTriIdx = Math.max(768, vertCount * 6);
+  let triBuf = new Uint32Array(estTriIdx);
+  let tCursor = 0;
+  const pushTri = (v1: number, v2: number, v3: number) => {
+    if (tCursor + 3 > triBuf.length) {
+      const grown = new Uint32Array(triBuf.length * 2);
+      grown.set(triBuf);
+      triBuf = grown;
+    }
+    triBuf[tCursor++] = v1;
+    triBuf[tCursor++] = v2;
+    triBuf[tCursor++] = v3;
+  };
+
   const tFastRegex = /<(?:\w+:)?triangle\s+v1="(\d+)"\s+v2="(\d+)"\s+v3="(\d+)"/gi;
   let tMatch: RegExpExecArray | null;
   while ((tMatch = tFastRegex.exec(meshText)) !== null) {
@@ -552,10 +560,10 @@ function parseSingleMeshBlock(meshText: string): { vertices: Float32Array; trian
     const v2 = parseInt(tMatch[2], 10);
     const v3 = parseInt(tMatch[3], 10);
     if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
-      tris.push(v1, v2, v3);
+      pushTri(v1, v2, v3);
     }
   }
-  if (tris.length === 0) {
+  if (tCursor === 0) {
     const tTagRegex = /<(?:\w+:)?triangle\s+([^>]+)>/gi;
     while ((tMatch = tTagRegex.exec(meshText)) !== null) {
       const attrs = tMatch[1];
@@ -567,15 +575,15 @@ function parseSingleMeshBlock(meshText: string): { vertices: Float32Array; trian
       const v2 = parseInt(m2[1], 10);
       const v3 = parseInt(m3[1], 10);
       if (v1 < vertCount && v2 < vertCount && v3 < vertCount) {
-        tris.push(v1, v2, v3);
+        pushTri(v1, v2, v3);
       }
     }
   }
-  if (tris.length < 3) return null;
+  if (tCursor < 3) return null;
 
   return {
-    vertices: new Float32Array(verts),
-    triangles: new Uint32Array(tris),
+    vertices: vertBuf.slice(0, vCursor),
+    triangles: triBuf.slice(0, tCursor),
   };
 }
 
@@ -812,12 +820,26 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
 
   const resolvedInstances: IResolvedBuildItemInstance[] = [];
 
+  const mergeFloat32Chunks = (chunks: Float32Array[]): Float32Array => {
+    if (chunks.length === 0) return new Float32Array(0);
+    if (chunks.length === 1) return chunks[0];
+    let totalLen = 0;
+    for (let i = 0; i < chunks.length; i++) totalLen += chunks[i].length;
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      merged.set(chunks[i], offset);
+      offset += chunks[i].length;
+    }
+    return merged;
+  };
+
   const collectLeafMeshes = (
     modelPath: string,
     objectId: string,
     worldMatrix: number[],
     hasTransformFlag: { value: boolean },
-    outTris3MF: number[],
+    outChunks: Float32Array[],
     depth: number
   ) => {
     if (depth > 8) return;
@@ -888,24 +910,32 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
       // Nếu subtool là mảng hở mỏng (|signedVolume| rất nhỏ), bám chuẩn đặc tả 3MF CCW theo dấu det3x3 >= 0
       const swapForThreeYZ =
         Math.abs(signedVolume6) > bboxVol6 * 0.005 ? signedVolume6 > 0 : det3x3 >= 0;
+      const leafBuf = new Float32Array(t.length * 3);
+      let cursor = 0;
       for (let i = 0; i < t.length; i += 3) {
         const i1 = t[i] * 3;
         const i2 = t[i + 1] * 3;
         const i3 = t[i + 2] * 3;
+        leafBuf[cursor++] = vTransformed[i1];
+        leafBuf[cursor++] = vTransformed[i1 + 1];
+        leafBuf[cursor++] = vTransformed[i1 + 2];
         if (swapForThreeYZ) {
-          outTris3MF.push(
-            vTransformed[i1], vTransformed[i1 + 1], vTransformed[i1 + 2],
-            vTransformed[i3], vTransformed[i3 + 1], vTransformed[i3 + 2],
-            vTransformed[i2], vTransformed[i2 + 1], vTransformed[i2 + 2]
-          );
+          leafBuf[cursor++] = vTransformed[i3];
+          leafBuf[cursor++] = vTransformed[i3 + 1];
+          leafBuf[cursor++] = vTransformed[i3 + 2];
+          leafBuf[cursor++] = vTransformed[i2];
+          leafBuf[cursor++] = vTransformed[i2 + 1];
+          leafBuf[cursor++] = vTransformed[i2 + 2];
         } else {
-          outTris3MF.push(
-            vTransformed[i1], vTransformed[i1 + 1], vTransformed[i1 + 2],
-            vTransformed[i2], vTransformed[i2 + 1], vTransformed[i2 + 2],
-            vTransformed[i3], vTransformed[i3 + 1], vTransformed[i3 + 2]
-          );
+          leafBuf[cursor++] = vTransformed[i2];
+          leafBuf[cursor++] = vTransformed[i2 + 1];
+          leafBuf[cursor++] = vTransformed[i2 + 2];
+          leafBuf[cursor++] = vTransformed[i3];
+          leafBuf[cursor++] = vTransformed[i3 + 1];
+          leafBuf[cursor++] = vTransformed[i3 + 2];
         }
       }
+      outChunks.push(leafBuf);
     }
 
     for (const comp of node.components) {
@@ -917,25 +947,26 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
         comp.targetObjectId,
         combinedMatrix,
         hasTransformFlag,
-        outTris3MF,
+        outChunks,
         depth + 1
       );
     }
   };
 
   for (const item of buildItems) {
-    const outTris: number[] = [];
+    const outChunks: Float32Array[] = [];
     const hasTransformFlag = { value: item.hasExplicitTransform };
-    collectLeafMeshes(rootModelKey, item.objectId, item.transform, hasTransformFlag, outTris, 0);
-    if (outTris.length < 9) continue;
+    collectLeafMeshes(rootModelKey, item.objectId, item.transform, hasTransformFlag, outChunks, 0);
+    const worldTris3MF = mergeFloat32Chunks(outChunks);
+    if (worldTris3MF.length < 9) continue;
 
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
     let minZ = Infinity, maxZ = -Infinity;
-    for (let i = 0; i < outTris.length; i += 3) {
-      const x = outTris[i];
-      const y = outTris[i + 1];
-      const z = outTris[i + 2];
+    for (let i = 0; i < worldTris3MF.length; i += 3) {
+      const x = worldTris3MF[i];
+      const y = worldTris3MF[i + 1];
+      const z = worldTris3MF[i + 2];
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -960,7 +991,7 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
       maxY,
       minZ,
       maxZ,
-      worldTris3MF: new Float32Array(outTris),
+      worldTris3MF,
     });
   }
 
@@ -968,13 +999,14 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
   if (resolvedInstances.length === 0) {
     for (const [, node] of objectRegistry.entries()) {
       if (node.vertices.length >= 9 && node.triangles.length >= 3) {
-        const outTris: number[] = [];
+        const outChunks: Float32Array[] = [];
         const hasTransformFlag = { value: false };
-        collectLeafMeshes(node.modelPath, node.id, IDENTITY_TRANSFORM_12, hasTransformFlag, outTris, 0);
-        if (outTris.length >= 9) {
+        collectLeafMeshes(node.modelPath, node.id, IDENTITY_TRANSFORM_12, hasTransformFlag, outChunks, 0);
+        const worldTris3MF = mergeFloat32Chunks(outChunks);
+        if (worldTris3MF.length >= 9) {
           let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-          for (let i = 0; i < outTris.length; i += 3) {
-            const x = outTris[i], y = outTris[i + 1], z = outTris[i + 2];
+          for (let i = 0; i < worldTris3MF.length; i += 3) {
+            const x = worldTris3MF[i], y = worldTris3MF[i + 1], z = worldTris3MF[i + 2];
             if (x < minX) minX = x; if (x > maxX) maxX = x;
             if (y < minY) minY = y; if (y > maxY) maxY = y;
             if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
@@ -986,7 +1018,7 @@ export function parse3MFPlatesFromBuffer(buffer: ArrayBuffer): IBambuPlateMeshDa
             printable: true,
             hasTransform: false,
             minX, maxX, minY, maxY, minZ, maxZ,
-            worldTris3MF: new Float32Array(outTris),
+            worldTris3MF,
           });
         }
       }
