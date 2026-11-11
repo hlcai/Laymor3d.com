@@ -1,28 +1,118 @@
+import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { userRepository } from '@/backend/repositories/UserRepository';
-import { ROLE_PERMISSIONS, UserRole } from '@/backend/domain/user';
+import { IUser, ROLE_PERMISSIONS, UserRole } from '@/backend/domain/user';
 
 const SESSION_COOKIE_NAME = 'laymor_uid';
+const SSO_TOKEN_COOKIE_NAME = 'laymor_sso_token';
+const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 7; // 7 ngày
+
+function getSsoSigningSecret(): string {
+  return (
+    process.env.AUTH_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    'laymor-3d-unified-sso-secret-2026'
+  );
+}
+
+function createSignedSsoToken(user: IUser): string {
+  const safeSnapshot: IUser = {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatar: user.avatar,
+    walletBalanceVnd: user.walletBalanceVnd,
+    phone: user.phone,
+    address: user.address,
+    createdAt: user.createdAt,
+    status: user.status,
+    allowedModules: user.allowedModules,
+    allowedFeatures: user.allowedFeatures,
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(safeSnapshot), 'utf8').toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', getSsoSigningSecret())
+    .update(payloadB64)
+    .digest('base64url');
+  return `${payloadB64}.${sig}`;
+}
+
+function verifySignedSsoToken(token?: string): IUser | null {
+  if (!token || !token.includes('.')) return null;
+  const [payloadB64, sig] = token.split('.');
+  if (!payloadB64 || !sig) return null;
+  const expectedSig = crypto
+    .createHmac('sha256', getSsoSigningSecret())
+    .update(payloadB64)
+    .digest('base64url');
+  if (sig.length !== expectedSig.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as IUser;
+    if (!parsed || !parsed.id || parsed.status === 'suspended') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function attachSsoCookies(res: NextResponse, user: IUser): void {
+  res.cookies.set(SESSION_COOKIE_NAME, user.id, {
+    path: '/',
+    maxAge: COOKIE_MAX_AGE_SEC,
+    sameSite: 'lax',
+  });
+  res.cookies.set(SSO_TOKEN_COOKIE_NAME, createSignedSsoToken(user), {
+    path: '/',
+    maxAge: COOKIE_MAX_AGE_SEC,
+    httpOnly: true,
+    sameSite: 'lax',
+  });
+}
 
 export async function GET(req: NextRequest) {
+  await userRepository.ensureHydrated();
+
   const cookieUid = req.cookies.get(SESSION_COOKIE_NAME)?.value || '';
+  const ssoToken = req.cookies.get(SSO_TOKEN_COOKIE_NAME)?.value || '';
   const headerUid = req.headers.get('x-laymor-uid') || '';
   const targetUid = cookieUid || headerUid;
 
-  const user = targetUid ? userRepository.getAuthenticatedUser(targetUid) : userRepository.getAuthenticatedUser();
+  let user = targetUid ? userRepository.getAuthenticatedUser(targetUid) : null;
+
+  // Khôi phục từ SSO Token ký HMAC nếu tiến trình Serverless lạnh vừa khởi động lại
+  if (!user && ssoToken) {
+    const verifiedSnapshot = verifySignedSsoToken(ssoToken);
+    if (verifiedSnapshot && (!targetUid || verifiedSnapshot.id === targetUid)) {
+      user = userRepository.upsertVerifiedSessionUser(verifiedSnapshot);
+    }
+  }
+
   const permissions = user ? ROLE_PERMISSIONS[user.role] : ROLE_PERMISSIONS.user;
   const allUsers = userRepository.getAllUsers();
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     success: true,
     user,
     permissions,
     allUsers,
   });
+
+  if (user) {
+    attachSsoCookies(res, user);
+  }
+
+  return res;
 }
 
 export async function POST(req: NextRequest) {
   try {
+    await userRepository.ensureHydrated();
     const body = await req.json();
     const {
       action,
@@ -40,7 +130,7 @@ export async function POST(req: NextRequest) {
       allowedFeatures,
     } = body;
 
-    // 1. Đăng nhập hệ thống bằng ID / Username + Password (bao gồm hlcai_admin / hlcai_2026.!@#)
+    // 1. Đăng nhập hệ thống bằng ID / Username + Password (đồng bộ SSO toàn miền / và /3dsim)
     if (action === 'login') {
       const loginId = identifier || username || email || '';
       const result = userRepository.authenticate(loginId, password || '');
@@ -59,15 +149,11 @@ export async function POST(req: NextRequest) {
         allUsers: userRepository.getAllUsers(),
         message: `Đăng nhập thành công: ${loggedInUser.name} (${loggedInUser.username})`,
       });
-      res.cookies.set(SESSION_COOKIE_NAME, loggedInUser.id, {
-        path: '/',
-        maxAge: 60 * 60 * 24 * 7,
-        sameSite: 'lax',
-      });
+      attachSsoCookies(res, loggedInUser);
       return res;
     }
 
-    // 2. Đăng xuất tài khoản
+    // 2. Đăng xuất tài khoản (xóa sạch phiên SSO trên cả / và /3dsim)
     if (action === 'logout') {
       userRepository.logout();
       const res = NextResponse.json({
@@ -77,6 +163,7 @@ export async function POST(req: NextRequest) {
         message: 'Đã đăng xuất khỏi hệ thống.',
       });
       res.cookies.delete(SESSION_COOKIE_NAME);
+      res.cookies.delete(SSO_TOKEN_COOKIE_NAME);
       return res;
     }
 

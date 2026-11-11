@@ -13,10 +13,51 @@ import {
 const STORAGE_UID_KEY = 'laymor_session_uid';
 const STORAGE_USER_KEY = 'laymor_session_user';
 const AUTH_CHANGE_EVENT = 'laymor-auth-change';
+const AUTH_BROADCAST_CHANNEL = 'laymor_auth_sync_v1';
+
+function broadcastAuthSync(action: 'login' | 'logout', uid: string | null) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT));
+  try {
+    if ('BroadcastChannel' in window) {
+      const bc = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+      bc.postMessage({ type: 'LAYMOR_AUTH_SYNC', action, uid, timestamp: Date.now() });
+      bc.close();
+    }
+  } catch {
+    // Ignore BroadcastChannel errors in restricted browsers
+  }
+}
 
 export function useUserSession() {
-  const [currentUser, setCurrentUser] = useState<IUser | null>(null);
-  const [permissions, setPermissions] = useState<IPermission>(ROLE_PERMISSIONS.user);
+  const [currentUser, setCurrentUser] = useState<IUser | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem(STORAGE_USER_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as IUser;
+        if (parsed && parsed.id) return parsed;
+      }
+    } catch {
+      // Ignore corrupt cache
+    }
+    return null;
+  });
+  const [permissions, setPermissions] = useState<IPermission>(() => {
+    if (typeof window === 'undefined') return ROLE_PERMISSIONS.user;
+    try {
+      const cached = localStorage.getItem(STORAGE_USER_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as IUser;
+        if (parsed?.role && ROLE_PERMISSIONS[parsed.role]) {
+          return ROLE_PERMISSIONS[parsed.role];
+        }
+      }
+    } catch {
+      // Ignore
+    }
+    return ROLE_PERMISSIONS.user;
+  });
   const [allUsers, setAllUsers] = useState<IUser[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -31,6 +72,8 @@ export function useUserSession() {
       const savedUid =
         typeof window !== 'undefined' ? localStorage.getItem(STORAGE_UID_KEY) || '' : '';
       const res = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-store',
         headers: savedUid ? { 'x-laymor-uid': savedUid } : {},
       });
       const data = await res.json();
@@ -62,13 +105,52 @@ export function useUserSession() {
   useEffect(() => {
     fetchSession();
 
+    if (typeof window === 'undefined') return;
+
     const handleAuthChange = () => {
       fetchSession();
     };
-    if (typeof window !== 'undefined') {
-      window.addEventListener(AUTH_CHANGE_EVENT, handleAuthChange);
-      return () => window.removeEventListener(AUTH_CHANGE_EVENT, handleAuthChange);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (!e.key || e.key === STORAGE_UID_KEY || e.key === STORAGE_USER_KEY) {
+        if (!localStorage.getItem(STORAGE_UID_KEY) && !localStorage.getItem(STORAGE_USER_KEY)) {
+          setCurrentUser(null);
+          setPermissions(ROLE_PERMISSIONS.user);
+        }
+        fetchSession();
+      }
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSession();
+      }
+    };
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if ('BroadcastChannel' in window) {
+        bc = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+        bc.onmessage = () => {
+          fetchSession();
+        };
+      }
+    } catch {
+      // Ignore
     }
+
+    window.addEventListener(AUTH_CHANGE_EVENT, handleAuthChange);
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      window.removeEventListener(AUTH_CHANGE_EVENT, handleAuthChange);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      bc?.close();
+    };
   }, [fetchSession]);
 
   const login = useCallback(
@@ -76,6 +158,7 @@ export function useUserSession() {
       try {
         const res = await fetch('/api/auth/me', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'login', identifier, password }),
         });
@@ -87,7 +170,7 @@ export function useUserSession() {
           if (typeof window !== 'undefined') {
             localStorage.setItem(STORAGE_UID_KEY, data.user.id);
             localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(data.user));
-            window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT));
+            broadcastAuthSync('login', data.user.id);
           }
           showToast(data.message || `Chào mừng ${data.user.name}!`);
           return { ok: true, user: data.user };
@@ -104,6 +187,7 @@ export function useUserSession() {
     try {
       await fetch('/api/auth/me', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout' }),
       });
@@ -115,7 +199,7 @@ export function useUserSession() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(STORAGE_UID_KEY);
       localStorage.removeItem(STORAGE_USER_KEY);
-      window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT));
+      broadcastAuthSync('logout', null);
     }
     showToast('Đã đăng xuất khỏi tài khoản.');
   }, [showToast]);

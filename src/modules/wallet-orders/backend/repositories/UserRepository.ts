@@ -14,6 +14,7 @@ class UserRepository {
   private users: IUser[] = [...INITIAL_USERS];
   private activeUserId: string = ''; // Mặc định chưa đăng nhập (Guest) cho đến khi đăng nhập bằng tài khoản
   private hydratedFromCloud = false;
+  private hydrationPromise: Promise<void> | null = null;
   private transactions: IPaymentTransaction[] = [
     {
       id: 'tx-init-1',
@@ -87,7 +88,7 @@ class UserRepository {
   private hydrateFromSupabase() {
     if (this.hydratedFromCloud) return;
     this.hydratedFromCloud = true;
-    supabaseCloudService
+    this.hydrationPromise = supabaseCloudService
       .loadKvState<{ users?: IUser[]; transactions?: IPaymentTransaction[] }>('laymor_users_state')
       .then((saved) => {
         if (saved?.users && Array.isArray(saved.users) && saved.users.length > 0) {
@@ -99,6 +100,37 @@ class UserRepository {
         }
       })
       .catch(() => {});
+  }
+
+  /**
+   * Đảm bảo danh sách người dùng từ Supabase Cloud đã được nạp trên các tiến trình Serverless lạnh (Vercel)
+   */
+  public async ensureHydrated(): Promise<void> {
+    if (!this.hydratedFromCloud) {
+      this.hydrateFromSupabase();
+    }
+    if (!this.hydrationPromise) return;
+    await Promise.race([
+      this.hydrationPromise,
+      new Promise<void>((resolve) => setTimeout(resolve, 2200)),
+    ]);
+  }
+
+  /**
+   * Khôi phục bản ghi phiên người dùng đã được xác thực chữ ký HMAC (tránh mất phiên giữa các Serverless Lambda độc lập)
+   */
+  public upsertVerifiedSessionUser(snapshot: IUser): IUser {
+    this.ensureMasterAdmin();
+    const existing = this.getUserById(snapshot.id) || this.getUserByUsername(snapshot.username);
+    if (existing) {
+      return existing;
+    }
+    this.users.push({
+      ...snapshot,
+      status: snapshot.status || 'active',
+    });
+    this.ensureMasterAdmin();
+    return this.getUserById(snapshot.id) || snapshot;
   }
 
   private persistUsersToSupabase(targetUser?: IUser) {
@@ -139,7 +171,7 @@ class UserRepository {
 
   getAuthenticatedUser(cookieUid?: string): IUser | null {
     this.ensureMasterAdmin();
-    const targetId = cookieUid !== undefined ? cookieUid : this.activeUserId;
+    const targetId = cookieUid ? cookieUid.trim() : '';
     if (!targetId) return null;
     const user = this.getUserById(targetId);
     if (!user || user.status === 'suspended') {

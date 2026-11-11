@@ -20,6 +20,8 @@ import {
   IconMoon,
   IconChevronDown,
   IconChevronLeft,
+  User,
+  LogIn,
 } from '@/components/icons/MinimalIcons';
 import {
   ISampleModel,
@@ -29,6 +31,7 @@ import {
   ViewportDisplayMode,
 } from '@/types/simulator';
 import { SAMPLE_MODELS } from '@/services/sampleModels';
+import { ILaymorUser } from '@/hooks/useLaymorAuth';
 
 interface SimulatorHeaderProps {
   currentModel: ISampleModel;
@@ -69,6 +72,8 @@ interface SimulatorHeaderProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
   onSyncToStudio?: (openOrderModal?: boolean) => void;
+  currentUser?: ILaymorUser | null;
+  onOpenAuthModal?: () => void;
 }
 
 export function SimulatorHeader({
@@ -107,6 +112,8 @@ export function SimulatorHeader({
   theme = 'light',
   onToggleTheme,
   onSyncToStudio,
+  currentUser,
+  onOpenAuthModal,
 }: SimulatorHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isStudioMenuOpen, setIsStudioMenuOpen] = useState(false);
@@ -812,6 +819,55 @@ export function SimulatorHeader({
                 <IconSun size={14} className="studio-text-gold" />
               ) : (
                 <IconMoon size={14} className="studio-text-gold" />
+              )}
+            </button>
+          )}
+
+          {/* Unified SSO Account / Login Button (Đồng bộ 2 chiều giữa / và /3dsim) */}
+          {onOpenAuthModal && (
+            <button
+              type="button"
+              data-testid="laymor-sso-auth-btn"
+              onClick={onOpenAuthModal}
+              className={`flex items-center gap-1.5 rounded-xl studio-card hover:border-[var(--accent-gold)] transition-all cursor-pointer shrink-0 ${
+                currentUser ? 'px-2 py-1' : 'px-2.5 py-1.5'
+              }`}
+              title={
+                currentUser
+                  ? `${currentUser.name} (@${currentUser.username}) — Đã đồng bộ SSO với Trang chủ LAYMOR`
+                  : 'Đăng nhập tài khoản LAYMOR (Đồng bộ tự động với Trang chủ)'
+              }
+            >
+              {currentUser ? (
+                <>
+                  <div className="relative flex items-center justify-center w-5 h-5 rounded-full overflow-hidden border border-[var(--border-hairline)] bg-[var(--bg-elevated)] shrink-0">
+                    {currentUser.avatar ? (
+                      <img
+                        src={currentUser.avatar}
+                        alt={currentUser.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User size={12} className="studio-text-gold" />
+                    )}
+                    <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-[var(--bg-surface)]" />
+                  </div>
+                  <span className="hidden 2xl:inline text-[11px] font-bold studio-text-primary max-w-[84px] truncate">
+                    {currentUser.username}
+                  </span>
+                  {(currentUser.role === 'admin' || currentUser.role === 'mod') && (
+                    <span className="hidden min-[1720px]:inline px-1 py-0.2 rounded text-[9px] font-extrabold uppercase studio-gold-badge">
+                      {currentUser.role}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <LogIn size={13} className="studio-text-gold shrink-0" />
+                  <span className="hidden xl:inline text-[11px] font-bold studio-text-primary whitespace-nowrap">
+                    Đăng nhập
+                  </span>
+                </>
               )}
             </button>
           )}

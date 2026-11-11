@@ -86,6 +86,8 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { ISliceResponse } from '@/services/localSlicerService';
 import { useTelemetryLogger } from '@/hooks/useTelemetryLogger';
 import { IconAxis, IconLayers, IconToolpath } from '@/components/icons/MinimalIcons';
+import { useLaymorAuth } from '@/hooks/useLaymorAuth';
+import { LaymorAuthModal } from '@/components/controls/LaymorAuthModal';
 
 export default function App() {
   // 0. Unified LAYMOR Dark / Light Theme State (đồng bộ 2 chiều với Trang chủ / qua localStorage & prefers-color-scheme)
@@ -226,7 +228,22 @@ export default function App() {
   const [renderMode, setRenderMode] = useState<SlicerRenderMode>('realistic');
   const [viewMode, setViewMode] = useState<ViewportDisplayMode>('cad');
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [uploadSlicingStatus, setUploadSlicingStatus] = useState<string | null>(null);
+
+  const showSimToast = useCallback((msg: string) => {
+    setUploadSlicingStatus(msg);
+    setTimeout(() => {
+      setUploadSlicingStatus((prev) => (prev === msg ? null : prev));
+    }, 3500);
+  }, []);
+
+  const {
+    currentUser,
+    login: handleAuthLogin,
+    logout: handleAuthLogout,
+    isFeatureAllowed,
+  } = useLaymorAuth(showSimToast);
   const [loadedPlates, setLoadedPlates] = useState<ILoadedBambuPlate[]>([]);
   const [activePlateId, setActivePlateId] = useState<number>(1);
   const [hasNativeBambuSupport, setHasNativeBambuSupport] = useState<boolean>(true);
@@ -1292,6 +1309,11 @@ export default function App() {
 
   // Đồng bộ thông số cắt lớp & báo giá từ /3dsim về lại /studio
   const handleSyncBackToStudio = (openOrderModal: boolean = false) => {
+    if (openOrderModal && !isFeatureAllowed('canOrderPrintService')) {
+      showSimToast('⚠ Tài khoản của bạn chưa được cấp quyền Đặt In Dịch Vụ. Liên hệ Quản trị viên!');
+      return;
+    }
+
     const [dimX, dimY, dimZ] = slicingMetrics.boundingBox.dimensions;
     embedProtocol.syncBackToStudio({
       timestamp: Date.now(),
@@ -1357,7 +1379,13 @@ export default function App() {
         onSetRenderMode={setRenderMode}
         viewMode={viewMode}
         onSetViewMode={setViewMode}
-        onOpenExportModal={() => setIsExportModalOpen(true)}
+        onOpenExportModal={() => {
+          if (!isFeatureAllowed('canExport3MF')) {
+            showSimToast('⚠ Tài khoản của bạn bị giới hạn quyền Xuất .3MF / G-Code.');
+            return;
+          }
+          setIsExportModalOpen(true);
+        }}
         onOpenTimelapseModal={() => setIsTimelapseModalOpen(true)}
         onOpenSupportAIModal={() => setIsSupportAIModalOpen(true)}
         hasGeminiKey={hasGeminiKey}
@@ -1367,11 +1395,25 @@ export default function App() {
         onOpenLiveInspectorModal={() => setIsLiveInspectorOpen(true)}
         onOpenSupabaseHub={() => setIsSupabaseHubOpen(true)}
         isSupabaseConnected={isSupabaseConnected}
-        onOpenAI3DModal={() => setIsAI3DModalOpen(true)}
-        onOpenDefectKnowledgeModal={() => setIsDefectKnowledgeOpen(true)}
+        onOpenAI3DModal={() => {
+          if (!isFeatureAllowed('canUseAI3DGenerator')) {
+            showSimToast('⚠ Tài khoản của bạn chưa được mở khóa AI 3D Generator.');
+            return;
+          }
+          setIsAI3DModalOpen(true);
+        }}
+        onOpenDefectKnowledgeModal={() => {
+          if (!isFeatureAllowed('canSubmitDefectKnowledge')) {
+            showSimToast('⚠ Tài khoản của bạn chưa được cấp quyền Đóng góp Dạy AI Lỗi.');
+            return;
+          }
+          setIsDefectKnowledgeOpen(true);
+        }}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onSyncToStudio={handleSyncBackToStudio}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
       {/* Hidden File Input để nạp trực tiếp file .gcode.3mf / .gcode từ Bambu Studio */}
@@ -1677,6 +1719,15 @@ export default function App() {
         isOpen={isAI3DModalOpen}
         onClose={() => setIsAI3DModalOpen(false)}
         onModelLoaded={handleAIModelLoaded}
+      />
+
+      {/* 14. Unified LAYMOR SSO Account & Login Modal (Đồng bộ 2 chiều giữa / và /3dsim) */}
+      <LaymorAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        onLogin={handleAuthLogin}
+        onLogout={handleAuthLogout}
       />
     </div>
   );

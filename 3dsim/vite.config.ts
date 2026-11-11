@@ -26,6 +26,20 @@ export default defineConfig({
   server: {
     port: 3001,
     cors: true,
+    proxy: {
+      '/api/auth': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/wallet': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/api/knowledge': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
     watch: {
       ignored: ['**/temp_**/**', '**/*.gcode', '**/*.3mf', '**/result.json'],
     },
